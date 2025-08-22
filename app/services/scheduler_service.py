@@ -44,6 +44,20 @@ class SchedulerService:
             self._trend_service = TrendAnalysisService()
         return self._trend_service
     
+    def _get_ml_service(self):
+        """获取机器学习服务实例"""
+        if not hasattr(self, '_ml_service') or self._ml_service is None:
+            from app.services.ml_enhanced_service import MLEnhancedService
+            self._ml_service = MLEnhancedService()
+        return self._ml_service
+    
+    def _get_ml_notification_service(self):
+        """获取ML通知服务实例"""
+        if not hasattr(self, '_ml_notification_service') or self._ml_notification_service is None:
+            from app.services.ml_notification_service import MLNotificationService
+            self._ml_notification_service = MLNotificationService()
+        return self._ml_notification_service
+    
     async def start(self):
         """启动调度服务"""
         try:
@@ -132,6 +146,33 @@ class SchedulerService:
                 trigger=IntervalTrigger(minutes=30),
                 id="health_check",
                 name="系统健康检查",
+                max_instances=1
+            )
+            
+            # ML预测信号 - 每30分钟执行一次
+            self.scheduler.add_job(
+                self._ml_prediction_job,
+                trigger=IntervalTrigger(minutes=30),
+                id="ml_prediction",
+                name="ML预测信号分析",
+                max_instances=1
+            )
+            
+            # ML异常检测 - 每15分钟执行一次
+            self.scheduler.add_job(
+                self._ml_anomaly_detection_job,
+                trigger=IntervalTrigger(minutes=15),
+                id="ml_anomaly_detection",
+                name="ML异常检测",
+                max_instances=1
+            )
+            
+            # ML模型重训练 - 每天凌晨2点执行
+            self.scheduler.add_job(
+                self._ml_model_retrain_job,
+                trigger=CronTrigger(hour=2, minute=0),
+                id="ml_model_retrain",
+                name="ML模型重训练",
                 max_instances=1
             )
             
@@ -370,3 +411,126 @@ class SchedulerService:
         except Exception as e:
             logger.error(f"Failed to run job {job_id} manually: {e}")
             return False
+    
+    async def _ml_prediction_job(self):
+        """ML预测信号任务"""
+        try:
+            monitor_logger.info("Executing scheduled ML prediction analysis")
+            ml_service = self._get_ml_service()
+            ml_notification_service = self._get_ml_notification_service()
+            
+            # 获取监控的交易对
+            symbols = settings.monitored_symbols
+            
+            for symbol in symbols:
+                try:
+                    # 获取ML预测
+                    prediction = await ml_service.predict_signal(symbol)
+                    
+                    # 只推送强信号
+                    if prediction.signal.value in ['strong_buy', 'strong_sell']:
+                        await ml_notification_service.send_ml_prediction_alert(prediction)
+                    
+                    # 记录预测结果
+                    monitor_logger.info(
+                        f"ML prediction for {symbol}: {prediction.signal.value} "
+                        f"(confidence: {prediction.confidence:.3f})"
+                    )
+                    
+                except Exception as e:
+                    logger.warning(f"ML prediction failed for {symbol}: {e}")
+                    continue
+            
+            monitor_logger.info("ML prediction analysis completed")
+            
+        except Exception as e:
+            logger.error(f"ML prediction job failed: {e}")
+    
+    async def _ml_anomaly_detection_job(self):
+        """ML异常检测任务"""
+        try:
+            monitor_logger.info("Executing scheduled ML anomaly detection")
+            ml_service = self._get_ml_service()
+            ml_notification_service = self._get_ml_notification_service()
+            
+            # 获取监控的交易对
+            symbols = settings.monitored_symbols
+            
+            all_anomalies = []
+            
+            for symbol in symbols:
+                try:
+                    # 检测异常
+                    anomalies = await ml_service.detect_anomalies(symbol)
+                    
+                    if anomalies:
+                        all_anomalies.extend(anomalies)
+                        monitor_logger.info(f"Detected {len(anomalies)} anomalies for {symbol}")
+                    
+                except Exception as e:
+                    logger.warning(f"Anomaly detection failed for {symbol}: {e}")
+                    continue
+            
+            # 发送异常通知
+            if all_anomalies:
+                await ml_notification_service.send_anomaly_alert(all_anomalies)
+            
+            monitor_logger.info(f"ML anomaly detection completed: {len(all_anomalies)} total anomalies")
+            
+        except Exception as e:
+            logger.error(f"ML anomaly detection job failed: {e}")
+    
+    async def _ml_model_retrain_job(self):
+        """ML模型重训练任务"""
+        try:
+            monitor_logger.info("Executing scheduled ML model retraining")
+            ml_service = self._get_ml_service()
+            ml_notification_service = self._get_ml_notification_service()
+            
+            # 获取监控的交易对
+            symbols = settings.monitored_symbols
+            
+            retrain_results = []
+            
+            for symbol in symbols:
+                try:
+                    # 获取当前模型准确率
+                    current_model = ml_service.prediction_models.get(symbol)
+                    previous_accuracy = getattr(current_model, '_accuracy', 0.0) if current_model else 0.0
+                    
+                    # 重新训练模型
+                    await ml_service._train_new_model(symbol)
+                    
+                    # 获取新模型准确率
+                    new_model = ml_service.prediction_models.get(symbol)
+                    new_accuracy = getattr(new_model, '_accuracy', 0.0) if new_model else 0.0
+                    
+                    retrain_results.append({
+                        'symbol': symbol,
+                        'previous_accuracy': previous_accuracy,
+                        'new_accuracy': new_accuracy,
+                        'improvement': new_accuracy - previous_accuracy
+                    })
+                    
+                    # 发送性能报告
+                    await ml_notification_service.send_model_performance_report(
+                        symbol, new_accuracy, previous_accuracy
+                    )
+                    
+                    monitor_logger.info(
+                        f"Model retrained for {symbol}: "
+                        f"{previous_accuracy:.3f} -> {new_accuracy:.3f}"
+                    )
+                    
+                except Exception as e:
+                    logger.warning(f"Model retraining failed for {symbol}: {e}")
+                    continue
+            
+            # 记录整体重训练结果
+            total_improved = sum(1 for r in retrain_results if r['improvement'] > 0)
+            monitor_logger.info(
+                f"ML model retraining completed: {total_improved}/{len(retrain_results)} models improved"
+            )
+            
+        except Exception as e:
+            logger.error(f"ML model retraining job failed: {e}")

@@ -17,7 +17,9 @@ from app.core.database import create_tables, db_manager
 from app.api import trend_router, monitor_router, notification_router
 from app.api.tradingview import router as tradingview_router
 from app.api.strategy import router as strategy_router
+from app.api.ml_enhanced import router as ml_enhanced_router
 from app.services.scheduler_service import SchedulerService
+from app.services.ml_enhanced_service import MLEnhancedService
 
 # 获取配置和日志
 settings = get_settings()
@@ -46,7 +48,18 @@ async def lifespan(app: FastAPI):
         await scheduler.start()
         logger.info("✅ Scheduler started successfully")
         
-        # 将调度器实例存储到应用状态
+        # 初始化ML增强服务
+        if settings.ml_config.get('enable_ml_prediction', False):
+            ml_service = MLEnhancedService()
+            try:
+                await ml_service.initialize_models(settings.monitored_symbols)
+                logger.info("✅ ML Enhanced Service initialized successfully")
+                app.state.ml_service = ml_service
+            except Exception as e:
+                logger.warning(f"⚠️ ML Enhanced Service initialization failed: {e}")
+                app.state.ml_service = None
+        
+        # 将服务实例存储到应用状态
         app.state.scheduler = scheduler
         
         logger.info("🎉 Application startup completed!")
@@ -99,6 +112,7 @@ def create_app() -> FastAPI:
     app.include_router(notification_router, prefix="/api/notification", tags=["通知服务"])
     app.include_router(tradingview_router, prefix="/api/tradingview", tags=["TradingView功能"])
     app.include_router(strategy_router, prefix="/api/strategy", tags=["策略分析"])
+    app.include_router(ml_enhanced_router, prefix="/api/ml", tags=["机器学习增强"])
     
     # 根路径
     @app.get("/", summary="根路径")
@@ -123,16 +137,26 @@ def create_app() -> FastAPI:
             # 检查调度器状态
             scheduler_healthy = hasattr(app.state, 'scheduler') and app.state.scheduler.is_running()
             
-            status = "healthy" if all([db_healthy, api_healthy, scheduler_healthy]) else "unhealthy"
+            # 检查ML服务状态
+            ml_healthy = True
+            if settings.ml_config.get('enable_ml_prediction', False):
+                ml_healthy = hasattr(app.state, 'ml_service') and app.state.ml_service is not None
+            
+            status = "healthy" if all([db_healthy, api_healthy, scheduler_healthy, ml_healthy]) else "unhealthy"
+            
+            health_checks = {
+                "database": "healthy" if db_healthy else "unhealthy",
+                "binance_api": "healthy" if api_healthy else "unhealthy", 
+                "scheduler": "healthy" if scheduler_healthy else "unhealthy"
+            }
+            
+            if settings.ml_config.get('enable_ml_prediction', False):
+                health_checks["ml_service"] = "healthy" if ml_healthy else "unhealthy"
             
             return {
                 "status": status,
                 "timestamp": datetime.now().isoformat(),
-                "checks": {
-                    "database": "healthy" if db_healthy else "unhealthy",
-                    "binance_api": "healthy" if api_healthy else "unhealthy", 
-                    "scheduler": "healthy" if scheduler_healthy else "unhealthy"
-                }
+                "checks": health_checks
             }
         except Exception as e:
             logger.error(f"Health check failed: {e}")

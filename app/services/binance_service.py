@@ -107,6 +107,10 @@ class BinanceService:
                            start_time: Optional[datetime] = None, 
                            end_time: Optional[datetime] = None) -> List[dict]:
         """获取K线数据"""
+        # 币安API limit参数限制：1-1500
+        if limit < 1 or limit > 1500:
+            raise ValueError(f"Limit must be between 1 and 1500, got {limit}")
+            
         params = {
             'symbol': symbol,
             'interval': interval,

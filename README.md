@@ -24,6 +24,13 @@
 - **强势标的识别**：成交量连续3倍以上增长
 - **价格配合分析**：结合价格走势判断有效性
 
+### 🤖 机器学习增强 (新功能)
+- **智能信号预测**：使用随机森林、梯度提升等算法预测交易信号
+- **异常检测算法**：基于孤立森林等算法检测价格、成交量、模式异常
+- **自适应参数优化**：自动优化SuperTrend、成交量等策略参数
+- **特征工程**：提取技术指标、价格模式、成交量特征等
+- **模型管理**：支持模型训练、保存、加载和性能评估
+
 ### 📢 多渠道通知推送
 - **飞书机器人**：支持飞书群组消息推送  
 - **企业微信**：支持企业微信机器人推送
@@ -34,6 +41,7 @@
 
 - **Web框架**：FastAPI + Uvicorn
 - **数据处理**：Pandas + NumPy + TA-Lib
+- **机器学习**：Scikit-learn + Joblib (免费开源)
 - **交易所API**：python-binance + CCXT
 - **任务调度**：APScheduler
 - **数据库**：MySQL + SQLAlchemy
@@ -128,6 +136,25 @@ SMTP_PASSWORD=your_email_password
 SMTP_FROM=your_email@gmail.com
 ```
 
+### 机器学习配置（可选）
+```env
+# 启用ML功能
+ML_CONFIG__ENABLE_ML_PREDICTION=true
+ML_CONFIG__ENABLE_ANOMALY_DETECTION=true
+ML_CONFIG__ENABLE_ADAPTIVE_OPTIMIZATION=true
+
+# 预测模型配置
+ML_CONFIG__PREDICTION_MODEL__MODEL_TYPE=random_forest
+ML_CONFIG__PREDICTION_MODEL__MIN_ACCURACY_THRESHOLD=0.6
+
+# 异常检测配置
+ML_CONFIG__ANOMALY_DETECTION__ALGORITHM=isolation_forest
+ML_CONFIG__ANOMALY_DETECTION__CONTAMINATION=0.1
+
+# 监控币种 (已移除BNB和ADA，添加SOL)
+MONITORED_SYMBOLS=["BTCUSDT","ETHUSDT","SOLUSDT","DOGEUSDT","XRPUSDT"]
+```
+
 ### 监控参数配置（可选调整）
 ```env
 # 持仓量变化阈值 (1.05表示5%增长触发提醒)
@@ -175,6 +202,44 @@ GET /api/monitor/volume
 GET /api/monitor/status
 ```
 
+### 机器学习增强API
+```bash
+# ML信号预测
+POST /api/ml/predict
+{
+  "symbol": "BTCUSDT",
+  "include_features": true
+}
+
+# 异常检测
+POST /api/ml/anomaly-detection
+{
+  "symbol": "ETHUSDT",
+  "detection_types": ["volume_anomaly", "price_anomaly"]
+}
+
+# 参数优化
+POST /api/ml/optimize
+{
+  "symbol": "SOLUSDT",
+  "optimization_type": "all"
+}
+
+# 批量ML分析
+POST /api/ml/batch-analysis
+{
+  "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+  "include_prediction": true,
+  "include_anomaly_detection": true
+}
+
+# 模型状态
+GET /api/ml/model-status/{symbol}
+
+# ML配置
+GET /api/ml/config
+```
+
 ### 通知服务
 ```bash
 # 发送测试通知
@@ -206,20 +271,55 @@ GET /api/notification/history?limit=100
 | ⑩ | 其他 | - | - | - | 信号混乱 | ⚪ 观望 | 不建议操作 |
 
 
+## 🤖 机器学习增强功能详解
+
+### 信号预测模型
+- **算法选择**：随机森林、梯度提升、SVM等免费算法
+- **特征工程**：技术指标、价格模式、成交量特征、市场微观结构
+- **预测信号**：强烈买入、买入、持有、卖出、强烈卖出
+- **置信度评估**：模型输出概率分布和置信度分数
+- **模型管理**：自动训练、保存、加载和性能评估
+
+### 异常检测算法
+- **价格异常**：基于孤立森林检测异常价格波动
+- **成交量异常**：统计方法检测成交量异常放大
+- **模式异常**：检测波动率、相关性等模式异常
+- **市场异常**：综合多维度检测市场异常状态
+
+### 自适应参数优化
+- **SuperTrend优化**：自动优化周期和倍数参数
+- **成交量阈值优化**：基于历史数据优化异常检测阈值
+- **性能评估**：使用夏普比率等指标评估参数性能
+- **动态调整**：根据市场变化自动调整参数
+
+### ML增强监控
+- **智能警报**：结合传统指标和ML预测生成增强警报
+- **风险评估**：综合多个维度评估交易风险
+- **置信度融合**：融合多种信号源的置信度
+- **自适应阈值**：根据模型性能动态调整警报阈值
+
 ## 📁 项目结构
 
 ```
 transaction_push/
 ├── app/                    # 应用主目录
 │   ├── api/               # API路由
+│   │   └── ml_enhanced.py # ML增强API
 │   ├── core/              # 核心配置
 │   ├── models/            # 数据模型
+│   │   └── ml_models.py   # ML相关模型
 │   ├── services/          # 业务逻辑
+│   │   ├── ml_enhanced_service.py           # ML增强服务
+│   │   └── ml_enhanced_monitor_service.py   # ML增强监控
 │   ├── utils/             # 工具函数
 │   └── schemas/           # Pydantic模型
+│       └── ml_schemas.py  # ML相关Schema
+├── models/                # ML模型存储目录
+├── examples/              # 使用示例
+│   └── ml_enhanced_usage.py # ML功能示例
 ├── scripts/               # 脚本文件
 ├── logs/                  # 日志目录
-├── requirements.txt       # 依赖列表
+├── requirements.txt       # 依赖列表 (已添加scikit-learn)
 ├── env.example           # 环境变量示例
 └── main.py               # 启动文件
 ```
@@ -243,7 +343,13 @@ transaction_push/
 - 确认机器人权限配置
 - 查看日志文件获取详细错误信息
 
-**4. 查看日志**
+**4. ML模型相关问题**
+- 首次使用需要训练模型，可能需要较长时间
+- 确保有足够的历史数据用于训练
+- 检查模型文件是否正确保存在models/目录
+- 模型准确率低于阈值时会有警告日志
+
+**5. 查看日志**
 ```bash
 # 应用日志
 tail -f logs/app.log
@@ -253,6 +359,9 @@ tail -f logs/error.log
 
 # 监控日志
 tail -f logs/monitor.log
+
+# 交易日志
+tail -f logs/trading.log
 ```
 
 ## 📄 许可证

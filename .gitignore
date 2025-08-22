@@ -234,3 +234,5 @@ local/
 
 .cursor/
 .kiro/
+
+*.joblib

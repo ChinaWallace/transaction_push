@@ -4,7 +4,7 @@
 Configuration management for the trading analysis tool
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, validator
 import os
@@ -77,6 +77,43 @@ class Settings(BaseSettings):
             'high_threshold': 0.1
         }
     }, description="策略参数配置")
+    
+    # 机器学习增强配置
+    ml_config: Dict[str, Any] = Field(default_factory=lambda: {
+        'enable_ml_prediction': True,
+        'enable_anomaly_detection': True,
+        'enable_adaptive_optimization': True,
+        'prediction_model': {
+            'model_type': 'random_forest',  # random_forest, gradient_boosting, svm
+            'lookback_periods': 50,
+            'prediction_horizon': 5,
+            'retrain_interval_hours': 24,
+            'min_accuracy_threshold': 0.6
+        },
+        'anomaly_detection': {
+            'algorithm': 'isolation_forest',  # isolation_forest, one_class_svm, local_outlier_factor
+            'contamination': 0.1,
+            'sensitivity': 0.8,
+            'min_samples': 100
+        },
+        'adaptive_optimization': {
+            'enable_parameter_tuning': True,
+            'optimization_interval_hours': 12,
+            'performance_window_days': 7,
+            'min_improvement_threshold': 0.05
+        },
+        'feature_engineering': {
+            'technical_indicators': True,
+            'price_patterns': True,
+            'volume_features': True,
+            'market_microstructure': True
+        }
+    }, description="机器学习增强配置")
+    
+    # 监控币种配置
+    monitored_symbols: List[str] = Field(default=[
+        'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT', 'XRPUSDT'
+    ], description="监控的交易对列表")
     
     # TradingView集成配置
     tradingview_config: Dict[str, Any] = Field(default_factory=lambda: {

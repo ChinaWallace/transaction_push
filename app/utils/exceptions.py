@@ -67,3 +67,26 @@ class MonitorError(TradingToolError):
 class SchedulerError(TradingToolError):
     """调度器异常"""
     pass
+
+
+class MLModelError(TradingToolError):
+    """机器学习模型异常"""
+    
+    def __init__(self, message: str, model_type: str = None):
+        super().__init__(message)
+        self.model_type = model_type
+
+
+class ModelTrainingError(MLModelError):
+    """模型训练异常"""
+    pass
+
+
+class PredictionError(MLModelError):
+    """预测异常"""
+    pass
+
+
+class AnomalyDetectionError(MLModelError):
+    """异常检测异常"""
+    pass
