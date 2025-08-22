@@ -4,7 +4,7 @@
 Configuration management for the trading analysis tool
 """
 
-from typing import Optional
+from typing import Optional, Dict, Any
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, validator
 import os
@@ -60,6 +60,39 @@ class Settings(BaseSettings):
     trend_analysis_interval: int = Field(default=15, description="趋势分析间隔(分钟)")
     open_interest_interval: int = Field(default=5, description="持仓量监控间隔(分钟)")
     volume_monitor_interval: int = Field(default=60, description="交易量监控间隔(分钟)")
+    
+    # 策略配置
+    strategy_config: Dict[str, Any] = Field(default_factory=lambda: {
+        'supertrend': {
+            'period': 10,
+            'multiplier': 3.0,
+            'timeframes': ['1d', '4h', '1h', '15m']
+        },
+        'volume': {
+            'threshold_multiplier': 3.0,
+            'consecutive_periods': 3
+        },
+        'funding_rate': {
+            'negative_threshold': -0.01,
+            'high_threshold': 0.1
+        }
+    }, description="策略参数配置")
+    
+    # TradingView集成配置
+    tradingview_config: Dict[str, Any] = Field(default_factory=lambda: {
+        'enable_pine_indicators': True,
+        'enable_volume_profile': True,
+        'enable_order_flow': False,
+        'chart_timeframes': ['1m', '5m', '15m', '1h', '4h', '1d']
+    }, description="TradingView功能配置")
+    
+    # 数据缓存配置
+    cache_config: Dict[str, Any] = Field(default_factory=lambda: {
+        'enable_cache': True,
+        'cache_ttl_minutes': 5,
+        'max_cache_size_mb': 100,
+        'cache_compression': True
+    }, description="数据缓存配置")
     
     # 数据保留配置
     data_retention_days: int = Field(default=30, description="数据保留天数")

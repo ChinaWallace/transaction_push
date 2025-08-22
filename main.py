@@ -15,6 +15,8 @@ from app.core.logging import get_logger
 from datetime import datetime
 from app.core.database import create_tables, db_manager
 from app.api import trend_router, monitor_router, notification_router
+from app.api.tradingview import router as tradingview_router
+from app.api.strategy import router as strategy_router
 from app.services.scheduler_service import SchedulerService
 
 # 获取配置和日志
@@ -95,6 +97,8 @@ def create_app() -> FastAPI:
     app.include_router(trend_router, prefix="/api/trend", tags=["趋势分析"])
     app.include_router(monitor_router, prefix="/api/monitor", tags=["监控服务"])
     app.include_router(notification_router, prefix="/api/notification", tags=["通知服务"])
+    app.include_router(tradingview_router, prefix="/api/tradingview", tags=["TradingView功能"])
+    app.include_router(strategy_router, prefix="/api/strategy", tags=["策略分析"])
     
     # 根路径
     @app.get("/", summary="根路径")

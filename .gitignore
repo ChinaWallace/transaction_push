@@ -233,3 +233,4 @@ yarn-error.log*
 local/
 
 .cursor/
+.kiro/
