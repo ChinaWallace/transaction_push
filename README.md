@@ -49,7 +49,7 @@
 
 1. **克隆项目**
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/ChinaWallace/transaction_push
 cd transaction_push
 ```
 
@@ -205,15 +205,6 @@ GET /api/notification/history?limit=100
 | ⑨ | ↑ | ↑ | ↓ | ↓ | 回调确认 | ⚪ 观望 | 等待趋势重转 |
 | ⑩ | 其他 | - | - | - | 信号混乱 | ⚪ 观望 | 不建议操作 |
 
-## 🐳 Docker 部署
-
-```bash
-# 构建镜像
-docker build -t trading-tool .
-
-# 使用docker-compose启动
-docker-compose up -d
-```
 
 ## 📁 项目结构
 
@@ -230,7 +221,6 @@ transaction_push/
 ├── logs/                  # 日志目录
 ├── requirements.txt       # 依赖列表
 ├── env.example           # 环境变量示例
-├── docker-compose.yml    # Docker编排文件
 └── main.py               # 启动文件
 ```
 
