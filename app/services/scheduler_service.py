@@ -29,26 +29,27 @@ class SchedulerService:
         # 导入服务（延迟导入避免循环依赖）
         self._monitor_service = None
         self._trend_service = None
+        self._position_analysis_service = None
     
     def _get_monitor_service(self):
         """获取监控服务实例"""
         if self._monitor_service is None:
             from app.services.monitor_service import MonitorService
-            self._monitor_service = MonitorService()
+            self._monitor_service = MonitorService(exchange='okx')
         return self._monitor_service
     
     def _get_trend_service(self):
         """获取趋势分析服务实例"""
         if self._trend_service is None:
             from app.services.trend_analysis_service import TrendAnalysisService
-            self._trend_service = TrendAnalysisService()
+            self._trend_service = TrendAnalysisService(exchange='okx')
         return self._trend_service
     
     def _get_ml_service(self):
         """获取机器学习服务实例"""
         if not hasattr(self, '_ml_service') or self._ml_service is None:
             from app.services.ml_enhanced_service import MLEnhancedService
-            self._ml_service = MLEnhancedService()
+            self._ml_service = MLEnhancedService(exchange='okx')
         return self._ml_service
     
     def _get_ml_notification_service(self):
@@ -57,6 +58,13 @@ class SchedulerService:
             from app.services.ml_notification_service import MLNotificationService
             self._ml_notification_service = MLNotificationService()
         return self._ml_notification_service
+    
+    def _get_position_analysis_service(self):
+        """获取持仓分析服务实例"""
+        if self._position_analysis_service is None:
+            from app.services.position_analysis_service import PositionAnalysisService
+            self._position_analysis_service = PositionAnalysisService()
+        return self._position_analysis_service
     
     async def start(self):
         """启动调度服务"""
@@ -146,6 +154,33 @@ class SchedulerService:
                 trigger=IntervalTrigger(minutes=30),
                 id="health_check",
                 name="系统健康检查",
+                max_instances=1
+            )
+            
+            # 持仓分析 - 每2小时执行一次
+            self.scheduler.add_job(
+                self._position_analysis_job,
+                trigger=IntervalTrigger(minutes=settings.position_analysis_interval),
+                id="position_analysis",
+                name="持仓分析",
+                max_instances=1
+            )
+            
+            # 网格机会分析 - 每4小时执行一次
+            self.scheduler.add_job(
+                self._grid_opportunities_job,
+                trigger=IntervalTrigger(minutes=settings.grid_opportunities_interval),
+                id="grid_opportunities",
+                name="网格交易机会分析",
+                max_instances=1
+            )
+            
+            # 市场机会分析 - 每6小时执行一次
+            self.scheduler.add_job(
+                self._market_opportunities_job,
+                trigger=IntervalTrigger(minutes=settings.market_opportunities_interval),
+                id="market_opportunities",
+                name="市场交易机会分析",
                 max_instances=1
             )
             
@@ -305,12 +340,12 @@ class SchedulerService:
             
             # 检查各个服务的健康状态
             from app.core.database import db_manager
-            from app.services.binance_service import BinanceService
+            from app.services.okx_service import OKXService
             
             db_healthy = db_manager.health_check()
             
-            binance_service = BinanceService()
-            api_healthy = await binance_service.health_check()
+            okx_service = OKXService()
+            api_healthy = await okx_service.health_check()
             
             # 如果有严重问题，发送警报
             if not db_healthy or not api_healthy:
@@ -323,7 +358,7 @@ class SchedulerService:
 
 ❌ 发现问题：
 • 数据库：{'正常' if db_healthy else '异常'}
-• 币安API：{'正常' if api_healthy else '异常'}
+• OKX API：{'正常' if api_healthy else '异常'}
 
 请及时检查系统状态！"""
                 
@@ -372,6 +407,10 @@ class SchedulerService:
         report += f"\n💡 如需详细信息，请查看具体监控接口"
         
         return report
+    
+    def add_job(self, func, trigger, **kwargs):
+        """添加任务的包装方法"""
+        return self.scheduler.add_job(func, trigger, **kwargs)
     
     def get_job_status(self) -> Dict[str, Any]:
         """获取任务状态"""
@@ -535,3 +574,98 @@ class SchedulerService:
             
         except Exception as e:
             logger.error(f"ML model retraining job failed: {e}")
+    
+    async def _position_analysis_job(self):
+        """持仓分析任务"""
+        try:
+            monitor_logger.info("Executing scheduled position analysis")
+            position_service = self._get_position_analysis_service()
+            
+            # 执行持仓分析
+            analysis_result = await position_service.analyze_account_positions()
+            
+            if analysis_result.get("status") != "error":
+                overall_score = analysis_result.get("overall_score", 0)
+                risk_level = analysis_result.get("risk_assessment", {}).get("overall_risk")
+                
+                # 只有在评分较低或风险较高时才发送通知
+                if overall_score < 70 or (risk_level and hasattr(risk_level, 'value') and risk_level.value in ['high', 'critical']):
+                    await position_service.send_position_analysis_notification(analysis_result)
+                    monitor_logger.info(f"Position analysis notification sent (score: {overall_score}/100)")
+                else:
+                    monitor_logger.info(f"Position analysis completed (score: {overall_score}/100, no notification needed)")
+            else:
+                logger.warning(f"Position analysis failed: {analysis_result.get('message', 'unknown error')}")
+            
+        except Exception as e:
+            logger.error(f"Position analysis job failed: {e}")
+    
+    async def _grid_opportunities_job(self):
+        """网格交易机会分析任务"""
+        try:
+            monitor_logger.info("Executing scheduled grid opportunities analysis")
+            position_service = self._get_position_analysis_service()
+            
+            # 执行网格机会分析
+            grid_analysis = await position_service.analyze_grid_opportunities()
+            
+            if not grid_analysis.get("error"):
+                high_score_count = grid_analysis.get("high_score_count", 0)
+                avg_return = grid_analysis.get("avg_annual_return", 0)
+                
+                # 只有在发现高分机会时才发送通知
+                if high_score_count > 0 or avg_return > 20:
+                    # 创建简化的市场分析用于通知
+                    market_analysis = {
+                        'market_sentiment': '分析中',
+                        'coin_contracts': [],
+                        'spot_opportunities': []
+                    }
+                    
+                    await position_service.send_market_analysis_notification(grid_analysis, market_analysis)
+                    monitor_logger.info(f"Grid opportunities notification sent ({high_score_count} high-score opportunities)")
+                else:
+                    monitor_logger.info(f"Grid opportunities analysis completed (no high-score opportunities)")
+            else:
+                logger.warning(f"Grid opportunities analysis failed: {grid_analysis.get('error')}")
+            
+        except Exception as e:
+            logger.error(f"Grid opportunities analysis job failed: {e}")
+    
+    async def _market_opportunities_job(self):
+        """市场交易机会分析任务"""
+        try:
+            monitor_logger.info("Executing scheduled market opportunities analysis")
+            position_service = self._get_position_analysis_service()
+            
+            # 执行市场机会分析
+            market_analysis = await position_service.analyze_market_opportunities()
+            
+            if not market_analysis.get("error"):
+                # 创建简化的网格分析用于通知
+                grid_analysis = {
+                    'total_analyzed': 0,
+                    'top_opportunities': [],
+                    'high_score_count': 0,
+                    'avg_annual_return': 0
+                }
+                
+                # 检查是否有值得关注的市场机会
+                coin_contracts = market_analysis.get('coin_contracts', [])
+                spot_opportunities = market_analysis.get('spot_opportunities', [])
+                
+                # 统计有积极建议的机会
+                positive_contracts = len([c for c in coin_contracts if '适合' in c.get('suggestion', '')])
+                positive_spots = len([s for s in spot_opportunities if '买入' in s.get('suggestion', '') or '适合' in s.get('suggestion', '')])
+                
+                # 只有在发现积极机会时才发送通知
+                if positive_contracts > 0 or positive_spots > 0:
+                    await position_service.send_market_analysis_notification(grid_analysis, market_analysis)
+                    monitor_logger.info(f"Market opportunities notification sent ({positive_contracts} contract + {positive_spots} spot opportunities)")
+                else:
+                    monitor_logger.info("Market opportunities analysis completed (no significant opportunities)")
+            else:
+                logger.warning(f"Market opportunities analysis failed: {market_analysis.get('error')}")
+            
+        except Exception as e:
+            logger.error(f"Market opportunities analysis job failed: {e}")

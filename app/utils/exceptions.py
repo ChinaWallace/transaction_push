@@ -90,3 +90,13 @@ class PredictionError(MLModelError):
 class AnomalyDetectionError(MLModelError):
     """异常检测异常"""
     pass
+
+
+class ServiceUnavailableError(TradingToolError):
+    """服务不可用异常"""
+    pass
+
+
+class InternalServerError(TradingToolError):
+    """内部服务器错误"""
+    pass

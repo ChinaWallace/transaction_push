@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     binance_testnet: bool = Field(default=False, description="是否使用测试网")
     binance_base_url: str = Field(default="https://fapi.binance.com", description="币安API基础URL")
     
+    # OKX API配置
+    okx_api_key: str = Field(default="", description="OKX API Key")
+    okx_secret_key: str = Field(default="", description="OKX Secret Key")
+    okx_passphrase: str = Field(default="", description="OKX API Passphrase")
+    okx_sandbox: bool = Field(default=False, description="是否使用OKX沙盒环境")
+    okx_base_url: str = Field(default="https://www.okx.com", description="OKX API基础URL")
+    
     # Redis配置
     redis_url: Optional[str] = Field(default=None, description="Redis连接URL")
     
@@ -60,6 +67,9 @@ class Settings(BaseSettings):
     trend_analysis_interval: int = Field(default=15, description="趋势分析间隔(分钟)")
     open_interest_interval: int = Field(default=5, description="持仓量监控间隔(分钟)")
     volume_monitor_interval: int = Field(default=60, description="交易量监控间隔(分钟)")
+    position_analysis_interval: int = Field(default=120, description="持仓分析间隔(分钟)")
+    grid_opportunities_interval: int = Field(default=240, description="网格机会分析间隔(分钟)")
+    market_opportunities_interval: int = Field(default=360, description="市场机会分析间隔(分钟)")
     
     # 策略配置
     strategy_config: Dict[str, Any] = Field(default_factory=lambda: {
@@ -112,7 +122,7 @@ class Settings(BaseSettings):
     
     # 监控币种配置
     monitored_symbols: List[str] = Field(default=[
-        'ETHUSDT', 'SOLUSDT'
+        'ETH-USDT-SWAP', 'SOL-USDT-SWAP'
     ], description="监控的交易对列表")
     
     # TradingView集成配置
@@ -197,6 +207,17 @@ class Settings(BaseSettings):
         }
     
     @property
+    def okx_config(self) -> dict:
+        """获取OKX API配置"""
+        return {
+            "api_key": self.okx_api_key,
+            "secret_key": self.okx_secret_key,
+            "passphrase": self.okx_passphrase,
+            "sandbox": self.okx_sandbox,
+            "base_url": self.okx_base_url,
+        }
+    
+    @property
     def notification_config(self) -> dict:
         """获取通知配置"""
         return {
@@ -234,6 +255,9 @@ class Settings(BaseSettings):
                 "trend_analysis": self.trend_analysis_interval,
                 "open_interest": self.open_interest_interval,
                 "volume_monitor": self.volume_monitor_interval,
+                "position_analysis": self.position_analysis_interval,
+                "grid_opportunities": self.grid_opportunities_interval,
+                "market_opportunities": self.market_opportunities_interval,
             }
         }
 

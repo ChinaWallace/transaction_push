@@ -28,6 +28,7 @@ import joblib
 from app.core.logging import get_logger, trading_logger
 from app.core.config import get_settings
 from app.services.binance_service import BinanceService
+from app.services.okx_service import OKXService
 from app.services.trend_analysis_service import TrendAnalysisService
 from app.utils.exceptions import MLModelError, DataNotFoundError
 
@@ -80,8 +81,12 @@ class AnomalyDetection:
 class MLEnhancedService:
     """机器学习增强服务类"""
     
-    def __init__(self):
-        self.binance_service = BinanceService()
+    def __init__(self, exchange: str = 'okx'):
+        self.exchange = exchange.lower()
+        if self.exchange == 'okx':
+            self.exchange_service = OKXService()
+        else:
+            self.exchange_service = BinanceService()
         self.trend_service = TrendAnalysisService()
         self.ml_config = settings.ml_config
         
@@ -364,22 +369,63 @@ class MLEnhancedService:
             limit = min(24 * days, 1000)
             
             # 获取K线数据
-            klines = await self.binance_service.get_kline_data(
+            klines = await self.exchange_service.get_kline_data(
                 symbol, '1h', limit=limit
             )
             
             if not klines:
                 raise DataNotFoundError(f"No historical data for {symbol}")
             
-            # 转换为DataFrame
+            # 转换为DataFrame - 适配不同交易所的数据格式
             df = pd.DataFrame(klines)
-            df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms')
+            
+            # 检查数据格式并统一字段名
+            if 'timestamp' in df.columns:
+                # OKX格式
+                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                df.rename(columns={
+                    'open': 'open_price',
+                    'high': 'high_price', 
+                    'low': 'low_price',
+                    'close': 'close_price'
+                }, inplace=True)
+            elif 'open_time' in df.columns:
+                # Binance格式
+                df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms')
+            else:
+                # 如果没有时间戳字段，使用索引创建
+                df['timestamp'] = pd.date_range(
+                    start=datetime.now() - timedelta(hours=len(df)), 
+                    periods=len(df), 
+                    freq='H'
+                )
+            
             df.set_index('timestamp', inplace=True)
             
-            # 转换数值列
-            numeric_columns = ['open_price', 'high_price', 'low_price', 'close_price', 'volume']
-            for col in numeric_columns:
-                df[col] = pd.to_numeric(df[col])
+            # 确保必要的数值列存在并转换类型
+            required_columns = ['open_price', 'high_price', 'low_price', 'close_price', 'volume']
+            for col in required_columns:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                else:
+                    # 如果缺少某列，尝试从其他列推导或设置默认值
+                    if col == 'volume' and 'volume' not in df.columns:
+                        df[col] = 1000.0  # 默认成交量
+                    elif col.endswith('_price'):
+                        base_col = col.replace('_price', '')
+                        if base_col in df.columns:
+                            df[col] = pd.to_numeric(df[base_col], errors='coerce')
+                        else:
+                            # 使用收盘价作为默认值
+                            close_col = next((c for c in df.columns if 'close' in c.lower()), None)
+                            if close_col:
+                                df[col] = pd.to_numeric(df[close_col], errors='coerce')
+            
+            # 移除包含NaN的行
+            df = df.dropna(subset=required_columns)
+            
+            if df.empty:
+                raise DataNotFoundError(f"No valid data after processing for {symbol}")
             
             return df
             
@@ -551,7 +597,7 @@ class FeatureEngineer:
             features['bb_position'] = (data['close_price'] - bb_lower) / (bb_upper - bb_lower)
             
             # 移除NaN值
-            features = features.fillna(method='bfill').fillna(0)
+            features = features.bfill().fillna(0)
             
             return features
             

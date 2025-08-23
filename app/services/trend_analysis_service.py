@@ -12,6 +12,7 @@ import asyncio
 
 from app.core.logging import get_logger, trading_logger
 from app.services.binance_service import BinanceService
+from app.services.okx_service import OKXService
 from app.utils.indicators import SuperTrendIndicator
 from app.utils.exceptions import IndicatorCalculationError, DataNotFoundError
 from app.models.signal import TrendSignal, SuperTrendData
@@ -121,8 +122,12 @@ class TrendAnalysisService:
         )
     }
     
-    def __init__(self):
-        self.binance_service = BinanceService()
+    def __init__(self, exchange: str = 'okx'):
+        self.exchange = exchange.lower()
+        if self.exchange == 'okx':
+            self.exchange_service = OKXService()
+        else:
+            self.exchange_service = BinanceService()
         self.supertrend_indicator = SuperTrendIndicator(period=10, multiplier=3.0)
         self.timeframes = ['1d', '4h', '1h', '15m']
     
@@ -143,7 +148,7 @@ class TrendAnalysisService:
             if custom_data:
                 timeframe_data = custom_data
             else:
-                timeframe_data = await self.binance_service.get_multi_timeframe_klines(
+                timeframe_data = await self.exchange_service.get_multi_timeframe_klines(
                     symbol, self.timeframes, limit=100
                 )
             
@@ -345,7 +350,7 @@ class TrendAnalysisService:
             start_time = end_time - timedelta(days=days)
             
             # 获取15分钟数据作为主时间轴
-            klines_15m = await self.binance_service.get_kline_data(
+            klines_15m = await self.exchange_service.get_kline_data(
                 symbol, '15m', limit=96 * days, start_time=start_time, end_time=end_time
             )
             

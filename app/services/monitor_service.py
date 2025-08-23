@@ -12,6 +12,7 @@ from decimal import Decimal
 from app.core.config import get_settings
 from app.core.logging import get_logger, monitor_logger
 from app.services.binance_service import BinanceService
+from app.services.okx_service import OKXService
 from app.services.notification_service import NotificationService
 from app.utils.indicators import VolumeIndicator
 from app.utils.exceptions import MonitorError
@@ -24,8 +25,12 @@ settings = get_settings()
 class MonitorService:
     """监控服务类"""
     
-    def __init__(self):
-        self.binance_service = BinanceService()
+    def __init__(self, exchange: str = 'okx'):
+        self.exchange = exchange.lower()
+        if self.exchange == 'okx':
+            self.exchange_service = OKXService()
+        else:
+            self.exchange_service = BinanceService()
         self.notification_service = NotificationService()
         self.monitor_config = settings.monitor_config
         
@@ -50,7 +55,7 @@ class MonitorService:
             monitor_logger.info("Starting funding rate monitoring")
             
             # 获取所有资金费率数据
-            funding_rates = await self.binance_service.get_funding_rate()
+            funding_rates = await self.exchange_service.get_funding_rate()
             
             if not funding_rates:
                 raise MonitorError("No funding rate data available")
@@ -137,7 +142,7 @@ class MonitorService:
             monitor_logger.info("Starting open interest monitoring")
             
             if symbols is None:
-                symbols = await self.binance_service.get_active_symbols()
+                symbols = await self.exchange_service.get_active_symbols()
             
             threshold = self.monitor_config["open_interest_threshold"]
             significant_changes = []
@@ -145,7 +150,7 @@ class MonitorService:
             # 并发获取持仓量数据
             tasks = []
             for symbol in symbols:
-                task = self.binance_service.get_open_interest_statistics(symbol, period="5m", limit=2)
+                task = self.exchange_service.get_open_interest_statistics(symbol, period="5m", limit=2)
                 tasks.append((symbol, task))
             
             for symbol, task in tasks:
@@ -217,7 +222,7 @@ class MonitorService:
             monitor_logger.info("Starting volume anomaly monitoring")
             
             if symbols is None:
-                symbols = await self.binance_service.get_active_symbols()
+                symbols = await self.exchange_service.get_active_symbols()
             
             volume_multiplier = self.monitor_config["volume_multiplier"]
             anomaly_symbols = []
@@ -225,7 +230,7 @@ class MonitorService:
             # 并发获取K线数据
             tasks = []
             for symbol in symbols:
-                task = self.binance_service.get_kline_data(symbol, '1h', limit=4)
+                task = self.exchange_service.get_kline_data(symbol, '1h', limit=4)
                 tasks.append((symbol, task))
             
             for symbol, task in tasks:
@@ -348,7 +353,7 @@ class MonitorService:
         """获取监控服务状态"""
         try:
             # 检查各个服务的健康状态
-            binance_healthy = await self.binance_service.health_check()
+            exchange_healthy = await self.exchange_service.health_check()
             
             enabled_channels = []
             for channel, config in settings.notification_config.items():

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.core.logging import get_logger
 from app.core.config import get_settings
-from app.services.trading_decision_service import TradingDecisionService, MarketAnalysis, PositionRecommendation
+from app.services.trading_decision_service import TradingDecisionService, MarketAnalysis, TradingRecommendation
 from app.services.trading_notification_service import TradingNotificationService
 from app.schemas.base import BaseResponse
 

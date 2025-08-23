@@ -20,6 +20,10 @@ from app.api.strategy import router as strategy_router
 from app.api.ml_enhanced import router as ml_enhanced_router
 from app.api.trading_decision import router as trading_decision_router
 from app.api.comprehensive_trading import router as comprehensive_trading_router
+from app.api.trading_advice import router as trading_advice_router
+from app.api.strategy_trading import router as strategy_trading_router
+from app.api.enhanced_trading_advice import router as enhanced_trading_advice_router
+from app.api.ml_strategy_optimization import router as ml_strategy_optimization_router
 from app.services.scheduler_service import SchedulerService
 from app.services.ml_enhanced_service import MLEnhancedService
 from app.services.ml_notification_service import MLNotificationService
@@ -29,45 +33,94 @@ settings = get_settings()
 logger = get_logger(__name__)
 
 
-async def perform_startup_ml_analysis(ml_service: MLEnhancedService):
-    """启动时执行ML分析和推送"""
+async def perform_startup_trading_analysis():
+    """启动时执行交易分析和推送"""
     try:
-        logger.info("🤖 Starting initial ML analysis...")
+        logger.info("🎯 开始启动交易决策分析...")
+        
+        # 导入启动交易服务
+        from app.services.startup_trading_service import StartupTradingService
+        startup_service = StartupTradingService()
+        
+        # 执行启动分析
+        analysis_results = await startup_service.perform_startup_analysis()
+        
+        # 记录分析结果
+        if analysis_results.get("status") == "disabled":
+            logger.info("📴 启动交易推送已禁用")
+        elif analysis_results.get("status") == "error":
+            logger.error(f"❌ 启动交易分析失败: {analysis_results.get('error')}")
+        else:
+            successful = analysis_results.get("successful_analyses", 0)
+            total = analysis_results.get("total_analyzed", 0)
+            notifications = analysis_results.get("notifications_sent", 0)
+            strong_signals = len(analysis_results.get("strong_signals", []))
+            
+            logger.info(f"✅ 启动交易分析完成:")
+            logger.info(f"   📊 分析成功: {successful}/{total}")
+            logger.info(f"   📢 通知发送: {notifications} 条")
+            logger.info(f"   🔥 强信号: {strong_signals} 个")
+            
+            # 如果有强信号，记录详情
+            for signal in analysis_results.get("strong_signals", [])[:3]:
+                symbol = signal.get("symbol", "unknown")
+                action = signal.get("action", "unknown")
+                confidence = signal.get("confidence", 0)
+                logger.info(f"   🚀 {symbol}: {action} ({confidence:.1f}%)")
+        
+        return analysis_results
+        
+    except Exception as e:
+        logger.error(f"❌ 启动交易分析失败: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+async def perform_startup_ml_analysis(ml_service: MLEnhancedService):
+    """启动时执行ML分析和推送（可选）"""
+    try:
+        logger.info("🤖 开始ML增强分析...")
         ml_notification_service = MLNotificationService()
         
-        # 对每个监控的交易对进行分析
-        for symbol in settings.monitored_symbols:
+        # 分析配置中的所有交易对（现在只有ETH和SOL）
+        symbols_to_analyze = settings.monitored_symbols
+        anomaly_alerts_sent = 0  # 限制异常警报数量
+        max_anomaly_alerts = 1   # 最多发送1个异常警报
+        
+        for symbol in symbols_to_analyze:
             try:
-                logger.info(f"🔍 Analyzing {symbol}...")
+                logger.info(f"🔍 ML分析 {symbol}...")
                 
                 # 1. 执行预测分析
                 prediction = await ml_service.predict_signal(symbol)
-                logger.info(f"📊 {symbol} prediction: {prediction.signal.value} (confidence: {prediction.confidence:.3f})")
+                logger.info(f"📊 {symbol} ML预测: {prediction.signal.value} (置信度: {prediction.confidence:.3f})")
                 
-                # 推送预测信号 (如果满足条件)
+                # 降低ML预测推送门槛
                 if (prediction.signal.value in ['buy', 'sell'] and prediction.confidence > 0.6) or \
-                   prediction.signal.value in ['strong_buy', 'strong_sell']:
+                   prediction.signal.value in ['strong_buy', 'strong_sell'] or \
+                   (prediction.signal.value == 'hold' and prediction.confidence > 0.8):
                     await ml_notification_service.send_ml_prediction_alert(prediction)
-                    logger.info(f"📢 Sent prediction alert for {symbol}")
+                    logger.info(f"📢 已发送 {symbol} ML预测通知")
                 
-                # 2. 执行异常检测
-                anomalies = await ml_service.detect_anomalies(symbol)
-                if anomalies:
-                    logger.info(f"⚠️ {symbol} anomalies detected: {len(anomalies)}")
-                    # 只推送高严重度异常
-                    high_severity_anomalies = [a for a in anomalies if a.severity > 0.7]
-                    if high_severity_anomalies:
-                        await ml_notification_service.send_anomaly_alert(high_severity_anomalies)
-                        logger.info(f"📢 Sent anomaly alert for {symbol}")
+                # 2. 执行异常检测（限制推送数量）
+                if anomaly_alerts_sent < max_anomaly_alerts:
+                    anomalies = await ml_service.detect_anomalies(symbol)
+                    if anomalies:
+                        logger.info(f"⚠️ {symbol} 检测到 {len(anomalies)} 个异常")
+                        # 只推送最高严重度的异常
+                        critical_anomalies = [a for a in anomalies if a.severity > 0.9]
+                        if critical_anomalies:
+                            await ml_notification_service.send_anomaly_alert(critical_anomalies[:2])  # 最多2个
+                            anomaly_alerts_sent += 1
+                            logger.info(f"📢 已发送 {symbol} 关键异常警报")
                 
             except Exception as e:
-                logger.warning(f"❌ Failed to analyze {symbol}: {e}")
+                logger.warning(f"❌ ML分析 {symbol} 失败: {e}")
                 continue
         
-        logger.info("✅ Initial ML analysis completed")
+        logger.info("✅ ML增强分析完成")
         
     except Exception as e:
-        logger.error(f"❌ Startup ML analysis failed: {e}")
+        logger.error(f"❌ ML增强分析失败: {e}")
 
 
 @asynccontextmanager
@@ -92,19 +145,41 @@ async def lifespan(app: FastAPI):
         await scheduler.start()
         logger.info("✅ Scheduler started successfully")
         
-        # 初始化ML增强服务
+        # 添加智能交易机会扫描任务
+        from app.services.intelligent_trading_notification_service import IntelligentTradingNotificationService
+        intelligent_notification_service = IntelligentTradingNotificationService()
+        
+        # 每2小时扫描一次交易机会
+        scheduler.add_job(
+            intelligent_notification_service.scan_and_notify_opportunities,
+            'interval',
+            hours=1,
+            id='intelligent_trading_scan',
+            name='智能交易机会扫描'
+        )
+        logger.info("✅ Intelligent trading notification scheduled")
+        
+        # 启动时立即执行交易决策分析和推送
+        try:
+            startup_results = await perform_startup_trading_analysis()
+            app.state.startup_analysis_results = startup_results
+        except Exception as e:
+            logger.warning(f"⚠️ 启动交易分析失败: {e}")
+            app.state.startup_analysis_results = {"status": "error", "error": str(e)}
+        
+        # 初始化ML增强服务（可选）
         if settings.ml_config.get('enable_ml_prediction', False):
             ml_service = MLEnhancedService()
             try:
                 await ml_service.initialize_models(settings.monitored_symbols)
-                logger.info("✅ ML Enhanced Service initialized successfully")
+                logger.info("✅ ML增强服务初始化成功")
                 app.state.ml_service = ml_service
                 
-                # 启动时立即执行一次ML分析和推送
+                # 启动时执行ML增强分析（在基础分析之后）
                 await perform_startup_ml_analysis(ml_service)
                 
             except Exception as e:
-                logger.warning(f"⚠️ ML Enhanced Service initialization failed: {e}")
+                logger.warning(f"⚠️ ML增强服务初始化失败: {e}")
                 app.state.ml_service = None
         
         # 将服务实例存储到应用状态
@@ -163,6 +238,10 @@ def create_app() -> FastAPI:
     app.include_router(ml_enhanced_router, prefix="/api/ml", tags=["机器学习增强"])
     app.include_router(trading_decision_router, prefix="/api/trading", tags=["交易决策"])
     app.include_router(comprehensive_trading_router, prefix="/api/comprehensive", tags=["综合交易策略"])
+    app.include_router(trading_advice_router, prefix="/api/advice", tags=["实盘交易建议"])
+    app.include_router(strategy_trading_router, prefix="/api/strategy", tags=["策略交易"])
+    app.include_router(enhanced_trading_advice_router, prefix="/api/enhanced", tags=["增强交易建议"])
+    app.include_router(ml_strategy_optimization_router, prefix="/api/ml-optimization", tags=["ML策略优化"])
     
     # 根路径
     @app.get("/", summary="根路径")
@@ -211,6 +290,52 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.error(f"Health check failed: {e}")
             raise HTTPException(status_code=500, detail="Health check failed")
+    
+    # 启动分析结果
+    @app.get("/startup-analysis", summary="查看启动分析结果")
+    async def get_startup_analysis():
+        """获取应用启动时的交易分析结果"""
+        try:
+            if hasattr(app.state, 'startup_analysis_results'):
+                results = app.state.startup_analysis_results
+                
+                # 添加运行时间信息
+                if "timestamp" not in results and "summary" in results:
+                    results["analysis_time"] = datetime.now().isoformat()
+                
+                return {
+                    "status": "success",
+                    "startup_analysis": results,
+                    "timestamp": datetime.now().isoformat()
+                }
+            else:
+                return {
+                    "status": "no_data",
+                    "message": "启动分析结果不可用",
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            logger.error(f"获取启动分析结果失败: {e}")
+            raise HTTPException(status_code=500, detail="获取启动分析结果失败")
+    
+    # 快速市场概览
+    @app.get("/market-overview", summary="快速市场概览")
+    async def get_market_overview():
+        """获取当前市场快速概览"""
+        try:
+            from app.services.startup_trading_service import StartupTradingService
+            startup_service = StartupTradingService()
+            
+            overview = await startup_service.get_quick_market_overview()
+            
+            return {
+                "status": "success",
+                "market_overview": overview,
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"获取市场概览失败: {e}")
+            raise HTTPException(status_code=500, detail="获取市场概览失败")
     
     return app
 

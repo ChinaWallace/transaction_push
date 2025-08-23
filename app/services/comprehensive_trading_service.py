@@ -12,7 +12,7 @@ import numpy as np
 
 from app.core.logging import get_logger, trading_logger
 from app.core.config import get_settings
-from app.services.trading_decision_service import TradingDecisionService, PositionRecommendation, MarketAnalysis
+from app.services.trading_decision_service import TradingDecisionService, TradingRecommendation, MarketAnalysis
 from app.services.trading_notification_service import TradingNotificationService
 from app.services.trend_analysis_service import TrendAnalysisService
 from app.services.ml_enhanced_service import MLEnhancedService
@@ -45,7 +45,7 @@ class PortfolioSnapshot:
     total_value: float
     positions: Dict[str, float]
     risk_score: float
-    recommendations: List[PositionRecommendation]
+    recommendations: List[TradingRecommendation]
     market_conditions: Dict[str, Any]
 
 
@@ -464,7 +464,7 @@ class ComprehensiveTradingService:
             raise TradingToolError(f"Symbol analysis failed for {symbol}: {e}")    
 
     def _calculate_position_risk(self, analysis: MarketAnalysis, 
-                               recommendation: PositionRecommendation,
+                               recommendation: TradingRecommendation,
                                position_weight: float) -> float:
         """计算单个仓位风险"""
         risk_score = 0.0
@@ -527,7 +527,7 @@ class ComprehensiveTradingService:
         return metrics
     
     def _generate_position_recommendations(self, symbol: str, analysis: MarketAnalysis,
-                                         recommendation: PositionRecommendation,
+                                         recommendation: TradingRecommendation,
                                          position_weight: float) -> List[str]:
         """生成仓位建议"""
         recommendations = []
