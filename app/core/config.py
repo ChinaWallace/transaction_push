@@ -112,7 +112,7 @@ class Settings(BaseSettings):
     
     # 监控币种配置
     monitored_symbols: List[str] = Field(default=[
-        'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT', 'XRPUSDT'
+        'ETHUSDT', 'SOLUSDT'
     ], description="监控的交易对列表")
     
     # TradingView集成配置

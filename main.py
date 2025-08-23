@@ -18,12 +18,56 @@ from app.api import trend_router, monitor_router, notification_router
 from app.api.tradingview import router as tradingview_router
 from app.api.strategy import router as strategy_router
 from app.api.ml_enhanced import router as ml_enhanced_router
+from app.api.trading_decision import router as trading_decision_router
+from app.api.comprehensive_trading import router as comprehensive_trading_router
 from app.services.scheduler_service import SchedulerService
 from app.services.ml_enhanced_service import MLEnhancedService
+from app.services.ml_notification_service import MLNotificationService
 
 # 获取配置和日志
 settings = get_settings()
 logger = get_logger(__name__)
+
+
+async def perform_startup_ml_analysis(ml_service: MLEnhancedService):
+    """启动时执行ML分析和推送"""
+    try:
+        logger.info("🤖 Starting initial ML analysis...")
+        ml_notification_service = MLNotificationService()
+        
+        # 对每个监控的交易对进行分析
+        for symbol in settings.monitored_symbols:
+            try:
+                logger.info(f"🔍 Analyzing {symbol}...")
+                
+                # 1. 执行预测分析
+                prediction = await ml_service.predict_signal(symbol)
+                logger.info(f"📊 {symbol} prediction: {prediction.signal.value} (confidence: {prediction.confidence:.3f})")
+                
+                # 推送预测信号 (如果满足条件)
+                if (prediction.signal.value in ['buy', 'sell'] and prediction.confidence > 0.6) or \
+                   prediction.signal.value in ['strong_buy', 'strong_sell']:
+                    await ml_notification_service.send_ml_prediction_alert(prediction)
+                    logger.info(f"📢 Sent prediction alert for {symbol}")
+                
+                # 2. 执行异常检测
+                anomalies = await ml_service.detect_anomalies(symbol)
+                if anomalies:
+                    logger.info(f"⚠️ {symbol} anomalies detected: {len(anomalies)}")
+                    # 只推送高严重度异常
+                    high_severity_anomalies = [a for a in anomalies if a.severity > 0.7]
+                    if high_severity_anomalies:
+                        await ml_notification_service.send_anomaly_alert(high_severity_anomalies)
+                        logger.info(f"📢 Sent anomaly alert for {symbol}")
+                
+            except Exception as e:
+                logger.warning(f"❌ Failed to analyze {symbol}: {e}")
+                continue
+        
+        logger.info("✅ Initial ML analysis completed")
+        
+    except Exception as e:
+        logger.error(f"❌ Startup ML analysis failed: {e}")
 
 
 @asynccontextmanager
@@ -55,6 +99,10 @@ async def lifespan(app: FastAPI):
                 await ml_service.initialize_models(settings.monitored_symbols)
                 logger.info("✅ ML Enhanced Service initialized successfully")
                 app.state.ml_service = ml_service
+                
+                # 启动时立即执行一次ML分析和推送
+                await perform_startup_ml_analysis(ml_service)
+                
             except Exception as e:
                 logger.warning(f"⚠️ ML Enhanced Service initialization failed: {e}")
                 app.state.ml_service = None
@@ -113,6 +161,8 @@ def create_app() -> FastAPI:
     app.include_router(tradingview_router, prefix="/api/tradingview", tags=["TradingView功能"])
     app.include_router(strategy_router, prefix="/api/strategy", tags=["策略分析"])
     app.include_router(ml_enhanced_router, prefix="/api/ml", tags=["机器学习增强"])
+    app.include_router(trading_decision_router, prefix="/api/trading", tags=["交易决策"])
+    app.include_router(comprehensive_trading_router, prefix="/api/comprehensive", tags=["综合交易策略"])
     
     # 根路径
     @app.get("/", summary="根路径")

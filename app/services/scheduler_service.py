@@ -204,9 +204,9 @@ class SchedulerService:
             monitor_logger.info("Executing scheduled open interest monitoring")
             monitor_service = self._get_monitor_service()
             
-            # 监控主要交易对
-            major_symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "SOLUSDT"]
-            result = await monitor_service.monitor_open_interest(major_symbols, notify=True)
+            # 监控配置的交易对
+            symbols = settings.monitored_symbols
+            result = await monitor_service.monitor_open_interest(symbols, notify=True)
             
             monitor_logger.info(
                 f"Open interest monitoring completed: {result['alert_count']} alerts"
@@ -236,10 +236,10 @@ class SchedulerService:
             monitor_logger.info("Executing scheduled trend analysis")
             trend_service = self._get_trend_service()
             
-            # 分析主要交易对的趋势
-            major_symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "SOLUSDT"]
+            # 分析配置的交易对趋势
+            symbols = settings.monitored_symbols
             
-            results = await trend_service.analyze_batch_symbols(major_symbols)
+            results = await trend_service.analyze_batch_symbols(symbols)
             
             # 发送强烈信号通知
             strong_signals = []
@@ -427,8 +427,9 @@ class SchedulerService:
                     # 获取ML预测
                     prediction = await ml_service.predict_signal(symbol)
                     
-                    # 只推送强信号
-                    if prediction.signal.value in ['strong_buy', 'strong_sell']:
+                    # 推送高置信度的买入/卖出信号
+                    if (prediction.signal.value in ['buy', 'sell'] and prediction.confidence > 0.6) or \
+                       prediction.signal.value in ['strong_buy', 'strong_sell']:
                         await ml_notification_service.send_ml_prediction_alert(prediction)
                     
                     # 记录预测结果

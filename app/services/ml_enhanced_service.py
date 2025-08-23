@@ -48,6 +48,7 @@ class AnomalyType(Enum):
     """异常类型枚举"""
     PRICE_ANOMALY = "price_anomaly"
     VOLUME_ANOMALY = "volume_anomaly"
+    TREND_ANOMALY = "trend_anomaly"
     PATTERN_ANOMALY = "pattern_anomaly"
     MARKET_ANOMALY = "market_anomaly"
 
@@ -156,22 +157,39 @@ class MLEnhancedService:
                 for i, importance in enumerate(model.feature_importances_):
                     feature_importance[f'feature_{i}'] = importance
             
-            # 构建预测结果
-            signal_mapping = {
-                0: PredictionSignal.STRONG_SELL,
-                1: PredictionSignal.SELL,
-                2: PredictionSignal.HOLD,
-                3: PredictionSignal.BUY,
-                4: PredictionSignal.STRONG_BUY
-            }
+            # 构建预测结果 - 根据实际模型输出调整
+            num_classes = len(probabilities)
             
-            probability_dist = {
-                'strong_sell': probabilities[0],
-                'sell': probabilities[1],
-                'hold': probabilities[2],
-                'buy': probabilities[3],
-                'strong_buy': probabilities[4]
-            }
+            if num_classes == 3:
+                # 3分类模型：卖出、持有、买入
+                signal_mapping = {
+                    0: PredictionSignal.SELL,
+                    1: PredictionSignal.HOLD,
+                    2: PredictionSignal.BUY
+                }
+                probability_dist = {
+                    'strong_sell': 0.0,
+                    'sell': probabilities[0],
+                    'hold': probabilities[1],
+                    'buy': probabilities[2],
+                    'strong_buy': 0.0
+                }
+            else:
+                # 5分类模型：强烈卖出、卖出、持有、买入、强烈买入
+                signal_mapping = {
+                    0: PredictionSignal.STRONG_SELL,
+                    1: PredictionSignal.SELL,
+                    2: PredictionSignal.HOLD,
+                    3: PredictionSignal.BUY,
+                    4: PredictionSignal.STRONG_BUY
+                }
+                probability_dist = {
+                    'strong_sell': probabilities[0] if len(probabilities) > 0 else 0.0,
+                    'sell': probabilities[1] if len(probabilities) > 1 else 0.0,
+                    'hold': probabilities[2] if len(probabilities) > 2 else 0.0,
+                    'buy': probabilities[3] if len(probabilities) > 3 else 0.0,
+                    'strong_buy': probabilities[4] if len(probabilities) > 4 else 0.0
+                }
             
             result = MLPrediction(
                 symbol=symbol,
@@ -370,22 +388,19 @@ class MLEnhancedService:
             raise DataNotFoundError(f"Historical data retrieval failed: {e}")
     
     def _create_labels(self, data: pd.DataFrame) -> np.ndarray:
-        """创建训练标签"""
+        """创建训练标签 - 使用3分类简化模型"""
         # 计算未来价格变化
         future_returns = data['close_price'].pct_change(periods=5).shift(-5)
         
-        # 创建分类标签
-        labels = np.zeros(len(future_returns))
+        # 创建分类标签 (3分类)
+        labels = np.ones(len(future_returns))  # 默认为持有(1)
         
         # 定义阈值
-        strong_threshold = 0.03  # 3%
-        weak_threshold = 0.01   # 1%
+        threshold = 0.02  # 2%
         
-        labels[future_returns > strong_threshold] = 4  # STRONG_BUY
-        labels[(future_returns > weak_threshold) & (future_returns <= strong_threshold)] = 3  # BUY
-        labels[(future_returns >= -weak_threshold) & (future_returns <= weak_threshold)] = 2  # HOLD
-        labels[(future_returns < -weak_threshold) & (future_returns >= -strong_threshold)] = 1  # SELL
-        labels[future_returns < -strong_threshold] = 0  # STRONG_SELL
+        labels[future_returns > threshold] = 2   # BUY
+        labels[future_returns < -threshold] = 0  # SELL
+        # 其他情况保持为1 (HOLD)
         
         return labels[:-5]  # 移除最后5个无法计算未来收益的点
     
