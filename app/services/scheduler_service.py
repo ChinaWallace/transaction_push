@@ -157,14 +157,14 @@ class SchedulerService:
                 max_instances=1
             )
             
-            # 持仓分析 - 每2小时执行一次
-            self.scheduler.add_job(
-                self._position_analysis_job,
-                trigger=IntervalTrigger(minutes=settings.position_analysis_interval),
-                id="position_analysis",
-                name="持仓分析",
-                max_instances=1
-            )
+            # 持仓分析 - 已由Kronos持仓分析服务接管，此处禁用避免重复推送
+            # self.scheduler.add_job(
+            #     self._position_analysis_job,
+            #     trigger=IntervalTrigger(minutes=settings.position_analysis_interval),
+            #     id="position_analysis",
+            #     name="持仓分析",
+            #     max_instances=1
+            # )
             
             # 网格机会分析 - 每4小时执行一次
             self.scheduler.add_job(
@@ -193,14 +193,14 @@ class SchedulerService:
                 max_instances=1
             )
             
-            # ML异常检测 - 每15分钟执行一次
-            self.scheduler.add_job(
-                self._ml_anomaly_detection_job,
-                trigger=IntervalTrigger(minutes=15),
-                id="ml_anomaly_detection",
-                name="ML异常检测",
-                max_instances=1
-            )
+            # ML异常检测 - 已禁用，避免过多推送
+            # self.scheduler.add_job(
+            #     self._ml_anomaly_detection_job,
+            #     trigger=IntervalTrigger(minutes=15),
+            #     id="ml_anomaly_detection",
+            #     name="ML异常检测",
+            #     max_instances=1
+            # )
             
             # ML模型重训练 - 每天凌晨2点执行
             self.scheduler.add_job(

@@ -177,8 +177,14 @@ class TrendAnalysisService:
                         
                         # 获取最新趋势
                         latest_kline = enriched_klines[-1]
-                        if latest_kline.get('supertrend_direction'):
-                            trends[timeframe] = TrendDirection.UP if latest_kline['supertrend_direction'] == 'up' else TrendDirection.DOWN
+                        supertrend_dir = latest_kline.get('supertrend_direction')
+                        
+                        # 调试日志
+                        logger.info(f"SuperTrend for {symbol} {timeframe}: direction={supertrend_dir}, close={latest_kline.get('close_price', latest_kline.get('close'))}, supertrend={latest_kline.get('supertrend_value')}")
+                        
+                        if supertrend_dir is not None:
+                            # supertrend_direction 现在是字符串 'up' 或 'down'
+                            trends[timeframe] = TrendDirection.UP if supertrend_dir == 'up' else TrendDirection.DOWN
                         else:
                             trends[timeframe] = TrendDirection.UNCLEAR
                     else:
@@ -248,6 +254,7 @@ class TrendAnalysisService:
         h4 = trends.get('4h', TrendDirection.UNCLEAR)
         h1 = trends.get('1h', TrendDirection.UNCLEAR)
         m15 = trends.get('15m', TrendDirection.UNCLEAR)
+        
         
         # 根据Java项目的逻辑判断信号组合
         if (daily == TrendDirection.UP and h4 == TrendDirection.UP and 

@@ -41,7 +41,7 @@ class StartupTradingService:
             'min_confidence_threshold': 45.0,  # 进一步降低最低置信度阈值
             'strong_signal_threshold': 55.0,   # 大幅降低强信号阈值
             'kronos_confidence_threshold': 0.5,  # 降低Kronos置信度阈值
-            'kronos_strong_signal_threshold': 0.65,  # 降低Kronos强信号阈值
+            'kronos_strong_signal_threshold': 0.55,  # 进一步降低Kronos强信号阈值
             'max_symbols_to_analyze': 50,      # 最大分析交易对数量 - 支持所有监控币种
             'analysis_timeout': 300,           # 分析超时时间(秒)
             'always_send_summary': True,       # 总是发送分析摘要

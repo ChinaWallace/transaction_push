@@ -62,6 +62,11 @@ class KronosNotificationService:
             self.logger.info("Kronos通知已禁用")
             return False
         
+        # 过滤掉"持有观望"信号，只推送有明确交易建议的信号
+        if decision.final_action in ["持有观望", "观望", "持有"]:
+            self.logger.info(f"跳过持有观望信号: {decision.symbol} - {decision.final_action}")
+            return False
+        
         try:
             # 检查通知频率限制
             if not self._check_notification_rate_limit():
@@ -124,6 +129,10 @@ class KronosNotificationService:
             medium_signals = []
             
             for decision in decisions:
+                # 过滤掉"持有观望"信号，只推送有明确交易建议的信号
+                if decision.final_action in ["持有观望", "观望", "持有"]:
+                    continue
+                    
                 if decision.kronos_confidence >= self.strong_signal_threshold:
                     if decision.kronos_signal_strength in [KronosSignalStrength.STRONG, KronosSignalStrength.VERY_STRONG]:
                         strong_signals.append(decision)
@@ -292,15 +301,30 @@ class KronosNotificationService:
             return True  # 出错时允许发送
     
     def _is_duplicate_notification(self, symbol: str, signal_type: str) -> bool:
-        """检查是否重复通知"""
+        """检查是否重复通知 - 强信号优化版"""
         try:
             current_time = datetime.now()
-            duplicate_window = timedelta(minutes=30)  # 30分钟内不重复通知
+            
+            # 根据信号类型设置不同的重复检查窗口
+            if signal_type == "strong":
+                duplicate_window = timedelta(minutes=5)   # 强信号5分钟内不重复
+            elif signal_type == "medium":
+                duplicate_window = timedelta(minutes=15)  # 中等信号15分钟内不重复
+            else:
+                duplicate_window = timedelta(minutes=30)  # 其他信号30分钟内不重复
             
             for record in self.notification_history:
                 if (record.symbol == symbol and 
                     record.signal_type == signal_type and
                     current_time - record.timestamp < duplicate_window):
+                    
+                    # 如果是强信号且置信度显著提升，允许重新推送
+                    if (signal_type == "strong" and 
+                        hasattr(record, 'confidence') and 
+                        record.confidence < 0.8):  # 之前置信度较低
+                        self.logger.info(f"强信号置信度提升，允许重新推送: {symbol}")
+                        return False
+                    
                     return True
             
             return False

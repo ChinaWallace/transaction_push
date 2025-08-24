@@ -88,7 +88,7 @@ class Settings(BaseSettings):
         }
     }, description="策略参数配置")
     
-    # Kronos预测模型配置
+    # Kronos预测模型配置 - 专门分析ETH和SOL
     kronos_config: Dict[str, Any] = Field(default_factory=lambda: {
         'enable_kronos_prediction': True,
         'model_name': 'NeoQuasar/Kronos-small',  # 默认使用small模型
@@ -105,17 +105,20 @@ class Settings(BaseSettings):
         'update_interval_minutes': 30,  # 预测更新间隔
         'cache_predictions': True,
         'use_gpu': True,  # 如果有GPU则使用
-        # 新增：强信号通知配置
+        # 专注ETH和SOL的分析配置
+        'target_symbols': ['ETH-USDT-SWAP', 'SOL-USDT-SWAP'],  # 只分析这两个币种
+        'enhanced_analysis': True,  # 对目标币种进行增强分析
+        # 强信号通知配置
         'notification_config': {
             'enable_strong_signal_notification': True,  # 启用强信号通知
-            'strong_signal_threshold': 0.65,  # 强信号阈值
-            'medium_signal_threshold': 0.5,   # 中等信号阈值
+            'strong_signal_threshold': 0.55,  # 强信号阈值 - 降低以捕获更多机会
+            'medium_signal_threshold': 0.45,   # 中等信号阈值 - 相应降低
             'notification_channels': ['feishu', 'wechat'],  # 通知渠道
             'notification_priority': 'high',  # 通知优先级
             'batch_notification': True,       # 批量通知
             'max_notifications_per_hour': 10  # 每小时最大通知数
         }
-    }, description="Kronos金融预测模型配置")
+    }, description="Kronos金融预测模型配置 - 专门分析ETH和SOL，对账户已有持仓和负费率币种提供买入建议")
     
     # 机器学习增强配置 - 针对高波动性优化，提高信号敏感度
     ml_config: Dict[str, Any] = Field(default_factory=lambda: {
@@ -166,15 +169,15 @@ class Settings(BaseSettings):
             'emergency_stop_loss': 0.06,  # 6%紧急止损
             'momentum_threshold': 0.02    # 2%动量阈值
         }
-    }, description="机器学习增强配置 - 高敏感度优化，专为捕捉SOL等高波动币种信号")
+    }, description="机器学习增强配置 - 高敏感度优化，专为捕捉ETH和SOL高波动币种信号")
     
-    # 主要监控币种配置 - 2个核心币种进行完整技术分析
+    # 主要监控币种配置 - 只分析ETH和SOL，使用Kronos进行深度分析
     monitored_symbols: List[str] = Field(default=[
-        'SOL-USDT-SWAP',
-        'ETH-USDT-SWAP'
-    ], description="主要监控的交易对列表 - 2个核心币种进行完整技术分析和交易决策")
+        'ETH-USDT-SWAP',
+        'SOL-USDT-SWAP'
+    ], description="主要监控的交易对列表 - 只分析ETH和SOL，使用Kronos进行深度分析和交易决策")
     
-    # 费率监控币种配置 - 其他币种只监控费率
+    # 费率监控币种配置 - 其他币种只监控负费率买入机会
     funding_rate_only_symbols: List[str] = Field(default=[
         'BTC-USDT-SWAP',
         'BNB-USDT-SWAP',
@@ -203,8 +206,10 @@ class Settings(BaseSettings):
         'MANA-USDT-SWAP',
         'LTC-USDT-SWAP',
         'BCH-USDT-SWAP',
-        'ETC-USDT-SWAP'
-    ], description="费率监控币种列表 - 只监控费率是否高负，不进行完整技术分析")
+        'ETC-USDT-SWAP',
+        'XRP-USDT-SWAP',
+        'DOGE-USDT-SWAP'
+    ], description="费率监控币种列表 - 只监控负费率买入机会，不进行完整技术分析")
     
     # TradingView集成配置
     tradingview_config: Dict[str, Any] = Field(default_factory=lambda: {

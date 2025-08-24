@@ -125,11 +125,9 @@ async def demo_strong_signals_detection():
     try:
         service = await get_kronos_integrated_service()
         
-        # 扩大搜索范围
+        # 只分析ETH和SOL
         symbols = [
-            "BTC-USDT", "ETH-USDT", "BNB-USDT", "ADA-USDT", "SOL-USDT",
-            "XRP-USDT", "DOT-USDT", "DOGE-USDT", "AVAX-USDT", "MATIC-USDT",
-            "LINK-USDT", "UNI-USDT", "LTC-USDT", "BCH-USDT", "ATOM-USDT"
+            "ETH-USDT", "SOL-USDT"
         ]
         
         print(f"🔍 在 {len(symbols)} 个交易对中搜索强信号...")

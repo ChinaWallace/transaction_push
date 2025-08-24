@@ -14,6 +14,9 @@ from app.core.config import get_settings
 from app.core.logging import get_logger
 from datetime import datetime
 from app.core.database import create_tables, db_manager
+
+# 导入所有模型以确保表定义被注册
+import app.models  # 这会导入所有模型定义
 from app.api import (
     trend_router, monitor_router, notification_router,
     tradingview_router, strategy_router, ml_enhanced_router,
@@ -100,10 +103,9 @@ async def perform_startup_kronos_analysis():
         # 获取Kronos集成服务
         kronos_service = await get_kronos_integrated_service()
         
-        # 主要交易对列表
+        # 主要交易对列表 - 只分析ETH和SOL
         major_symbols = [
-            "BTC-USDT", "ETH-USDT", "BNB-USDT", "ADA-USDT", "SOL-USDT",
-            "XRP-USDT", "DOT-USDT", "DOGE-USDT", "AVAX-USDT", "MATIC-USDT"
+            "ETH-USDT", "SOL-USDT"
         ]
         
         # 批量Kronos分析
@@ -285,15 +287,25 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Starting Python Trading Analysis Tool...")
     
     try:
-        # 创建数据库表
-        create_tables()
-        logger.info("✅ Database tables created successfully")
+        # 尝试创建数据库表 - 允许失败
+        try:
+            create_tables()
+            logger.info("✅ Database tables created successfully")
+        except Exception as e:
+            logger.warning(f"⚠️ Database table creation failed: {e}")
+            logger.info("💡 Application will continue without database persistence")
         
-        # 测试数据库连接
-        if db_manager.health_check():
-            logger.info("✅ Database connection healthy")
-        else:
-            logger.error("❌ Database connection failed")
+        # 测试数据库连接 - 允许在数据库不可用时继续运行
+        try:
+            if db_manager.health_check():
+                logger.info("✅ Database connection healthy")
+                app.state.database_available = True
+            else:
+                logger.warning("⚠️ Database connection failed - running in memory mode")
+                app.state.database_available = False
+        except Exception as e:
+            logger.warning(f"⚠️ Database health check failed: {e} - running in memory mode")
+            app.state.database_available = False
         
         # 启动调度器
         scheduler = SchedulerService()
@@ -304,15 +316,83 @@ async def lifespan(app: FastAPI):
         from app.services.intelligent_trading_notification_service import IntelligentTradingNotificationService
         intelligent_notification_service = IntelligentTradingNotificationService()
         
-        # 每2小时扫描一次交易机会
-        scheduler.add_job(
-            intelligent_notification_service.scan_and_notify_opportunities,
-            'interval',
-            hours=1,
-            id='intelligent_trading_scan',
-            name='智能交易机会扫描'
-        )
-        logger.info("✅ Intelligent trading notification scheduled")
+        # 改用Kronos每小时扫描交易机会
+        if settings.kronos_config.get('enable_kronos_prediction', False):
+            from app.services.kronos_integrated_decision_service import get_kronos_integrated_service
+            
+            async def kronos_hourly_scan():
+                """Kronos每小时交易机会扫描"""
+                try:
+                    logger.info("🤖 开始Kronos每小时交易机会扫描...")
+                    kronos_service = await get_kronos_integrated_service()
+                    
+                    # 扫描主要交易对
+                    symbols = ["BTC-USDT", "ETH-USDT", "SOL-USDT", "DOGE-USDT", "XRP-USDT", "ADA-USDT"]
+                    results = await kronos_service.batch_analyze_symbols(symbols, force_update=True)
+                    
+                    # 筛选强信号
+                    strong_signals = []
+                    for symbol, decision in results.items():
+                        if decision and decision.final_action not in ["持有观望", "观望", "持有"]:
+                            if decision.kronos_confidence >= 0.65:
+                                strong_signals.append(decision)
+                    
+                    # 发送通知
+                    if strong_signals:
+                        from app.services.kronos_notification_service import get_kronos_notification_service
+                        kronos_notification_service = await get_kronos_notification_service()
+                        await kronos_notification_service.send_batch_kronos_notification(strong_signals, "hourly_scan")
+                        logger.info(f"✅ Kronos每小时扫描完成，发现 {len(strong_signals)} 个强信号")
+                    else:
+                        logger.info("📊 Kronos每小时扫描完成，无强信号")
+                        
+                except Exception as e:
+                    logger.error(f"❌ Kronos每小时扫描失败: {e}")
+            
+            scheduler.add_job(
+                kronos_hourly_scan,
+                'interval',
+                hours=1,
+                id='kronos_hourly_scan',
+                name='Kronos每小时交易机会扫描'
+            )
+            logger.info("✅ Kronos每小时交易机会扫描已启动")
+            
+            # 添加强信号实时监控（每15分钟）
+            async def strong_signal_monitor():
+                """强信号实时监控"""
+                try:
+                    logger.info("🔥 开始强信号实时监控...")
+                    from app.services.intelligent_trading_notification_service import get_intelligent_notification_service
+                    
+                    intelligent_service = await get_intelligent_notification_service()
+                    
+                    # 扫描主要交易对的强信号
+                    major_symbols = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+                    results = await intelligent_service.scan_and_notify_opportunities(
+                        symbols=major_symbols,
+                        force_scan=False  # 不强制扫描，遵循间隔限制
+                    )
+                    
+                    strong_count = results.get('premium_opportunities', 0) + results.get('high_opportunities', 0)
+                    if strong_count > 0:
+                        logger.info(f"🚀 强信号监控发现 {strong_count} 个高质量机会")
+                    else:
+                        logger.debug("📊 强信号监控完成，暂无强信号")
+                        
+                except Exception as e:
+                    logger.error(f"❌ 强信号监控失败: {e}")
+            
+            scheduler.add_job(
+                strong_signal_monitor,
+                'interval',
+                minutes=15,  # 每15分钟检查一次强信号
+                id='strong_signal_monitor',
+                name='强信号实时监控'
+            )
+            logger.info("✅ 强信号实时监控已启动（15分钟间隔）")
+        else:
+            logger.info("📴 Kronos预测已禁用，跳过每小时扫描")
         
         # 添加负费率监控定时任务
         funding_monitor = NegativeFundingMonitorService()
@@ -330,13 +410,50 @@ async def lifespan(app: FastAPI):
         # 将负费率监控服务存储到应用状态
         app.state.funding_monitor = funding_monitor
         
-        # 启动时立即执行交易决策分析和推送
-        try:
-            startup_results = await perform_startup_trading_analysis()
-            app.state.startup_analysis_results = startup_results
-        except Exception as e:
-            logger.warning(f"⚠️ 启动交易分析失败: {e}")
-            app.state.startup_analysis_results = {"status": "error", "error": str(e)}
+        # 添加Kronos持仓分析定时任务
+        if settings.kronos_config.get('enable_kronos_prediction', False):
+            from app.services.kronos_position_analysis_service import KronosPositionAnalysisService
+            kronos_position_service = KronosPositionAnalysisService()
+            
+            # 启动时立即执行一次Kronos持仓分析
+            try:
+                logger.info("🤖 启动时立即执行Kronos持仓分析...")
+                startup_position_result = await kronos_position_service.run_startup_analysis()
+                app.state.startup_position_analysis = startup_position_result
+                
+                if startup_position_result.get("status") == "success":
+                    positions_count = startup_position_result.get("positions_analyzed", 0)
+                    logger.info(f"✅ 启动Kronos持仓分析完成: 分析了 {positions_count} 个持仓")
+                elif startup_position_result.get("status") == "no_positions":
+                    logger.info("📊 当前无持仓，跳过Kronos持仓分析")
+                else:
+                    logger.warning(f"⚠️ 启动Kronos持仓分析异常: {startup_position_result.get('reason', '未知')}")
+            except Exception as e:
+                logger.warning(f"⚠️ 启动Kronos持仓分析失败: {e}")
+                app.state.startup_position_analysis = {"status": "error", "error": str(e)}
+            
+            # 每30分钟执行一次Kronos持仓分析和推送
+            scheduler.add_job(
+                kronos_position_service.run_scheduled_analysis,
+                'interval',
+                minutes=30,
+                id='kronos_position_analysis',
+                name='Kronos持仓分析和风险评估'
+            )
+            logger.info("✅ Kronos持仓分析定时任务已启动 (每30分钟)")
+            
+            # 将服务存储到应用状态
+            app.state.kronos_position_service = kronos_position_service
+        
+        # 启动时交易决策分析 - 已停用避免重复推送
+        # try:
+        #     startup_results = await perform_startup_trading_analysis()
+        #     app.state.startup_analysis_results = startup_results
+        # except Exception as e:
+        #     logger.warning(f"⚠️ 启动交易分析失败: {e}")
+        #     app.state.startup_analysis_results = {"status": "error", "error": str(e)}
+        logger.info("⚠️ 启动时普通交易分析已停用避免重复推送")
+        app.state.startup_analysis_results = {"status": "disabled", "message": "已停用避免重复推送"}
         
         # 启动时执行负费率分析和推送
         try:
@@ -413,8 +530,9 @@ async def lifespan(app: FastAPI):
                 logger.info("✅ ML增强服务初始化成功")
                 app.state.ml_service = ml_service
                 
-                # 启动时执行ML增强分析（在基础分析之后）
-                await perform_startup_ml_analysis(ml_service)
+                # 启动时ML增强分析 - 已停用避免异常检测报告推送
+                # await perform_startup_ml_analysis(ml_service)
+                logger.info("⚠️ 启动时ML异常检测已停用避免重复推送")
                 
             except Exception as e:
                 logger.warning(f"⚠️ ML增强服务初始化失败: {e}")
@@ -632,6 +750,66 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.error(f"获取市场概览失败: {e}")
             raise HTTPException(status_code=500, detail="获取市场概览失败")
+    
+    # Kronos持仓分析报告
+    @app.get("/kronos-position-analysis", summary="Kronos持仓分析报告")
+    async def get_kronos_position_analysis():
+        """获取基于Kronos预测的持仓分析报告"""
+        try:
+            from app.services.kronos_integrated_decision_service import get_kronos_integrated_service
+            
+            kronos_service = await get_kronos_integrated_service()
+            
+            # 分析主要持仓币种
+            symbols = ["ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+            analysis_results = {}
+            
+            for symbol in symbols:
+                decision = await kronos_service.get_kronos_enhanced_decision(symbol, force_update=True)
+                if decision:
+                    analysis_results[symbol] = {
+                        "symbol": symbol.replace("-USDT-SWAP", ""),
+                        "kronos_confidence": decision.kronos_confidence,
+                        "signal_strength": decision.kronos_signal_strength.value,
+                        "final_action": decision.final_action,
+                        "final_confidence": decision.final_confidence,
+                        "reasoning": decision.reasoning,
+                        "kronos_analysis": getattr(decision, 'kronos_analysis', {}),
+                        "position_recommendation": decision.position_recommendation.value if decision.position_recommendation else "无建议",
+                        "risk_level": decision.position_risk.value if decision.position_risk else "未知"
+                    }
+            
+            return {
+                "status": "success",
+                "message": f"Kronos持仓分析完成，分析了 {len(analysis_results)} 个币种",
+                "analysis_results": analysis_results,
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"获取Kronos持仓分析失败: {e}")
+            raise HTTPException(status_code=500, detail="获取Kronos持仓分析失败")
+    
+    # 实时Kronos持仓分析 (基于实际持仓)
+    @app.get("/kronos-live-position-analysis", summary="实时Kronos持仓分析")
+    async def get_kronos_live_position_analysis():
+        """获取基于实际持仓的Kronos分析报告"""
+        try:
+            from app.services.kronos_position_analysis_service import get_kronos_position_service
+            
+            kronos_position_service = await get_kronos_position_service()
+            
+            # 执行实时分析
+            analysis_result = await kronos_position_service.get_manual_analysis()
+            
+            return {
+                "status": "success",
+                "message": "实时Kronos持仓分析完成",
+                "analysis_result": analysis_result,
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"获取实时Kronos持仓分析失败: {e}")
+            raise HTTPException(status_code=500, detail="获取实时Kronos持仓分析失败")
     
     return app
 

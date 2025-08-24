@@ -110,9 +110,14 @@ class DatabaseManager:
         """数据库健康检查"""
         try:
             session = self.get_session()
-            session.execute("SELECT 1")
-            self.close_session(session)
-            return True
+            try:
+                # 使用text()包装SQL语句以避免SQLAlchemy警告
+                from sqlalchemy import text
+                session.execute(text("SELECT 1"))
+                session.commit()  # 确保事务完成
+                return True
+            finally:
+                self.close_session(session)
         except Exception as e:
             logger.error(f"Database health check failed: {e}")
             return False

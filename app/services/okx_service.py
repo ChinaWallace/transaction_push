@@ -196,41 +196,41 @@ class OKXService:
                         inst_id = pos.get('instId', '')
                         
                         # 判断合约类型和计算方式
+                        # 使用OKX API提供的notionalUsd字段作为持仓价值
+                        notional_usd = float(pos.get('notionalUsd', '0') or '0')
+                        current_price = float(pos.get('markPx', '0') or '0')
+                        
                         if '-USD-SWAP' in inst_id:
                             contract_type = '币本位永续'
-                            # 币本位合约：面值以USD计价，但保证金和盈亏以基础货币计算
                             base_currency = inst_id.split('-')[0]  # 如BTC-USD-SWAP的BTC
-                            position_value_usd = abs(pos_size)  # 面值就是USD
-                            
-                            # 获取当前价格用于转换
-                            current_price = float(pos.get('markPx', '0') or '0')
-                            if current_price > 0:
-                                position_value_base = position_value_usd / current_price
-                            else:
-                                position_value_base = 0
+                            position_value_usd = notional_usd
+                            # 币数量 = USD价值 / 价格
+                            position_value_base = position_value_usd / current_price if current_price > 0 else 0
                                 
                         elif '-USDT-SWAP' in inst_id:
                             contract_type = 'U本位永续'
                             base_currency = 'USDT'
-                            position_value_usd = abs(pos_size) * float(pos.get('markPx', '0') or '0')
+                            position_value_usd = notional_usd
                             position_value_base = position_value_usd
+                            # 计算对应的币数量
+                            coin_amount = position_value_usd / current_price if current_price > 0 else 0
                             
                         elif '-USDC-SWAP' in inst_id:
                             contract_type = 'C本位永续'
                             base_currency = 'USDC'
-                            position_value_usd = abs(pos_size) * float(pos.get('markPx', '0') or '0')
+                            position_value_usd = notional_usd
                             position_value_base = position_value_usd
                         else:
                             contract_type = '现货'
                             base_currency = inst_id.split('-')[0] if '-' in inst_id else inst_id
-                            position_value_usd = abs(pos_size) * float(pos.get('markPx', '0') or '0')
+                            position_value_usd = notional_usd if notional_usd > 0 else abs(pos_size) * current_price
                             position_value_base = abs(pos_size)
                         
                         # 计算盈亏 - 币本位特殊处理
                         unrealized_pnl = float(pos.get('upl', '0') or '0')
                         if contract_type == '币本位永续':
-                            # 币本位的盈亏已经是以基础货币计价
-                            unrealized_pnl_usd = unrealized_pnl * float(pos.get('markPx', '0') or '0')
+                            # 币本位的盈亏是以基础货币计价，需要转换为USD
+                            unrealized_pnl_usd = unrealized_pnl * current_price
                         else:
                             # U本位的盈亏直接是USDT
                             unrealized_pnl_usd = unrealized_pnl

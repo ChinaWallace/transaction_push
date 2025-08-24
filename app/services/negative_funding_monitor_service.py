@@ -33,11 +33,12 @@ class NegativeFundingMonitorService:
         self.notification_service = NotificationService()
         
         # 排除的大市值币种（波动太大，不适合吃利息）
+        # 注意：ETH和SOL现在用于Kronos分析，不在排除列表中
         self.excluded_major_coins = {
-            'BTC-USDT-SWAP', 'ETH-USDT-SWAP', 'BNB-USDT-SWAP', 
-            'SOL-USDT-SWAP', 'XRP-USDT-SWAP', 'ADA-USDT-SWAP',
+            'BTC-USDT-SWAP', 'BNB-USDT-SWAP', 
+            'XRP-USDT-SWAP', 'ADA-USDT-SWAP',
             'DOGE-USDT-SWAP', 'AVAX-USDT-SWAP', 'DOT-USDT-SWAP',
-            'MATIC-USDT-SWAP', 'LTC-USDT-SWAP', 'BCH-USDT-SWAP',
+            'LTC-USDT-SWAP', 'BCH-USDT-SWAP',
             'LINK-USDT-SWAP', 'UNI-USDT-SWAP', 'ATOM-USDT-SWAP',
             'NEAR-USDT-SWAP', 'FIL-USDT-SWAP', 'SAND-USDT-SWAP',
             'MANA-USDT-SWAP', 'APE-USDT-SWAP', 'SHIB-USDT-SWAP',

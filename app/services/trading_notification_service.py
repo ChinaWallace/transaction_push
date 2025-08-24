@@ -259,9 +259,14 @@ class TradingNotificationService:
         Returns:
             是否应该发送
         """
-        # 发送买入/卖出及以上信号的通知
-        if action and action not in ['强烈买入', '买入', '强烈卖出', '卖出']:
+        # 过滤掉观望信号，只发送明确的买入/卖出信号
+        if action and action not in ['强烈买入', '买入', '强烈卖出', '卖出', '谨慎买入', '谨慎卖出', '技术买入', '技术卖出']:
             logger.debug(f"{symbol} 非交易信号 ({action})，跳过通知")
+            return False
+        
+        # 明确过滤观望类信号
+        if action in ['持有观望', '观望', '持有', '等待']:
+            logger.debug(f"{symbol} 观望信号 ({action})，跳过通知")
             return False
         
         # 检查置信度阈值 - 降低阈值以发送更多信号

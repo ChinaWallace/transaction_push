@@ -22,6 +22,18 @@ from app.services.okx_service import OKXService
 from app.utils.exceptions import TradingToolError
 
 
+# 全局服务实例
+_kronos_integrated_service = None
+
+
+async def get_kronos_integrated_service() -> "KronosIntegratedDecisionService":
+    """获取Kronos集成决策服务实例"""
+    global _kronos_integrated_service
+    if _kronos_integrated_service is None:
+        _kronos_integrated_service = KronosIntegratedDecisionService()
+    return _kronos_integrated_service
+
+
 class KronosSignalStrength(Enum):
     """Kronos信号强度"""
     VERY_STRONG = "极强"
@@ -245,26 +257,64 @@ class KronosIntegratedDecisionService:
             if not kronos_prediction:
                 return position_analysis
             
-            # 根据Kronos预测调整持仓建议
+            # 根据Kronos预测调整持仓建议 - 降低阈值，增加敏感度
             kronos_confidence = kronos_prediction.confidence
             predicted_change = kronos_prediction.price_change_pct
             
-            # 如果Kronos预测高置信度的大幅变动，调整持仓建议
-            if kronos_confidence >= 0.7:
-                if predicted_change > 0.05:  # 预测上涨5%以上
+            # 降低Kronos预测阈值，增加持仓调整建议
+            if kronos_confidence >= 0.6:  # 从0.7降低到0.6
+                if predicted_change > 0.03:  # 从5%降低到3%
                     if position_analysis.get('recommendation') == PositionRecommendation.HOLD:
                         position_analysis['recommendation'] = PositionRecommendation.INCREASE
-                        position_analysis['kronos_adjustment'] = "Kronos预测强烈上涨，建议加仓"
-                elif predicted_change < -0.05:  # 预测下跌5%以上
+                        position_analysis['kronos_adjustment'] = f"Kronos预测上涨{predicted_change*100:.1f}%，建议加仓"
+                elif predicted_change < -0.03:  # 从-5%调整到-3%
                     if position_analysis.get('recommendation') == PositionRecommendation.HOLD:
                         position_analysis['recommendation'] = PositionRecommendation.REDUCE
-                        position_analysis['kronos_adjustment'] = "Kronos预测强烈下跌，建议减仓"
+                        position_analysis['kronos_adjustment'] = f"Kronos预测下跌{abs(predicted_change)*100:.1f}%，建议减仓"
+            
+            # 新增：中等置信度的温和调整建议
+            elif kronos_confidence >= 0.5:
+                if predicted_change > 0.02:
+                    position_analysis['kronos_suggestion'] = f"Kronos预测温和上涨{predicted_change*100:.1f}%，可考虑小幅加仓"
+                elif predicted_change < -0.02:
+                    position_analysis['kronos_suggestion'] = f"Kronos预测温和下跌{abs(predicted_change)*100:.1f}%，可考虑小幅减仓"
+            
+            # 添加Kronos持仓分析报告
+            position_analysis['kronos_analysis'] = {
+                'confidence': kronos_confidence,
+                'predicted_change_pct': predicted_change,
+                'predicted_direction': '看涨' if predicted_change > 0 else '看跌',
+                'risk_assessment': self._assess_kronos_risk(kronos_confidence, predicted_change),
+                'position_impact': self._evaluate_position_impact(symbol, predicted_change)
+            }
             
             return position_analysis
             
         except Exception as e:
             self.logger.error(f"获取{symbol}Kronos加权持仓分析失败: {e}")
-            return {}    
+            return {}
+    
+    def _assess_kronos_risk(self, confidence: float, predicted_change: float) -> str:
+        """评估Kronos预测的风险等级"""
+        risk_score = abs(predicted_change) * confidence
+        
+        if risk_score > 0.05:
+            return "高风险"
+        elif risk_score > 0.03:
+            return "中等风险"
+        else:
+            return "低风险"
+    
+    def _evaluate_position_impact(self, symbol: str, predicted_change: float) -> str:
+        """评估对持仓的影响"""
+        abs_change = abs(predicted_change)
+        
+        if abs_change > 0.05:
+            return f"对{symbol}持仓影响显著，建议密切关注"
+        elif abs_change > 0.03:
+            return f"对{symbol}持仓有一定影响，建议适度调整"
+        else:
+            return f"对{symbol}持仓影响较小，可保持现状"    
 
     async def _generate_integrated_decision(
         self,
@@ -350,29 +400,63 @@ class KronosIntegratedDecisionService:
         technical_signal: str,
         position_recommendation: PositionRecommendation
     ) -> float:
-        """计算信号一致性评分"""
+        """计算信号一致性评分 - 动态计算，不固定基础分"""
         confluence_score = 0.0
         
         if not kronos_prediction:
             return 0.5  # 没有Kronos预测时返回中性评分
         
         kronos_direction = "bullish" if kronos_prediction.price_change_pct > 0 else "bearish"
+        kronos_confidence = kronos_prediction.confidence
         
-        # Kronos与技术分析一致性
+        # Kronos与技术分析一致性 (权重40%)
         if (kronos_direction == "bullish" and technical_signal in ["bullish", "strong_bullish"]) or \
            (kronos_direction == "bearish" and technical_signal in ["bearish", "strong_bearish"]):
-            confluence_score += 0.4
+            confluence_score += 0.4 * kronos_confidence  # 根据Kronos置信度调整
+        elif technical_signal == "neutral":
+            confluence_score += 0.2  # 中性信号给予部分分数
         
-        # Kronos与持仓建议一致性
+        # Kronos与持仓建议一致性 (权重30%)
         if kronos_direction == "bullish" and position_recommendation in [PositionRecommendation.INCREASE, PositionRecommendation.HOLD]:
-            confluence_score += 0.3
+            confluence_score += 0.3 * kronos_confidence
         elif kronos_direction == "bearish" and position_recommendation in [PositionRecommendation.REDUCE, PositionRecommendation.CLOSE]:
-            confluence_score += 0.3
+            confluence_score += 0.3 * kronos_confidence
+        elif position_recommendation == PositionRecommendation.HOLD:
+            confluence_score += 0.15  # 持有建议给予部分分数
         
-        # 基础一致性评分
-        confluence_score += 0.3
+        # 信号强度加成 (权重30%)
+        predicted_change = abs(kronos_prediction.price_change_pct)
+        if predicted_change >= 0.05:  # 预测变化>=5%
+            confluence_score += 0.3
+        elif predicted_change >= 0.03:  # 预测变化>=3%
+            confluence_score += 0.2
+        elif predicted_change >= 0.01:  # 预测变化>=1%
+            confluence_score += 0.1
         
         return min(1.0, confluence_score)
+    
+    async def batch_analyze_symbols(
+        self,
+        symbols: List[str],
+        force_update: bool = False
+    ) -> Dict[str, Optional[KronosEnhancedDecision]]:
+        """批量分析多个交易对"""
+        results = {}
+        
+        for symbol in symbols:
+            try:
+                # 确保symbol格式正确
+                if not symbol.endswith("-SWAP"):
+                    symbol = f"{symbol}-USDT-SWAP"
+                
+                decision = await self.get_kronos_enhanced_decision(symbol, force_update)
+                results[symbol] = decision
+                
+            except Exception as e:
+                self.logger.error(f"批量分析{symbol}失败: {e}")
+                results[symbol] = None
+        
+        return results
     
     def _determine_final_action(
         self,
@@ -389,9 +473,16 @@ class KronosIntegratedDecisionService:
         if not kronos_prediction:
             return self._fallback_to_technical_decision(technical_signal, technical_confidence)
         
-        # 优化的权重计算 - 给Kronos更高的权重
-        kronos_weight = 0.7  # 固定给Kronos 70%权重
-        technical_weight = 0.3  # 技术分析 30%权重
+        # 动态权重计算 - 根据Kronos置信度调整权重
+        if kronos_confidence >= 0.8:
+            kronos_weight = 0.8  # 高置信度时给Kronos 80%权重
+            technical_weight = 0.2
+        elif kronos_confidence >= 0.6:
+            kronos_weight = 0.7  # 中等置信度时给Kronos 70%权重
+            technical_weight = 0.3
+        else:
+            kronos_weight = 0.5  # 低置信度时平衡权重
+            technical_weight = 0.5
         
         # 优化的综合置信度计算
         base_confidence = (kronos_confidence * kronos_weight + 
@@ -401,29 +492,55 @@ class KronosIntegratedDecisionService:
         confluence_bonus = signal_confluence * 0.2  # 最多20%加成
         combined_confidence = min(0.95, base_confidence + confluence_bonus)
         
-        # 决策逻辑
+        # 决策逻辑 - 优化：考虑当前趋势和预测的一致性
         kronos_direction = "bullish" if kronos_prediction.price_change_pct > 0 else "bearish"
         predicted_change = abs(kronos_prediction.price_change_pct)
         
-        # 优化后的信号判断 - 降低阈值以发现更多信号
-        if kronos_confidence >= 0.7 and predicted_change >= 0.03:  # 降低强信号阈值
-            if kronos_direction == "bullish":
+        # 检查技术分析和Kronos预测的一致性
+        tech_bullish = technical_signal in ["bullish", "strong_bullish"]
+        tech_bearish = technical_signal in ["bearish", "strong_bearish"]
+        
+        # 特殊处理：对于回调预测要更谨慎 - 优先级最高
+        if kronos_direction == "bearish":
+            # 大幅回调预测时，除非技术分析也确认看跌，否则建议观望
+            if not tech_bearish:
+                return "谨慎观望", combined_confidence * 0.7
+            # 即使技术分析确认看跌，也要给出更温和的建议
+            elif predicted_change >= 0.05:  # 预测下跌超过5%
+                return "谨慎减仓", combined_confidence * 0.8
+        
+        # 特殊处理：如果技术分析显示强势上涨，即使Kronos预测回调也要谨慎
+        if technical_signal == "strong_bullish" and kronos_direction == "bearish":
+            # 强势上涨中的回调预测，降级为持有观望而不是卖出
+            return "持有观望", combined_confidence * 0.8
+        
+        # 强信号判断 - 需要Kronos和技术分析方向一致
+        if kronos_confidence >= 0.7 and predicted_change >= 0.03:
+            if kronos_direction == "bullish" and (tech_bullish or technical_signal == "neutral"):
                 return "强烈买入", min(0.95, combined_confidence)
-            else:
+            elif kronos_direction == "bearish" and (tech_bearish or technical_signal == "neutral"):
                 return "强烈卖出", min(0.95, combined_confidence)
-        
-        # 中等信号判断 - 进一步降低阈值
-        elif kronos_confidence >= 0.55 and predicted_change >= 0.02:
-            if kronos_direction == "bullish":
-                return "买入", combined_confidence
+            # 如果方向不一致，降级为中等信号
+            elif kronos_direction == "bullish":
+                return "买入", combined_confidence * 0.8
             else:
-                return "卖出", combined_confidence
+                return "卖出", combined_confidence * 0.8
         
-        # 弱信号判断 - 降低一致性要求
-        elif signal_confluence >= 0.6:  # 从0.7降低到0.6
-            if kronos_direction == "bullish" and technical_signal in ["bullish", "strong_bullish"]:
+        # 中等信号判断 - 降低要求但增加方向一致性检查
+        elif kronos_confidence >= 0.55 and predicted_change >= 0.02:
+            if kronos_direction == "bullish" and not tech_bearish:  # Kronos看涨且技术分析不看跌
+                return "买入", combined_confidence
+            elif kronos_direction == "bearish" and not tech_bullish:  # Kronos看跌且技术分析不看涨
+                return "卖出", combined_confidence
+            # 方向冲突时，倾向于持有观望
+            else:
+                return "持有观望", combined_confidence * 0.7
+        
+        # 弱信号判断 - 要求方向一致
+        elif signal_confluence >= 0.6:
+            if kronos_direction == "bullish" and tech_bullish:
                 return "谨慎买入", combined_confidence
-            elif kronos_direction == "bearish" and technical_signal in ["bearish", "strong_bearish"]:
+            elif kronos_direction == "bearish" and tech_bearish:
                 return "谨慎卖出", combined_confidence
         
         # 新增：基于技术分析的补充信号
@@ -663,14 +780,3 @@ class KronosIntegratedDecisionService:
         except Exception as e:
             self.logger.error(f"批量分析失败: {e}")
             return {}
-
-
-# 全局服务实例
-_kronos_integrated_service = None
-
-async def get_kronos_integrated_service() -> KronosIntegratedDecisionService:
-    """获取Kronos集成决策服务实例"""
-    global _kronos_integrated_service
-    if _kronos_integrated_service is None:
-        _kronos_integrated_service = KronosIntegratedDecisionService()
-    return _kronos_integrated_service

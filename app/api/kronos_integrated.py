@@ -122,11 +122,10 @@ async def get_strong_kronos_signals(
     try:
         service = await get_kronos_integrated_service()
         
-        # 如果没有指定交易对，使用默认热门交易对
+        # 如果没有指定交易对，只分析ETH和SOL
         if not symbols:
             symbols = [
-                "BTC-USDT", "ETH-USDT", "BNB-USDT", "ADA-USDT", "SOL-USDT",
-                "XRP-USDT", "DOT-USDT", "DOGE-USDT", "AVAX-USDT", "MATIC-USDT"
+                "ETH-USDT", "SOL-USDT"
             ]
         
         # 批量分析

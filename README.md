@@ -94,9 +94,29 @@ cd transaction_push
 ```
 
 2. **安装依赖**
+
+**方法一：自动安装（推荐）**
 ```bash
-pip install -r requirements.txt
+# 运行自动安装脚本，会处理TA-Lib和其他依赖
+python install_dependencies.py
 ```
+
+**方法二：手动安装**
+```bash
+#先安装TA-Lib，见底部
+
+# 然后安装其他依赖
+pip install -r requirements.txt
+
+# 下载Kronos AI模型
+python scripts/download_kronos_models.py
+```
+
+**TA-Lib安装说明（Windows）**
+如果自动安装失败，请手动安装：
+- 访问：https://www.lfd.uci.edu/~gohlke/pythonlibs/#ta-lib
+- 下载对应Python版本的.whl文件
+- 运行：`pip install 下载的文件名.whl`
 
 3. **配置环境变量**
 ```bash
@@ -394,10 +414,18 @@ transaction_push/
 - 检查Webhook URL是否正确
 - 确认机器人权限配置
 
-**4. Kronos AI预测问题**
+**4. TA-Lib安装问题**
+```bash
+# 错误：ModuleNotFoundError: No module named 'talib'
+# 解决方案：
+ind-links https://github.com/cgohlke/talib-build/releases/download/v0.4.28/ TA-Lib
+```
+
+**5. Kronos AI预测问题**
 - 确保安装了PyTorch和Transformers库
 - 检查Kronos-master目录是否存在且完整
 - 验证GPU驱动和CUDA版本（如果使用GPU）
+- 运行模型下载：`python scripts/download_kronos_models.py`
 
 **5. 查看日志**
 ```bash
