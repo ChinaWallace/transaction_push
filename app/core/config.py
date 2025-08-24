@@ -60,16 +60,16 @@ class Settings(BaseSettings):
     smtp_password: Optional[str] = Field(default=None, description="SMTP密码")
     smtp_from: Optional[str] = Field(default=None, description="发件人地址")
     
-    # 监控参数配置
-    open_interest_threshold: float = Field(default=1.05, description="持仓量变化阈值")
-    volume_multiplier: float = Field(default=3.0, description="成交量异常倍数")
-    funding_rate_interval: int = Field(default=240, description="费率监控间隔(分钟)")
-    trend_analysis_interval: int = Field(default=15, description="趋势分析间隔(分钟)")
-    open_interest_interval: int = Field(default=5, description="持仓量监控间隔(分钟)")
-    volume_monitor_interval: int = Field(default=60, description="交易量监控间隔(分钟)")
-    position_analysis_interval: int = Field(default=120, description="持仓分析间隔(分钟)")
-    grid_opportunities_interval: int = Field(default=240, description="网格机会分析间隔(分钟)")
-    market_opportunities_interval: int = Field(default=360, description="市场机会分析间隔(分钟)")
+    # 监控参数配置 - 针对数字货币高波动性优化
+    open_interest_threshold: float = Field(default=1.03, description="持仓量变化阈值(降低以捕捉更多信号)")
+    volume_multiplier: float = Field(default=2.5, description="成交量异常倍数(降低以提高敏感度)")
+    funding_rate_interval: int = Field(default=120, description="费率监控间隔(分钟) - 优化为2小时")
+    trend_analysis_interval: int = Field(default=5, description="趋势分析间隔(分钟) - 优化为5分钟")
+    open_interest_interval: int = Field(default=3, description="持仓量监控间隔(分钟) - 优化为3分钟")
+    volume_monitor_interval: int = Field(default=15, description="交易量监控间隔(分钟) - 优化为15分钟")
+    position_analysis_interval: int = Field(default=30, description="持仓分析间隔(分钟) - 优化为30分钟")
+    grid_opportunities_interval: int = Field(default=60, description="网格机会分析间隔(分钟) - 优化为1小时")
+    market_opportunities_interval: int = Field(default=120, description="市场机会分析间隔(分钟) - 优化为2小时")
     
     # 策略配置
     strategy_config: Dict[str, Any] = Field(default_factory=lambda: {
@@ -88,42 +88,93 @@ class Settings(BaseSettings):
         }
     }, description="策略参数配置")
     
-    # 机器学习增强配置
+    # 机器学习增强配置 - 针对高波动性优化，提高信号敏感度
     ml_config: Dict[str, Any] = Field(default_factory=lambda: {
         'enable_ml_prediction': True,
         'enable_anomaly_detection': True,
         'enable_adaptive_optimization': True,
         'prediction_model': {
-            'model_type': 'random_forest',  # random_forest, gradient_boosting, svm
-            'lookback_periods': 50,
-            'prediction_horizon': 5,
-            'retrain_interval_hours': 24,
-            'min_accuracy_threshold': 0.6
+            'model_type': 'gradient_boosting',  # 对高波动性更敏感
+            'lookback_periods': 24,  # 进一步减少以适应快速变化
+            'prediction_horizon': 2,  # 缩短预测期间到2小时
+            'retrain_interval_hours': 8,  # 更频繁重训练
+            'min_accuracy_threshold': 0.60,  # 降低准确度要求以提高敏感度
+            'signal_threshold': {
+                'strong_buy': 0.65,  # 65%强买入阈值
+                'buy': 0.55,         # 降低买入阈值
+                'sell': 0.55,        # 降低卖出阈值
+                'strong_sell': 0.65  # 65%强卖出阈值
+            }
         },
         'anomaly_detection': {
-            'algorithm': 'isolation_forest',  # isolation_forest, one_class_svm, local_outlier_factor
-            'contamination': 0.1,
-            'sensitivity': 0.8,
-            'min_samples': 100
+            'algorithm': 'isolation_forest',
+            'contamination': 0.20,  # 进一步增加以捕捉更多异常
+            'sensitivity': 0.95,    # 最大化敏感度
+            'min_samples': 30       # 进一步减少样本要求
         },
         'adaptive_optimization': {
             'enable_parameter_tuning': True,
-            'optimization_interval_hours': 12,
-            'performance_window_days': 7,
-            'min_improvement_threshold': 0.05
+            'optimization_interval_hours': 4,  # 更频繁的参数优化
+            'performance_window_days': 2,      # 进一步缩短评估窗口
+            'min_improvement_threshold': 0.02  # 进一步降低改进阈值
         },
         'feature_engineering': {
             'technical_indicators': True,
             'price_patterns': True,
             'volume_features': True,
-            'market_microstructure': True
+            'market_microstructure': True,
+            'volatility_clustering': True,
+            'momentum_features': True,
+            'price_acceleration': True,  # 新增价格加速度特征
+            'volume_price_trend': True   # 新增量价趋势特征
+        },
+        # 高频监控配置 - 提高响应速度
+        'high_frequency_mode': {
+            'enable': True,
+            'signal_update_seconds': 15,  # 15秒更新一次信号
+            'volatility_threshold': 0.03, # 降低到3%波动率阈值
+            'emergency_stop_loss': 0.06,  # 6%紧急止损
+            'momentum_threshold': 0.02    # 2%动量阈值
         }
-    }, description="机器学习增强配置")
+    }, description="机器学习增强配置 - 高敏感度优化，专为捕捉SOL等高波动币种信号")
     
-    # 监控币种配置
+    # 主要监控币种配置 - 2个核心币种进行完整技术分析
     monitored_symbols: List[str] = Field(default=[
-        'ETH-USDT-SWAP', 'SOL-USDT-SWAP'
-    ], description="监控的交易对列表")
+        'SOL-USDT-SWAP',
+        'ETH-USDT-SWAP'
+    ], description="主要监控的交易对列表 - 2个核心币种进行完整技术分析和交易决策")
+    
+    # 费率监控币种配置 - 其他币种只监控费率
+    funding_rate_only_symbols: List[str] = Field(default=[
+        'BTC-USDT-SWAP',
+        'BNB-USDT-SWAP',
+        'ADA-USDT-SWAP',
+        'DOT-USDT-SWAP',
+        'AVAX-USDT-SWAP',
+        'ATOM-USDT-SWAP',
+        'NEAR-USDT-SWAP',
+        'ALGO-USDT-SWAP',
+        'LINK-USDT-SWAP',
+        'UNI-USDT-SWAP',
+        'SUSHI-USDT-SWAP',
+        'CRV-USDT-SWAP',
+        'COMP-USDT-SWAP',
+        'MKR-USDT-SWAP',
+        'OP-USDT-SWAP',
+        'ARB-USDT-SWAP',
+        'SHIB-USDT-SWAP',
+        'APT-USDT-SWAP',
+        'SUI-USDT-SWAP',
+        'FIL-USDT-SWAP',
+        'AR-USDT-SWAP',
+        'STORJ-USDT-SWAP',
+        'AXS-USDT-SWAP',
+        'SAND-USDT-SWAP',
+        'MANA-USDT-SWAP',
+        'LTC-USDT-SWAP',
+        'BCH-USDT-SWAP',
+        'ETC-USDT-SWAP'
+    ], description="费率监控币种列表 - 只监控费率是否高负，不进行完整技术分析")
     
     # TradingView集成配置
     tradingview_config: Dict[str, Any] = Field(default_factory=lambda: {

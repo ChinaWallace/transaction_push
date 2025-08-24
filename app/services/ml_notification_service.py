@@ -154,7 +154,8 @@ class MLNotificationService:
             AnomalyType.PATTERN_ANOMALY: "模式异常"
         }
         
-        message = "⚠️ **市场异常检测报告**\n\n"
+        current_time = datetime.now()
+        message = f"⚠️ **市场异常检测报告** ({current_time.strftime('%Y-%m-%d %H:%M')})\n\n"
         
         # 按交易对分组
         symbol_anomalies = {}
@@ -163,19 +164,28 @@ class MLNotificationService:
                 symbol_anomalies[anomaly.symbol] = []
             symbol_anomalies[anomaly.symbol].append(anomaly)
         
+        # 按严重程度排序显示
         for symbol, symbol_anomaly_list in symbol_anomalies.items():
+            symbol_anomaly_list.sort(key=lambda x: x.severity, reverse=True)
             message += f"📈 **{symbol}**:\n"
             
             for anomaly in symbol_anomaly_list:
                 icon = anomaly_icons.get(anomaly.anomaly_type, "⚠️")
                 description = anomaly_descriptions.get(anomaly.anomaly_type, "未知异常")
                 
-                message += f"{icon} {description} (严重程度: {anomaly.severity:.1%})\n"
-                message += f"   📝 {anomaly.description}\n"
-                message += f"   💡 {anomaly.recommendation}\n"
-                message += f"   ⏰ {anomaly.timestamp.strftime('%H:%M:%S')}\n\n"
+                # 计算时间差
+                time_diff = current_time - anomaly.timestamp
+                if time_diff.total_seconds() < 3600:  # 1小时内
+                    time_str = f"{int(time_diff.total_seconds() / 60)}分钟前"
+                else:
+                    time_str = anomaly.timestamp.strftime('%H:%M')
+                
+                message += f"  {icon} {description} (严重程度: {anomaly.severity:.1%})\n"
+                message += f"     📝 {anomaly.description}\n"
+                message += f"     💡 {anomaly.recommendation}\n"
+                message += f"     ⏰ {time_str}\n\n"
         
-        message += "🔔 **注意**: 异常检测仅供参考，请结合市场情况谨慎决策"
+        message += "🔔 **提醒**: 这是最新检测到的异常，已过滤重复推送"
         
         return message
     

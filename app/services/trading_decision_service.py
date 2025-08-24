@@ -15,7 +15,7 @@ import pandas as pd
 from app.core.logging import get_logger, trading_logger
 from app.core.config import get_settings
 from app.services.ml_enhanced_service import MLEnhancedService, PredictionSignal
-from app.services.trend_analysis_service import TrendAnalysisService
+# from app.services.trend_analysis_service import TrendAnalysisService  # 已禁用，有问题
 from app.services.binance_service import BinanceService
 from app.services.okx_service import OKXService
 from app.utils.exceptions import TradingToolError
@@ -26,21 +26,21 @@ settings = get_settings()
 
 class TradingAction(Enum):
     """交易动作枚举"""
-    STRONG_BUY = "strong_buy"
-    BUY = "buy"
-    HOLD = "hold"
-    SELL = "sell"
-    STRONG_SELL = "strong_sell"
-    WAIT = "wait"  # 等待更好的入场时机
+    STRONG_BUY = "强烈买入"
+    BUY = "买入"
+    HOLD = "持有"
+    SELL = "卖出"
+    STRONG_SELL = "强烈卖出"
+    WAIT = "等待"  # 等待更好的入场时机
 
 
 class RiskLevel(Enum):
     """风险等级枚举"""
-    VERY_LOW = "very_low"
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    VERY_HIGH = "very_high"
+    VERY_LOW = "极低风险"
+    LOW = "低风险"
+    MEDIUM = "中等风险"
+    HIGH = "高风险"
+    VERY_HIGH = "极高风险"
 
 
 @dataclass
@@ -118,7 +118,8 @@ class TradingDecisionService:
         # 可选的ML服务（如果需要）
         try:
             self.ml_service = MLEnhancedService()
-            self.trend_service = TrendAnalysisService()
+            # self.trend_service = TrendAnalysisService()  # 已禁用，有问题
+            self.trend_service = None  # 不使用有问题的TrendAnalysisService
             self.ml_enabled = True
         except Exception as e:
             logger.warning(f"ML服务初始化失败，将使用基础技术分析: {e}")
@@ -134,7 +135,7 @@ class TradingDecisionService:
     
     async def analyze_market(self, symbol: str) -> MarketAnalysis:
         """
-        综合市场分析
+        综合市场分析 - 使用内置技术分析，不依赖TrendAnalysisService
         
         Args:
             symbol: 交易对
@@ -143,28 +144,41 @@ class TradingDecisionService:
             市场分析结果
         """
         try:
-            # 并行获取各种分析
-            traditional_task = self.trend_service.analyze_symbol(symbol)
-            ml_prediction_task = self.ml_service.predict_signal(symbol)
-            ml_anomaly_task = self.ml_service.detect_anomalies(symbol)
+            # 使用内置的市场信号分析替代TrendAnalysisService
+            async with self.exchange_service as exchange:
+                market_signals = await self._get_market_signals(symbol, exchange)
             
-            traditional_analysis, ml_prediction, ml_anomalies = await asyncio.gather(
-                traditional_task, ml_prediction_task, ml_anomaly_task,
-                return_exceptions=True
-            )
+            # 转换为传统分析格式
+            traditional_analysis = {
+                'overall_signal': 'strong_buy' if market_signals.get('trend') == 'bullish' and market_signals.get('confidence', 0) > 75 
+                                 else 'buy' if market_signals.get('trend') == 'bullish' and market_signals.get('confidence', 0) > 55
+                                 else 'strong_sell' if market_signals.get('trend') == 'bearish' and market_signals.get('confidence', 0) > 75
+                                 else 'sell' if market_signals.get('trend') == 'bearish' and market_signals.get('confidence', 0) > 55
+                                 else 'hold',
+                'signal_strength': market_signals.get('confidence', 50.0) / 100.0,
+                'trend_direction': market_signals.get('trend', 'neutral'),
+                'volatility_score': 80.0 if market_signals.get('volatility') == 'high' 
+                                   else 30.0 if market_signals.get('volatility') == 'low' 
+                                   else 50.0,
+                'volume_anomaly': market_signals.get('volume_anomaly', False),
+                'funding_rate_signal': market_signals.get('funding_rate_signal', 'neutral')
+            }
             
-            # 处理异常结果
-            if isinstance(traditional_analysis, Exception):
-                logger.warning(f"Traditional analysis failed for {symbol}: {traditional_analysis}")
-                traditional_analysis = {}
+            # 获取ML分析（如果可用）
+            ml_prediction = None
+            ml_anomalies = []
             
-            if isinstance(ml_prediction, Exception):
-                logger.warning(f"ML prediction failed for {symbol}: {ml_prediction}")
-                ml_prediction = None
-            
-            if isinstance(ml_anomalies, Exception):
-                logger.warning(f"ML anomaly detection failed for {symbol}: {ml_anomalies}")
-                ml_anomalies = []
+            if self.ml_service:
+                try:
+                    ml_prediction = await self.ml_service.predict_signal(symbol)
+                except Exception as e:
+                    logger.warning(f"ML prediction failed for {symbol}: {e}")
+                
+                try:
+                    ml_anomalies = await self.ml_service.detect_anomalies(symbol)
+                except Exception as e:
+                    logger.warning(f"ML anomaly detection failed for {symbol}: {e}")
+                    ml_anomalies = []
             
             # 计算综合评分
             bullish_score, bearish_score, volatility_score = self._calculate_scores(

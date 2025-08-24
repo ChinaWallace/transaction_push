@@ -236,3 +236,5 @@ local/
 .kiro/
 
 *.joblib
+*.pkl
+models/

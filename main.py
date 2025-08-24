@@ -14,16 +14,14 @@ from app.core.config import get_settings
 from app.core.logging import get_logger
 from datetime import datetime
 from app.core.database import create_tables, db_manager
-from app.api import trend_router, monitor_router, notification_router
-from app.api.tradingview import router as tradingview_router
-from app.api.strategy import router as strategy_router
-from app.api.ml_enhanced import router as ml_enhanced_router
-from app.api.trading_decision import router as trading_decision_router
-from app.api.comprehensive_trading import router as comprehensive_trading_router
-from app.api.trading_advice import router as trading_advice_router
-from app.api.strategy_trading import router as strategy_trading_router
-from app.api.enhanced_trading_advice import router as enhanced_trading_advice_router
-from app.api.ml_strategy_optimization import router as ml_strategy_optimization_router
+from app.api import (
+    trend_router, monitor_router, notification_router,
+    tradingview_router, strategy_router, ml_enhanced_router,
+    trading_decision_router, comprehensive_trading_router,
+    trading_advice_router, strategy_trading_router,
+    enhanced_trading_advice_router, ml_strategy_optimization_router,
+    backtest_router, unified_trading_router
+)
 from app.services.scheduler_service import SchedulerService
 from app.services.ml_enhanced_service import MLEnhancedService
 from app.services.ml_notification_service import MLNotificationService
@@ -81,10 +79,15 @@ async def perform_startup_ml_analysis(ml_service: MLEnhancedService):
         logger.info("🤖 开始ML增强分析...")
         ml_notification_service = MLNotificationService()
         
-        # 分析配置中的所有交易对（现在只有ETH和SOL）
+        # 导入异常状态管理器
+        from app.services.anomaly_state_manager import anomaly_state_manager
+        
+        # 清理过期的异常记录
+        anomaly_state_manager.cleanup_old_records(max_age_hours=24)
+        
+        # 分析配置中的所有交易对
         symbols_to_analyze = settings.monitored_symbols
-        anomaly_alerts_sent = 0  # 限制异常警报数量
-        max_anomaly_alerts = 1   # 最多发送1个异常警报
+        all_detected_anomalies = []  # 收集所有币种检测到的异常
         
         for symbol in symbols_to_analyze:
             try:
@@ -101,21 +104,44 @@ async def perform_startup_ml_analysis(ml_service: MLEnhancedService):
                     await ml_notification_service.send_ml_prediction_alert(prediction)
                     logger.info(f"📢 已发送 {symbol} ML预测通知")
                 
-                # 2. 执行异常检测（限制推送数量）
-                if anomaly_alerts_sent < max_anomaly_alerts:
-                    anomalies = await ml_service.detect_anomalies(symbol)
-                    if anomalies:
-                        logger.info(f"⚠️ {symbol} 检测到 {len(anomalies)} 个异常")
-                        # 只推送最高严重度的异常
-                        critical_anomalies = [a for a in anomalies if a.severity > 0.9]
-                        if critical_anomalies:
-                            await ml_notification_service.send_anomaly_alert(critical_anomalies[:2])  # 最多2个
-                            anomaly_alerts_sent += 1
-                            logger.info(f"📢 已发送 {symbol} 关键异常警报")
+                # 2. 执行异常检测
+                anomalies = await ml_service.detect_anomalies(symbol)
+                if anomalies:
+                    logger.info(f"⚠️ {symbol} 检测到 {len(anomalies)} 个异常")
+                    # 过滤出严重程度足够的异常
+                    significant_anomalies = [
+                        a for a in anomalies 
+                        if a.severity > 0.5  # 严重程度大于50%
+                    ]
+                    
+                    if significant_anomalies:
+                        all_detected_anomalies.extend(significant_anomalies)
+                        logger.info(f"📊 {symbol} 发现 {len(significant_anomalies)} 个显著异常")
                 
             except Exception as e:
                 logger.warning(f"❌ ML分析 {symbol} 失败: {e}")
                 continue
+        
+        # 3. 使用状态管理器过滤出真正的新异常
+        if all_detected_anomalies:
+            new_anomalies = anomaly_state_manager.filter_new_anomalies(all_detected_anomalies)
+            
+            if new_anomalies:
+                # 按严重程度排序，只推送最严重的前5个
+                new_anomalies.sort(key=lambda x: x.severity, reverse=True)
+                top_anomalies = new_anomalies[:5]
+                
+                await ml_notification_service.send_anomaly_alert(top_anomalies)
+                logger.info(f"📢 已发送 {len(top_anomalies)} 个新异常警报，涉及币种: {list(set(a.symbol for a in top_anomalies))}")
+            else:
+                logger.info("✅ 所有检测到的异常都已通知过，跳过推送")
+        else:
+            logger.info("✅ 未检测到任何异常")
+        
+        # 4. 输出异常统计信息
+        stats = anomaly_state_manager.get_anomaly_stats()
+        if stats:
+            logger.info(f"📊 异常统计: {stats}")
         
         logger.info("✅ ML增强分析完成")
         
@@ -242,6 +268,8 @@ def create_app() -> FastAPI:
     app.include_router(strategy_trading_router, prefix="/api/strategy", tags=["策略交易"])
     app.include_router(enhanced_trading_advice_router, prefix="/api/enhanced", tags=["增强交易建议"])
     app.include_router(ml_strategy_optimization_router, prefix="/api/ml-optimization", tags=["ML策略优化"])
+    app.include_router(backtest_router, prefix="/api", tags=["回测分析"])
+    app.include_router(unified_trading_router, prefix="/api/unified", tags=["统一交易决策"])
     
     # 根路径
     @app.get("/", summary="根路径")

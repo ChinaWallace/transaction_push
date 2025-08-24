@@ -14,8 +14,9 @@ import numpy as np
 from app.core.logging import get_logger, trading_logger
 from app.core.config import get_settings
 from app.services.okx_service import OKXService
-from app.services.trading_decision_service import TradingDecisionService, TradingAction, RiskLevel
-from app.services.ml_enhanced_service import MLEnhancedService, PredictionSignal
+from app.services.unified_trading_service import UnifiedTradingService
+from app.services.trading_decision_service import TradingAction, RiskLevel
+from app.services.trading_notification_service import TradingNotificationService
 from app.services.notification_service import NotificationService
 from app.utils.exceptions import TradingToolError
 
@@ -71,8 +72,8 @@ class IntelligentTradingNotificationService:
     
     def __init__(self):
         self.okx_service = OKXService()
-        self.decision_service = TradingDecisionService(exchange='okx')
-        self.ml_service = MLEnhancedService()
+        self.unified_service = UnifiedTradingService()
+        self.trading_notification_service = TradingNotificationService()
         self.notification_service = NotificationService()
         
         # 机会筛选阈值

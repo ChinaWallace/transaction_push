@@ -155,15 +155,30 @@ class SuperTrendIndicator:
             raise IndicatorCalculationError(f"SuperTrend calculation failed: {e}")
     
     def calculate_from_klines(self, klines: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """从K线数据计算SuperTrend"""
+        """从K线数据计算SuperTrend - 支持多种字段名格式"""
         try:
             if not klines:
                 return []
             
-            # 提取OHLC数据
-            high = [float(k['high_price']) for k in klines]
-            low = [float(k['low_price']) for k in klines]
-            close = [float(k['close_price']) for k in klines]
+            # 智能提取OHLC数据 - 支持多种字段名格式
+            def get_price_field(kline, field_name):
+                """智能获取价格字段"""
+                # 优先使用带_price后缀的字段名
+                if f'{field_name}_price' in kline:
+                    return float(kline[f'{field_name}_price'])
+                # 其次使用不带后缀的字段名
+                elif field_name in kline:
+                    return float(kline[field_name])
+                # 最后尝试其他可能的字段名
+                else:
+                    for key in kline.keys():
+                        if field_name.lower() in key.lower():
+                            return float(kline[key])
+                    raise KeyError(f"Cannot find {field_name} field in kline data")
+            
+            high = [get_price_field(k, 'high') for k in klines]
+            low = [get_price_field(k, 'low') for k in klines]
+            close = [get_price_field(k, 'close') for k in klines]
             
             # 计算SuperTrend
             supertrend_values, trend_directions = self.calculate(high, low, close)
@@ -230,9 +245,21 @@ class VolumeIndicator:
                                     else:
                                         break
                             
-                            # 检查价格是否配合
-                            current_close = float(kline['close_price'])
-                            current_open = float(kline['open_price'])
+                            # 检查价格是否配合 - 智能字段名处理
+                            def get_price_value(kline_data, field_name):
+                                """智能获取价格值"""
+                                if f'{field_name}_price' in kline_data:
+                                    return float(kline_data[f'{field_name}_price'])
+                                elif field_name in kline_data:
+                                    return float(kline_data[field_name])
+                                else:
+                                    for key in kline_data.keys():
+                                        if field_name.lower() in key.lower():
+                                            return float(kline_data[key])
+                                    return 0.0
+                            
+                            current_close = get_price_value(kline, 'close')
+                            current_open = get_price_value(kline, 'open')
                             is_price_up = current_close > current_open
                             
                             enriched_kline['price_up'] = 'yes' if is_price_up else 'no'
@@ -304,3 +331,84 @@ class RSIIndicator:
         except Exception as e:
             logger.error(f"RSI calculation failed: {e}")
             raise IndicatorCalculationError(f"RSI calculation failed: {e}")
+
+
+def calculate_support_resistance(
+    market_data: pd.DataFrame, 
+    lookback_periods: int = 20
+) -> Tuple[List[float], List[float]]:
+    """
+    计算支撑位和阻力位
+    
+    Args:
+        market_data: 包含OHLC数据的DataFrame
+        lookback_periods: 回看周期
+        
+    Returns:
+        Tuple[List[float], List[float]]: (支撑位列表, 阻力位列表)
+    """
+    try:
+        if market_data.empty or len(market_data) < lookback_periods:
+            return [], []
+        
+        # 获取最近的数据
+        recent_data = market_data.tail(lookback_periods)
+        
+        # 计算局部高点和低点 - 智能字段名处理
+        def get_price_column(df, price_type):
+            """智能获取价格列"""
+            # 优先使用带_price后缀的字段名
+            if f'{price_type}_price' in df.columns:
+                return df[f'{price_type}_price'].values
+            # 其次使用不带后缀的字段名
+            elif price_type in df.columns:
+                return df[price_type].values
+            # 最后尝试其他可能的字段名
+            else:
+                for col in df.columns:
+                    if price_type.lower() in col.lower():
+                        return df[col].values
+                raise KeyError(f"Cannot find {price_type} column in DataFrame")
+        
+        highs = get_price_column(recent_data, 'high')
+        lows = get_price_column(recent_data, 'low')
+        closes = get_price_column(recent_data, 'close')
+        
+        # 寻找局部极值点
+        support_levels = []
+        resistance_levels = []
+        
+        # 简化的支撑阻力计算
+        window = min(5, len(recent_data) // 4)  # 动态窗口大小
+        
+        for i in range(window, len(recent_data) - window):
+            # 检查是否为局部低点（支撑）
+            current_low = lows[i]
+            is_local_min = all(current_low <= lows[j] for j in range(i-window, i+window+1))
+            
+            if is_local_min:
+                support_levels.append(current_low)
+            
+            # 检查是否为局部高点（阻力）
+            current_high = highs[i]
+            is_local_max = all(current_high >= highs[j] for j in range(i-window, i+window+1))
+            
+            if is_local_max:
+                resistance_levels.append(current_high)
+        
+        # 当前价格
+        current_price = closes[-1]
+        
+        # 过滤并排序支撑位（小于当前价格）
+        valid_supports = [s for s in support_levels if s < current_price]
+        valid_supports = sorted(set(valid_supports), reverse=True)[:3]  # 最近的3个支撑位
+        
+        # 过滤并排序阻力位（大于当前价格）
+        valid_resistances = [r for r in resistance_levels if r > current_price]
+        valid_resistances = sorted(set(valid_resistances))[:3]  # 最近的3个阻力位
+        
+        return valid_supports, valid_resistances
+        
+    except Exception as e:
+        logger.error(f"Support/Resistance calculation failed: {e}")
+        return [], []

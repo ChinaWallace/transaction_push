@@ -54,8 +54,25 @@ class MonitorService:
         try:
             monitor_logger.info("Starting funding rate monitoring")
             
-            # 获取所有资金费率数据
-            funding_rates = await self.exchange_service.get_funding_rate()
+            # 获取活跃交易对列表
+            if symbols is None:
+                symbols = await self.exchange_service.get_active_symbols()
+            
+            # 并发获取所有资金费率数据
+            funding_rates = []
+            tasks = []
+            for symbol in symbols:
+                task = self.exchange_service.get_funding_rate(symbol)
+                tasks.append((symbol, task))
+            
+            for symbol, task in tasks:
+                try:
+                    rate_data = await task
+                    if rate_data:
+                        funding_rates.append(rate_data)
+                except Exception as e:
+                    logger.warning(f"Failed to get funding rate for {symbol}: {e}")
+                    continue
             
             if not funding_rates:
                 raise MonitorError("No funding rate data available")
@@ -76,7 +93,7 @@ class MonitorService:
                     negative_rates.append({
                         'symbol': rate_data['symbol'],
                         'funding_rate': rate,
-                        'funding_time': rate_data['funding_time'],
+                        'funding_time': rate_data.get('next_funding_time', 0),
                         'mark_price': rate_data.get('mark_price')
                     })
                 
@@ -85,7 +102,7 @@ class MonitorService:
                     high_positive_rates.append({
                         'symbol': rate_data['symbol'],
                         'funding_rate': rate,
-                        'funding_time': rate_data['funding_time'],
+                        'funding_time': rate_data.get('next_funding_time', 0),
                         'mark_price': rate_data.get('mark_price')
                     })
             
@@ -238,8 +255,20 @@ class MonitorService:
                     klines = await task
                     
                     if len(klines) >= 3:
+                        # 转换K线数据格式以匹配指标计算器的期望格式
+                        formatted_klines = []
+                        for kline in klines:
+                            formatted_klines.append({
+                                'open_price': kline['open'],
+                                'high_price': kline['high'],
+                                'low_price': kline['low'],
+                                'close_price': kline['close'],
+                                'volume': kline['volume'],
+                                'close_time': kline['timestamp']
+                            })
+                        
                         # 使用庄神指标计算成交量异常
-                        enriched_klines = VolumeIndicator.calculate_volume_ratio(klines, periods=3)
+                        enriched_klines = VolumeIndicator.calculate_volume_ratio(formatted_klines, periods=3)
                         
                         # 检查最新的K线
                         latest_kline = enriched_klines[-1]
@@ -254,7 +283,7 @@ class MonitorService:
                                 'anomaly_type': anomaly_type,
                                 'price_up': price_up,
                                 'current_volume': float(latest_kline['volume']),
-                                'previous_volume': float(klines[-2]['volume']),
+                                'previous_volume': float(formatted_klines[-2]['volume']),
                                 'close_price': float(latest_kline['close_price']),
                                 'timestamp': latest_kline['close_time']
                             })
@@ -362,8 +391,8 @@ class MonitorService:
             
             return {
                 'timestamp': datetime.now(),
-                'status': 'healthy' if binance_healthy else 'degraded',
-                'binance_api': 'healthy' if binance_healthy else 'unhealthy',
+                'status': 'healthy' if exchange_healthy else 'degraded',
+                'exchange_api': 'healthy' if exchange_healthy else 'unhealthy',
                 'notification_channels': enabled_channels,
                 'monitor_config': self.monitor_config,
                 'services': {

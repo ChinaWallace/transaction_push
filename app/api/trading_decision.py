@@ -207,7 +207,7 @@ async def batch_trading_analysis(request: BatchAnalysisRequest) -> BaseResponse:
                     "entry_timing": recommendation.entry_timing
                 }
                 
-                # 发送通知（如果需要且是强信号）
+                # 只发送强信号的通知
                 if request.send_notifications and recommendation.action.value in ['strong_buy', 'strong_sell']:
                     await notification_service.send_trading_recommendation(recommendation)
                 

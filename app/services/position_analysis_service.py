@@ -23,12 +23,12 @@ settings = get_settings()
 
 class PositionRecommendation(Enum):
     """持仓建议枚举"""
-    HOLD = "hold"                    # 继续持有
-    REDUCE = "reduce"                # 减仓
-    INCREASE = "increase"            # 加仓
-    CLOSE = "close"                  # 平仓
-    HEDGE = "hedge"                  # 对冲
-    REBALANCE = "rebalance"          # 重新平衡
+    HOLD = "持有"                    # 继续持有
+    REDUCE = "减仓"                  # 减仓
+    INCREASE = "加仓"                # 加仓
+    CLOSE = "平仓"                   # 平仓
+    HEDGE = "对冲"                   # 对冲
+    REBALANCE = "重新平衡"           # 重新平衡
 
 
 class PositionRisk(Enum):
@@ -110,7 +110,7 @@ class PositionAnalysisService:
             analysis_result = {
                 "timestamp": datetime.now(),
                 "account_summary": await self._analyze_account_summary(account_balance, positions, spot_balances),
-                "position_analysis": await self._analyze_individual_positions(positions),
+                "position_analysis": await self._analyze_individual_positions(positions, account_balance),
                 "risk_assessment": await self._assess_portfolio_risk(account_balance, positions),
                 "recommendations": [],
                 "alerts": [],
@@ -174,7 +174,7 @@ class PositionAnalysisService:
             "leverage_ratio": total_position_value / total_equity if total_equity > 0 else 0
         }
     
-    async def _analyze_individual_positions(self, positions: List[Dict]) -> List[Dict[str, Any]]:
+    async def _analyze_individual_positions(self, positions: List[Dict], account_balance: Dict) -> List[Dict[str, Any]]:
         """分析单个持仓"""
         position_analyses = []
         
@@ -193,11 +193,14 @@ class PositionAnalysisService:
                     logger.warning(f"获取 {symbol} 市场信号失败: {e}")
                     market_signals = {}
                 
+                # 计算全仓风险指标
+                cross_margin_risk = self._calculate_cross_margin_risk(position, account_balance)
+                
                 # 分析持仓健康度
                 position_health = self._assess_position_health(position, market_signals)
                 
                 # 生成持仓建议
-                recommendation = self._generate_position_recommendation(position, market_signals, position_health)
+                recommendation = self._generate_position_recommendation(position, market_signals, position_health, account_balance)
                 
                 analysis = {
                     "symbol": symbol,
@@ -206,6 +209,9 @@ class PositionAnalysisService:
                     "position_value_usd": position_value,
                     "unrealized_pnl": unrealized_pnl,
                     "unrealized_pnl_ratio": position.get('unrealized_pnl_ratio', 0),
+                    "actual_loss_ratio": cross_margin_risk["actual_loss_ratio"],
+                    "position_weight": cross_margin_risk["position_weight"],
+                    "risk_exposure": cross_margin_risk["risk_exposure"],
                     "leverage": position.get('leverage', 1),
                     "avg_price": position.get('avg_price', 0),
                     "mark_price": position.get('mark_price', 0),
@@ -214,7 +220,8 @@ class PositionAnalysisService:
                     "market_trend": market_signals.get('trend', 'neutral'),
                     "recommendation": recommendation["action"],
                     "recommendation_reason": recommendation["reason"],
-                    "suggested_action": recommendation["details"]
+                    "suggested_action": recommendation["details"],
+                    "cross_margin_risk": cross_margin_risk
                 }
                 
                 position_analyses.append(analysis)
@@ -225,6 +232,36 @@ class PositionAnalysisService:
         
         return position_analyses
     
+    def _calculate_cross_margin_risk(self, position: Dict, account_balance: Dict) -> Dict[str, Any]:
+        """计算全仓模式下的风险指标"""
+        total_equity = account_balance.get('total_equity', 0)
+        unrealized_pnl_usd = position.get('unrealized_pnl_usd', 0)
+        position_value = position.get('position_value_usd', 0)
+        leverage = position.get('leverage', 1)
+        
+        # 实际亏损占总权益比例
+        actual_loss_ratio = (unrealized_pnl_usd / total_equity) if total_equity > 0 else 0
+        
+        # 持仓权重
+        position_weight = (position_value / total_equity * 100) if total_equity > 0 else 0
+        
+        # 风险敞口 = 持仓价值 * 杠杆 / 总权益
+        risk_exposure = (position_value * leverage / total_equity) if total_equity > 0 else 0
+        
+        # 最大可承受亏损（假设强平线为总权益的80%）
+        max_tolerable_loss = total_equity * 0.2
+        current_loss = abs(unrealized_pnl_usd) if unrealized_pnl_usd < 0 else 0
+        loss_buffer = max_tolerable_loss - current_loss
+        
+        return {
+            "actual_loss_ratio": actual_loss_ratio,
+            "position_weight": position_weight,
+            "risk_exposure": risk_exposure,
+            "loss_buffer": loss_buffer,
+            "max_tolerable_loss": max_tolerable_loss,
+            "risk_utilization": (current_loss / max_tolerable_loss) if max_tolerable_loss > 0 else 0
+        }
+
     def _assess_position_health(self, position: Dict, market_signals: Dict) -> Dict[str, Any]:
         """评估持仓健康度"""
         score = 100
@@ -292,49 +329,65 @@ class PositionAnalysisService:
         }
     
     def _generate_position_recommendation(self, position: Dict, market_signals: Dict, 
-                                        health: Dict) -> Dict[str, Any]:
+                                        health: Dict, account_balance: Dict = None) -> Dict[str, Any]:
         """生成单个持仓建议"""
         symbol = position.get('symbol', '')
-        pnl_ratio = position.get('unrealized_pnl_ratio', 0)
+        pnl_ratio = position.get('unrealized_pnl_ratio', 0)  # 单仓位盈亏比例
+        unrealized_pnl_usd = position.get('unrealized_pnl_usd', 0)  # 实际盈亏金额
         leverage = position.get('leverage', 1)
         side = position.get('side', '')
         market_trend = market_signals.get('trend', 'neutral')
         health_score = health["score"]
+        position_value = position.get('position_value_usd', 0)
         
-        # 决策逻辑
-        if health_score < 30:
+        # 计算全仓模式下的实际亏损比例
+        total_equity = account_balance.get('total_equity', 0) if account_balance else 0
+        actual_loss_ratio = (unrealized_pnl_usd / total_equity) if total_equity > 0 else 0
+        
+        # 计算持仓占总权益的比例
+        position_weight = (position_value / total_equity * 100) if total_equity > 0 else 0
+        
+        # 决策逻辑 - 优先考虑实际亏损比例
+        if health_score < 30 or actual_loss_ratio < -0.08:  # 实际亏损超过总权益8%
             # 危险持仓，建议平仓
             return {
                 "action": PositionRecommendation.CLOSE,
-                "reason": "持仓健康度极低，风险过大",
+                "reason": f"实际亏损${abs(unrealized_pnl_usd):,.0f}({abs(actual_loss_ratio)*100:.1f}%总权益)，风险过大",
                 "details": {
-                    "urgency": "high",
+                    "urgency": "紧急",
                     "suggested_percentage": 100,
-                    "time_frame": "立即执行"
+                    "time_frame": "立即执行",
+                    "specific_action": f"市价平仓 {symbol} 全部持仓",
+                    "risk_analysis": f"该持仓已造成总权益{abs(actual_loss_ratio)*100:.1f}%的实际亏损"
                 }
             }
         
-        elif pnl_ratio < -0.12:
-            # 严重亏损，建议减仓或平仓
+        elif actual_loss_ratio < -0.05 or pnl_ratio < -0.12:  # 实际亏损超过5%或单仓亏损12%
+            # 严重亏损，建议减仓
+            reduce_percentage = min(80, max(50, abs(actual_loss_ratio) * 1000))  # 根据亏损程度调整减仓比例
             return {
                 "action": PositionRecommendation.REDUCE,
-                "reason": f"亏损{abs(pnl_ratio)*100:.1f}%，建议止损",
+                "reason": f"实际亏损${abs(unrealized_pnl_usd):,.0f}({abs(actual_loss_ratio)*100:.1f}%总权益)，建议止损",
                 "details": {
-                    "urgency": "high",
-                    "suggested_percentage": 70,
-                    "time_frame": "24小时内"
+                    "urgency": "高",
+                    "suggested_percentage": int(reduce_percentage),
+                    "time_frame": "24小时内",
+                    "specific_action": f"减仓{symbol} {int(reduce_percentage)}%，设置止损位于{position.get('mark_price', 0) * (0.95 if side == 'long' else 1.05):.4f}",
+                    "risk_analysis": f"当前亏损已占总权益{abs(actual_loss_ratio)*100:.1f}%，持仓权重{position_weight:.1f}%"
                 }
             }
         
-        elif leverage > 15:
+        elif leverage > 15 and position_weight > 20:  # 高杠杆且持仓占比大
             # 杠杆过高，建议降杠杆
             return {
                 "action": PositionRecommendation.REDUCE,
-                "reason": f"杠杆{leverage:.1f}x过高，建议降低风险",
+                "reason": f"杠杆{leverage:.1f}x过高，持仓占比{position_weight:.1f}%，建议降低风险",
                 "details": {
-                    "urgency": "medium",
+                    "urgency": "中",
                     "suggested_percentage": 40,
-                    "time_frame": "48小时内"
+                    "time_frame": "48小时内",
+                    "specific_action": f"减仓{symbol} 40%或增加保证金降低杠杆至10x以下",
+                    "risk_analysis": f"高杠杆持仓在市场波动中风险极大，建议控制在合理范围"
                 }
             }
         
@@ -342,36 +395,42 @@ class PositionAnalysisService:
             # 逆势持仓
             return {
                 "action": PositionRecommendation.HEDGE,
-                "reason": "持仓方向与市场趋势相反",
+                "reason": "持仓方向与市场趋势相反，建议对冲或减仓",
                 "details": {
-                    "urgency": "medium",
+                    "urgency": "中",
                     "suggested_percentage": 30,
-                    "time_frame": "考虑对冲或减仓"
+                    "time_frame": "关注趋势变化",
+                    "specific_action": f"考虑开设反向对冲仓位或减仓{symbol} 30%",
+                    "risk_analysis": f"逆势持仓风险较高，当前{'做多' if side == 'long' else '做空'}但趋势{'看跌' if market_trend == 'bearish' else '看涨'}"
                 }
             }
         
-        elif pnl_ratio > 0.15 and market_trend == 'neutral':
+        elif actual_loss_ratio > 0.10 and market_trend == 'neutral':  # 实际盈利超过10%但趋势转弱
             # 高盈利但趋势转弱，建议部分止盈
             return {
                 "action": PositionRecommendation.REDUCE,
-                "reason": f"盈利{pnl_ratio*100:.1f}%，趋势转弱，建议止盈",
+                "reason": f"盈利${unrealized_pnl_usd:,.0f}({actual_loss_ratio*100:.1f}%总权益)，趋势转弱，建议止盈",
                 "details": {
-                    "urgency": "low",
+                    "urgency": "低",
                     "suggested_percentage": 30,
-                    "time_frame": "适时止盈"
+                    "time_frame": "适时止盈",
+                    "specific_action": f"分批止盈{symbol} 30%，保留核心仓位，设置移动止盈",
+                    "risk_analysis": f"已获得可观盈利，适当锁定利润降低回撤风险"
                 }
             }
         
         elif health_score > 70 and ((side == 'long' and market_trend == 'bullish') or 
-                                   (side == 'short' and market_trend == 'bearish')):
-            # 健康持仓且顺势，可考虑加仓
+                                   (side == 'short' and market_trend == 'bearish')) and position_weight < 25:
+            # 健康持仓且顺势，持仓占比不高，可考虑加仓
             return {
                 "action": PositionRecommendation.INCREASE,
                 "reason": "持仓健康且顺应趋势，可适当加仓",
                 "details": {
-                    "urgency": "low",
+                    "urgency": "低",
                     "suggested_percentage": 20,
-                    "time_frame": "等待回调机会"
+                    "time_frame": "等待回调机会",
+                    "specific_action": f"等待{symbol}回调至支撑位后加仓20%，控制总仓位不超过30%",
+                    "risk_analysis": f"当前持仓健康，趋势向好，但需控制仓位规模"
                 }
             }
         
@@ -381,9 +440,11 @@ class PositionAnalysisService:
                 "action": PositionRecommendation.HOLD,
                 "reason": "持仓状态良好，继续持有",
                 "details": {
-                    "urgency": "none",
+                    "urgency": "无",
                     "suggested_percentage": 0,
-                    "time_frame": "持续监控"
+                    "time_frame": "持续监控",
+                    "specific_action": f"继续持有{symbol}，关注市场变化和风险指标",
+                    "risk_analysis": f"当前持仓风险可控，盈亏状况正常"
                 }
             }
     
@@ -699,21 +760,38 @@ class PositionAnalysisService:
                 message_parts.append("📋 需要关注的持仓:")
                 for pos in problem_positions[:5]:  # 最多显示5个
                     rec_emoji = {
-                        "close": "❌", "reduce": "📉", "increase": "📈", 
-                        "hedge": "🔄", "hold": "⏸️"
+                        "平仓": "❌", "减仓": "📉", "加仓": "📈", 
+                        "对冲": "🔄", "持有": "⏸️", "重新平衡": "⚖️"
                     }.get(pos.get("recommendation"), "📊")
                     
                     pnl = pos.get("unrealized_pnl", 0)
                     pnl_text = f"${pnl:,.0f}" if pnl != 0 else "±$0"
+                    actual_loss_ratio = pos.get("actual_loss_ratio", 0)
+                    position_weight = pos.get("position_weight", 0)
                     
                     recommendation = pos.get('recommendation', '')
                     if hasattr(recommendation, 'value'):
                         recommendation = recommendation.value
                     
+                    # 获取具体操作建议
+                    suggested_action = pos.get('suggested_action', {})
+                    specific_action = suggested_action.get('specific_action', '')
+                    urgency = suggested_action.get('urgency', '')
+                    
                     message_parts.append(
-                        f"  {rec_emoji} {pos.get('symbol', '')}: {str(recommendation).upper()} "
-                        f"(盈亏: {pnl_text}, 健康度: {pos.get('health_score', 0):.0f})"
+                        f"  {rec_emoji} {pos.get('symbol', '')}: {recommendation} "
+                        f"(盈亏: {pnl_text}/{abs(actual_loss_ratio)*100:.1f}%权益, 仓位: {position_weight:.1f}%)"
                     )
+                    
+                    # 添加具体操作建议
+                    if specific_action:
+                        urgency_emoji = {"紧急": "🚨", "高": "⚠️", "中": "⚡", "低": "💭"}.get(urgency, "💡")
+                        message_parts.append(f"    {urgency_emoji} {specific_action}")
+                        
+                    # 添加风险分析
+                    risk_analysis = suggested_action.get('risk_analysis', '')
+                    if risk_analysis:
+                        message_parts.append(f"    📊 {risk_analysis}")
             
             message = "\n".join(message_parts)
             

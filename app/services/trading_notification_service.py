@@ -50,8 +50,8 @@ class TradingNotificationService:
         if not self.notification_config['enable_trading_notifications']:
             return False
         
-        # 检查通知限制
-        if not self._should_send_notification(recommendation.symbol, recommendation.confidence):
+        # 检查通知限制 - 只发送强信号
+        if not self._should_send_notification(recommendation.symbol, recommendation.confidence, recommendation.action.value):
             return False
         
         try:
@@ -247,19 +247,27 @@ class TradingNotificationService:
             logger.error(f"❌ 发送批量摘要通知失败: {e}")
             return False
     
-    def _should_send_notification(self, symbol: str, confidence: float) -> bool:
+    def _should_send_notification(self, symbol: str, confidence: float, action: str = None) -> bool:
         """
-        检查是否应该发送通知
+        检查是否应该发送通知 - 发送买入/卖出及以上信号
         
         Args:
             symbol: 交易对
             confidence: 置信度
+            action: 交易动作
             
         Returns:
             是否应该发送
         """
-        # 检查置信度阈值
-        if confidence < self.notification_config['min_confidence_for_notification']:
+        # 发送买入/卖出及以上信号的通知
+        if action and action not in ['强烈买入', '买入', '强烈卖出', '卖出']:
+            logger.debug(f"{symbol} 非交易信号 ({action})，跳过通知")
+            return False
+        
+        # 检查置信度阈值 - 降低阈值以发送更多信号
+        min_threshold = 65.0 if action in ['强烈买入', '强烈卖出'] else 60.0
+        if confidence < min_threshold:
+            logger.debug(f"{symbol} 置信度不足 ({confidence:.1f}% < {min_threshold}%)，跳过通知")
             return False
         
         # 检查每小时通知限制
@@ -464,6 +472,209 @@ class TradingNotificationService:
         
         return False
     
+    async def send_unified_trading_notification(self, notification_data: Dict[str, Any]) -> bool:
+        """
+        发送统一交易通知 - 包含详细技术分析
+        
+        Args:
+            notification_data: 通知数据
+            
+        Returns:
+            是否发送成功
+        """
+        try:
+            symbol = notification_data['symbol']
+            action = notification_data['action']
+            confidence = notification_data['confidence']
+            reasoning = notification_data['reasoning']
+            current_price = notification_data['current_price']
+            stop_loss = notification_data['stop_loss']
+            take_profit = notification_data['take_profit']
+            position_size = notification_data['position_size']
+            risk_level = notification_data['risk_level']
+            
+            # 获取额外的技术分析详情
+            traditional_signal = notification_data.get('traditional_signal', '未知')
+            traditional_confidence = notification_data.get('traditional_confidence', 0)
+            ml_signal = notification_data.get('ml_signal', '未知')
+            ml_confidence = notification_data.get('ml_confidence', 0)
+            market_regime = notification_data.get('market_regime', '未知')
+            volatility_level = notification_data.get('volatility_level', '中等')
+            key_factors = notification_data.get('key_factors', [])
+            entry_timing = notification_data.get('entry_timing', '立即')
+            leverage = notification_data.get('leverage', 1.0)
+            risk_reward_ratio = notification_data.get('risk_reward_ratio', 0)
+            
+            # 检查通知限制 - 只发送强信号
+            if not self._should_send_notification(symbol, confidence, action):
+                return False
+            
+            # 获取详细技术分析
+            detailed_analysis = await self._get_detailed_technical_analysis(symbol)
+            
+            # 动作图标映射
+            action_icons = {
+                '强烈买入': '🚀',
+                '买入': '📈',
+                '持有': '⏸️',
+                '卖出': '📉',
+                '强烈卖出': '💥',
+                '等待': '⏳'
+            }
+            
+            # 风险等级图标
+            risk_icons = {
+                '极低风险': '🟢',
+                '低风险': '🟡',
+                '中等风险': '🟠',
+                '高风险': '🔴',
+                '极高风险': '⚫'
+            }
+            
+            # 市场状态图标
+            regime_icons = {
+                '上涨趋势': '📈',
+                '下跌趋势': '📉',
+                '震荡整理': '↔️',
+                '高波动': '🌊',
+                '平静': '😴'
+            }
+            
+            icon = action_icons.get(action, '📊')
+            risk_icon = risk_icons.get(risk_level, '⚪')
+            regime_icon = regime_icons.get(market_regime, '📊')
+            
+            title = f"{icon} 统一交易决策 - {symbol}"
+            
+            # 构建详细通知消息
+            message_parts = [
+                f"🎯 交易对: {symbol}",
+                f"💰 当前价格: ${current_price:.4f}",
+                f"🎯 综合建议: {action}",
+                f"📊 总体置信度: {confidence:.1f}%",
+                "",
+                "📈 技术分析详情:",
+                f"  传统分析: {traditional_signal} ({traditional_confidence:.1f}%)",
+                f"  机器学习: {ml_signal} ({ml_confidence:.1f}%)",
+                f"  {regime_icon} 市场状态: {market_regime}",
+                f"  🌊 波动水平: {volatility_level}",
+                "",
+                "🎯 交易参数:",
+                f"  💵 建议仓位: {position_size:.1f}%",
+                f"  ⚖️ 建议杠杆: {leverage:.1f}x",
+                f"  🛡️ 止损价: ${stop_loss:.4f} ({((current_price - stop_loss) / current_price * 100):+.2f}%)",
+                f"  🎯 止盈价: ${take_profit:.4f} ({((take_profit - current_price) / current_price * 100):+.2f}%)",
+                f"  📊 风险收益比: 1:{risk_reward_ratio:.1f}",
+                f"  {risk_icon} 风险等级: {risk_level}",
+                "",
+                "⏰ 执行建议:",
+                f"  🕐 入场时机: {entry_timing}",
+            ]
+            
+            # 添加详细技术分析
+            if detailed_analysis:
+                message_parts.extend([
+                    "",
+                    "📊 技术指标分析:"
+                ])
+                
+                # 添加各类指标评分
+                for category, score in detailed_analysis.weighted_breakdown.items():
+                    if score >= 70:
+                        status = "强势 🟢"
+                    elif score >= 60:
+                        status = "偏强 🟡"
+                    elif score <= 30:
+                        status = "弱势 🔴"
+                    elif score <= 40:
+                        status = "偏弱 🟠"
+                    else:
+                        status = "中性 ⚪"
+                    
+                    message_parts.append(f"  • {category}: {score:.1f}分 {status}")
+                
+                # 添加关键指标详情
+                message_parts.extend([
+                    "",
+                    "🔍 关键技术指标:"
+                ])
+                
+                # 选择最重要的指标显示
+                all_indicators = (detailed_analysis.trend_indicators + detailed_analysis.momentum_indicators + 
+                                detailed_analysis.volume_indicators + detailed_analysis.volatility_indicators)
+                
+                # 按权重排序，取前4个
+                important_indicators = sorted(all_indicators, key=lambda x: x.weight, reverse=True)[:4]
+                
+                for indicator in important_indicators:
+                    signal_emoji = "📈" if indicator.signal == 'buy' else "📉" if indicator.signal == 'sell' else "⏸️"
+                    message_parts.append(
+                        f"  • {indicator.name}: {signal_emoji} {indicator.description}"
+                    )
+            else:
+                # 如果没有详细分析，使用原有的关键因素
+                message_parts.extend([
+                    "",
+                    "🔍 关键因素:"
+                ])
+                
+                if key_factors:
+                    for factor in key_factors[:5]:  # 最多显示5个关键因素
+                        message_parts.append(f"  • {factor}")
+                else:
+                    message_parts.append(f"  • {reasoning}")
+            
+            message_parts.extend([
+                "",
+                f"💡 综合分析: {reasoning}",
+                "",
+                f"⏰ 分析时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                "",
+                "⚠️ 风险提示: 本建议融合传统技术分析和机器学习，仅供参考，请谨慎投资！"
+            ])
+            
+            message = "\n".join(message_parts)
+            
+            # 确定优先级
+            if action in ['强烈买入', '强烈卖出'] and confidence > 80:
+                priority = "high"
+            elif confidence > 75:
+                priority = "medium"
+            else:
+                priority = "low"
+            
+            # 发送通知
+            success_results = await self.notification_service.send_notification(
+                message=f"{title}\n\n{message}",
+                priority=priority,
+                subject=title
+            )
+            success = any(success_results.values()) if success_results else False
+            
+            if success:
+                # 记录通知历史
+                self._record_notification(symbol)
+                trading_logger.info(f"📢 已发送 {symbol} 详细技术分析通知: {action} (置信度: {confidence:.1f}%)")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"❌ 发送统一交易通知失败: {e}")
+            return False
+    
+    async def _get_detailed_technical_analysis(self, symbol: str) -> Optional[Any]:
+        """获取详细技术分析"""
+        try:
+            from app.services.detailed_technical_analysis_service import DetailedTechnicalAnalysisService
+            
+            detailed_service = DetailedTechnicalAnalysisService()
+            analysis = await detailed_service.analyze_symbol_detailed(symbol)
+            return analysis
+            
+        except Exception as e:
+            logger.warning(f"获取{symbol}详细技术分析失败: {e}")
+            return None
+
     async def send_notification(self, title: str, message: str, 
                               notification_type: str = "general", 
                               priority: str = "medium") -> bool:

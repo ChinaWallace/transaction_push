@@ -327,7 +327,7 @@ async def get_market_overview(
         popular_symbols = [
             "BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "SOLUSDT",
             "XRPUSDT", "DOTUSDT", "DOGEUSDT", "AVAXUSDT", "SHIBUSDT",
-            "MATICUSDT", "LTCUSDT", "UNIUSDT", "LINKUSDT", "ATOMUSDT",
+            "LTCUSDT", "UNIUSDT", "LINKUSDT", "ATOMUSDT", "AAVEUSDT",
             "ETCUSDT", "XLMUSDT", "BCHUSDT", "FILUSDT", "TRXUSDT"
         ]
         

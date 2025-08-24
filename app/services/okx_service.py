@@ -346,24 +346,41 @@ class OKXService:
             logger.error(f"获取{symbol} K线数据失败: {e}")
             return []
     
-    async def get_funding_rate(self, symbol: str) -> Optional[Dict[str, Any]]:
+    async def get_funding_rate(self, symbol: str = None) -> Optional[Dict[str, Any]]:
         """获取资金费率"""
         try:
-            params = {'instId': symbol}
-            result = await self._make_request('GET', '/api/v5/public/funding-rate', params=params)
+            if symbol:
+                # 获取单个交易对的资金费率
+                params = {'instId': symbol}
+                result = await self._make_request('GET', '/api/v5/public/funding-rate', params=params)
+                
+                if result:
+                    data = result[0]
+                    return {
+                        'symbol': symbol,
+                        'funding_rate': float(data.get('fundingRate', '0')),
+                        'next_funding_time': int(data.get('nextFundingTime', '0')),
+                        'update_time': datetime.now()
+                    }
+            else:
+                # 获取所有永续合约的资金费率
+                params = {'instType': 'SWAP'}
+                result = await self._make_request('GET', '/api/v5/public/funding-rate', params=params)
+                
+                funding_rates = []
+                for data in result:
+                    funding_rates.append({
+                        'symbol': data.get('instId', ''),
+                        'funding_rate': float(data.get('fundingRate', '0')),
+                        'next_funding_time': int(data.get('nextFundingTime', '0')),
+                        'update_time': datetime.now()
+                    })
+                return funding_rates
             
-            if result:
-                data = result[0]
-                return {
-                    'symbol': symbol,
-                    'funding_rate': float(data.get('fundingRate', '0')),
-                    'next_funding_time': int(data.get('nextFundingTime', '0')),
-                    'update_time': datetime.now()
-                }
             return None
             
         except Exception as e:
-            logger.error(f"获取{symbol}资金费率失败: {e}")
+            logger.error(f"获取{symbol if symbol else '所有'}资金费率失败: {e}")
             return None
     
     async def get_open_interest(self, symbol: str) -> Optional[Dict[str, Any]]:
@@ -385,6 +402,46 @@ class OKXService:
         except Exception as e:
             logger.error(f"获取{symbol}持仓量失败: {e}")
             return None
+    
+    async def get_open_interest_statistics(self, symbol: str, period: str = "5m", limit: int = 2) -> List[Dict[str, Any]]:
+        """获取持仓量统计数据（用于监控变化）"""
+        try:
+            # OKX的持仓量历史数据接口
+            params = {
+                'instId': symbol,
+                'period': period,
+                'limit': str(limit)
+            }
+            
+            result = await self._make_request('GET', '/api/v5/rubik/stat/contracts/open-interest-history', params=params)
+            
+            statistics = []
+            for item in result:
+                statistics.append({
+                    'symbol': symbol,
+                    'timestamp': int(item[0]),  # 时间戳
+                    'open_interest': float(item[1]),  # 持仓量
+                    'open_interest_value': float(item[2]) if len(item) > 2 else 0  # 持仓量价值
+                })
+            
+            # 按时间戳降序排列（最新的在前面）
+            return sorted(statistics, key=lambda x: x['timestamp'], reverse=True)
+            
+        except Exception as e:
+            logger.error(f"获取{symbol}持仓量统计失败: {e}")
+            # 如果统计接口失败，尝试使用当前持仓量数据构造
+            try:
+                current_oi = await self.get_open_interest(symbol)
+                if current_oi:
+                    return [{
+                        'symbol': symbol,
+                        'timestamp': int(datetime.now().timestamp() * 1000),
+                        'open_interest': current_oi['open_interest'],
+                        'open_interest_value': current_oi.get('open_interest_currency', 0)
+                    }]
+            except:
+                pass
+            return []
     
     async def place_order(self, symbol: str, side: str, size: float, 
                          order_type: str = 'market', price: float = None,
@@ -632,3 +689,86 @@ class OKXService:
         except Exception as e:
             logger.error(f"停止交易机器人失败: {e}")
             return False
+    
+    async def health_check(self) -> bool:
+        """健康检查"""
+        try:
+            # 尝试获取服务器时间来检查API连接
+            result = await self._make_request('GET', '/api/v5/public/time')
+            return bool(result)
+            
+        except Exception as e:
+            logger.error(f"OKX API健康检查失败: {e}")
+            return False
+    
+    async def get_active_symbols(self, inst_type: str = 'SWAP') -> List[str]:
+        """获取活跃交易对列表"""
+        try:
+            params = {
+                'instType': inst_type,  # SWAP永续合约, SPOT现货
+                'state': 'live'  # 只获取正常交易的
+            }
+            
+            result = await self._make_request('GET', '/api/v5/public/instruments', params=params)
+            
+            symbols = []
+            for instrument in result:
+                if instrument.get('state') == 'live':
+                    symbols.append(instrument.get('instId', ''))
+            
+            # 过滤掉空字符串并返回前50个活跃合约
+            active_symbols = [s for s in symbols if s][:50]
+            return active_symbols
+            
+        except Exception as e:
+            logger.error(f"获取活跃交易对失败: {e}")
+            # 返回一些常见的交易对作为备选（已移除无效的MATIC）
+            return [
+                'BTC-USDT-SWAP', 'ETH-USDT-SWAP', 'SOL-USDT-SWAP',
+                'BNB-USDT-SWAP', 'XRP-USDT-SWAP', 'ADA-USDT-SWAP',
+                'DOGE-USDT-SWAP', 'DOT-USDT-SWAP', 'AVAX-USDT-SWAP',
+                'LINK-USDT-SWAP'
+            ]
+    
+    async def get_multi_timeframe_klines(self, symbol: str, timeframes: List[str], limit: int = 100) -> Dict[str, List[dict]]:
+        """
+        获取多周期K线数据
+        
+        Args:
+            symbol: 交易对
+            timeframes: 时间周期列表，如['1d', '4h', '1h', '15m']
+            limit: 每个周期的K线数量限制
+            
+        Returns:
+            多周期K线数据字典
+        """
+        try:
+            result = {}
+            
+            # 并发获取各周期数据
+            tasks = []
+            for timeframe in timeframes:
+                task = self.get_kline_data(symbol, timeframe, limit)
+                tasks.append(task)
+            
+            # 等待所有请求完成
+            kline_results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # 处理结果
+            for i, klines in enumerate(kline_results):
+                timeframe = timeframes[i]
+                
+                if isinstance(klines, Exception):
+                    logger.warning(f"获取{symbol} {timeframe}周期K线失败: {klines}")
+                    result[timeframe] = []
+                elif klines:
+                    result[timeframe] = klines
+                else:
+                    result[timeframe] = []
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"获取{symbol}多周期K线数据失败: {e}")
+            # 返回空数据结构
+            return {timeframe: [] for timeframe in timeframes}

@@ -100,3 +100,8 @@ class ServiceUnavailableError(TradingToolError):
 class InternalServerError(TradingToolError):
     """内部服务器错误"""
     pass
+
+
+class BacktestError(TradingToolError):
+    """回测异常"""
+    pass

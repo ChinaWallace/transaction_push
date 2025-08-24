@@ -131,6 +131,20 @@ class TrendAnalysisService:
         self.supertrend_indicator = SuperTrendIndicator(period=10, multiplier=3.0)
         self.timeframes = ['1d', '4h', '1h', '15m']
     
+    async def analyze_symbol(self, symbol: str, 
+                           custom_data: Optional[Dict[str, List[dict]]] = None) -> Dict[str, Any]:
+        """
+        分析单个交易对的趋势信号 - 别名方法
+        
+        Args:
+            symbol: 交易对符号
+            custom_data: 自定义数据
+            
+        Returns:
+            趋势分析结果
+        """
+        return await self.analyze_multi_timeframe_signal(symbol, custom_data)
+    
     async def analyze_multi_timeframe_signal(self, symbol: str, 
                                            custom_data: Optional[Dict[str, List[dict]]] = None) -> Dict[str, Any]:
         """
@@ -163,7 +177,7 @@ class TrendAnalysisService:
                         
                         # 获取最新趋势
                         latest_kline = enriched_klines[-1]
-                        if latest_kline['supertrend_direction']:
+                        if latest_kline.get('supertrend_direction'):
                             trends[timeframe] = TrendDirection.UP if latest_kline['supertrend_direction'] == 'up' else TrendDirection.DOWN
                         else:
                             trends[timeframe] = TrendDirection.UNCLEAR
@@ -178,10 +192,21 @@ class TrendAnalysisService:
             # 计算置信度
             confidence_score = self._calculate_confidence_score(trends, signal_combination)
             
-            # 获取当前价格
+            # 获取当前价格 - 智能字段名处理
             current_price = None
             if '15m' in timeframe_data and timeframe_data['15m']:
-                current_price = float(timeframe_data['15m'][-1]['close_price'])
+                latest_kline = timeframe_data['15m'][-1]
+                # 尝试多种可能的字段名
+                if 'close_price' in latest_kline:
+                    current_price = float(latest_kline['close_price'])
+                elif 'close' in latest_kline:
+                    current_price = float(latest_kline['close'])
+                else:
+                    # 寻找包含close的字段
+                    for key in latest_kline.keys():
+                        if 'close' in key.lower():
+                            current_price = float(latest_kline[key])
+                            break
             
             # 构建结果
             result = {
@@ -428,8 +453,12 @@ class TrendAnalysisService:
         confidence = signal_data.get('confidence_score', 0)
         timestamp = signal_data['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
         
-        # 趋势图标映射
-        trend_icons = {'up': '↑', 'down': '↓', 'unclear': '/'}
+        # 趋势图标和中文描述映射
+        trend_mapping = {
+            'up': {'icon': '📈', 'text': '上涨'},
+            'down': {'icon': '📉', 'text': '下跌'},
+            'unclear': {'icon': '➖', 'text': '不明'}
+        }
         
         # 级别图标映射
         level_icons = {
@@ -439,13 +468,19 @@ class TrendAnalysisService:
             'watch': '⚪'
         }
         
+        # 获取趋势描述
+        daily_trend = trend_mapping.get(trends['daily'], {'icon': '➖', 'text': '不明'})
+        h4_trend = trend_mapping.get(trends['h4'], {'icon': '➖', 'text': '不明'})
+        h1_trend = trend_mapping.get(trends['h1'], {'icon': '➖', 'text': '不明'})
+        m15_trend = trend_mapping.get(trends['m15'], {'icon': '➖', 'text': '不明'})
+        
         message = f"""📊 【交易信号 - {symbol}】
 
-🕐 周期趋势分析：
-├ 日线：{trend_icons.get(trends['daily'], '/')} {trends['daily'].upper()}
-├ 4小时：{trend_icons.get(trends['h4'], '/')} {trends['h4'].upper()}
-├ 1小时：{trend_icons.get(trends['h1'], '/')} {trends['h1'].upper()}
-└ 15分钟：{trend_icons.get(trends['m15'], '/')} {trends['m15'].upper()}
+🕐 多周期趋势分析：
+├ 日线：{daily_trend['icon']} {daily_trend['text']}
+├ 4小时：{h4_trend['icon']} {h4_trend['text']}
+├ 1小时：{h1_trend['icon']} {h1_trend['text']}
+└ 15分钟：{m15_trend['icon']} {m15_trend['text']}
 
 {level_icons.get(signal_data['signal_level'], '⚪')} {combination.name}
 
@@ -453,10 +488,12 @@ class TrendAnalysisService:
 
 💡 策略建议：{combination.strategy}
 
-📈 当前价格：{price}
-📊 置信度：{confidence:.2%}
+💰 当前价格：${price}
+📊 置信度：{confidence:.1%}
 
-⏰ 分析时间：{timestamp}"""
+⏰ 分析时间：{timestamp}
+
+📝 注：多周期共振信号更可靠，请结合风险管理操作！"""
         
         return message
     
