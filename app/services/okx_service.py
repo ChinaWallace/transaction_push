@@ -356,10 +356,12 @@ class OKXService:
                 
                 if result:
                     data = result[0]
+                    next_funding_time = int(data.get('nextFundingTime', '0'))
+                    
                     return {
                         'symbol': symbol,
                         'funding_rate': float(data.get('fundingRate', '0')),
-                        'next_funding_time': int(data.get('nextFundingTime', '0')),
+                        'next_funding_time': next_funding_time,
                         'update_time': datetime.now()
                     }
             else:
@@ -369,10 +371,12 @@ class OKXService:
                 
                 funding_rates = []
                 for data in result:
+                    next_funding_time = int(data.get('nextFundingTime', '0'))
+                    
                     funding_rates.append({
                         'symbol': data.get('instId', ''),
                         'funding_rate': float(data.get('fundingRate', '0')),
-                        'next_funding_time': int(data.get('nextFundingTime', '0')),
+                        'next_funding_time': next_funding_time,
                         'update_time': datetime.now()
                     })
                 return funding_rates
@@ -382,6 +386,56 @@ class OKXService:
         except Exception as e:
             logger.error(f"获取{symbol if symbol else '所有'}资金费率失败: {e}")
             return None
+
+    async def get_funding_rate_history(self, symbol: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """获取资金费率历史，用于计算费率间隔"""
+        try:
+            params = {
+                'instId': symbol,
+                'limit': str(limit)
+            }
+            
+            result = await self._make_request('GET', '/api/v5/public/funding-rate-history', params=params)
+            
+            if not result:
+                return []
+            
+            history = []
+            for data in result:
+                history.append({
+                    'symbol': symbol,
+                    'funding_rate': float(data.get('fundingRate', '0')),
+                    'funding_time': int(data.get('fundingTime', '0')),
+                    'realized_rate': float(data.get('realizedRate', '0'))
+                })
+            
+            return history
+            
+        except Exception as e:
+            logger.error(f"获取{symbol}资金费率历史失败: {e}")
+            return []
+
+    def calculate_funding_interval(self, funding_history: List[Dict[str, Any]]) -> int:
+        """根据费率历史计算费率间隔（小时）"""
+        if len(funding_history) < 2:
+            return 8  # 默认8小时
+        
+        # 计算相邻两次费率时间的差值
+        intervals = []
+        for i in range(len(funding_history) - 1):
+            time1 = funding_history[i]['funding_time']
+            time2 = funding_history[i + 1]['funding_time']
+            interval_ms = abs(time1 - time2)
+            interval_hours = interval_ms / (1000 * 3600)  # 转换为小时
+            intervals.append(interval_hours)
+        
+        if intervals:
+            # 取最常见的间隔
+            avg_interval = sum(intervals) / len(intervals)
+            # 四舍五入到最近的整数小时
+            return round(avg_interval)
+        
+        return 8  # 默认8小时
     
     async def get_open_interest(self, symbol: str) -> Optional[Dict[str, Any]]:
         """获取持仓量"""
@@ -701,6 +755,62 @@ class OKXService:
             logger.error(f"OKX API健康检查失败: {e}")
             return False
     
+    async def get_instrument_info(self, symbol: str = None, inst_type: str = 'SWAP') -> Dict[str, Any]:
+        """获取合约详细信息，包括费率间隔"""
+        try:
+            params = {
+                'instType': inst_type,
+                'state': 'live'
+            }
+            
+            if symbol:
+                params['instId'] = symbol
+            
+            result = await self._make_request('GET', '/api/v5/public/instruments', params=params)
+            
+            if not result:
+                return {}
+            
+            instruments_info = {}
+            for instrument in result:
+                inst_id = instrument.get('instId', '')
+                if not inst_id:
+                    continue
+                
+                # 计算费率间隔（小时）
+                # OKX的费率间隔通常是8小时，但某些币种可能不同
+                # 可以通过settleCcy或其他字段判断，这里先设为默认8小时
+                funding_interval_hours = 8
+                
+                # 特殊币种的费率间隔（根据实际情况调整）
+                if 'BTC' in inst_id or 'ETH' in inst_id:
+                    funding_interval_hours = 8
+                elif any(x in inst_id for x in ['DOGE', 'SHIB', 'PEPE']):
+                    funding_interval_hours = 4  # 某些meme币可能是4小时
+                else:
+                    funding_interval_hours = 8  # 默认8小时
+                
+                instruments_info[inst_id] = {
+                    'symbol': inst_id,
+                    'base_currency': instrument.get('baseCcy', ''),
+                    'quote_currency': instrument.get('quoteCcy', ''),
+                    'settle_currency': instrument.get('settleCcy', ''),
+                    'contract_value': float(instrument.get('ctVal', '1')),
+                    'min_size': float(instrument.get('minSz', '1')),
+                    'tick_size': float(instrument.get('tickSz', '0.01')),
+                    'funding_interval_hours': funding_interval_hours,
+                    'funding_times_per_day': 24 // funding_interval_hours,
+                    'state': instrument.get('state', ''),
+                    'listing_time': instrument.get('listTime', ''),
+                    'expiry_time': instrument.get('expTime', ''),
+                }
+            
+            return instruments_info if not symbol else instruments_info.get(symbol, {})
+            
+        except Exception as e:
+            logger.error(f"获取合约信息失败: {e}")
+            return {}
+
     async def get_active_symbols(self, inst_type: str = 'SWAP') -> List[str]:
         """获取活跃交易对列表"""
         try:

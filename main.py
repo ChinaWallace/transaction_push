@@ -22,9 +22,11 @@ from app.api import (
     enhanced_trading_advice_router, ml_strategy_optimization_router,
     backtest_router, unified_trading_router
 )
+from app.api.funding_monitor import router as funding_monitor_router
 from app.services.scheduler_service import SchedulerService
 from app.services.ml_enhanced_service import MLEnhancedService
 from app.services.ml_notification_service import MLNotificationService
+from app.services.negative_funding_monitor_service import NegativeFundingMonitorService
 
 # 获取配置和日志
 settings = get_settings()
@@ -70,6 +72,59 @@ async def perform_startup_trading_analysis():
         
     except Exception as e:
         logger.error(f"❌ 启动交易分析失败: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+async def perform_startup_funding_analysis():
+    """启动时执行负费率分析和推送"""
+    try:
+        logger.info("💰 开始负费率吃利息机会分析...")
+        
+        # 创建负费率监控服务
+        funding_monitor = NegativeFundingMonitorService()
+        
+        # 执行监控检查
+        result = await funding_monitor.run_monitoring_cycle()
+        
+        if result['success']:
+            opportunities = result['opportunities']
+            logger.info(f"✅ 负费率分析完成: 发现 {len(opportunities)} 个吃利息机会")
+            
+            if opportunities:
+                # 记录最佳机会
+                best = opportunities[0]
+                symbol_name = best['symbol'].replace('-USDT-SWAP', '')
+                daily_rate = best['daily_rate_percent']
+                daily_income = best['daily_income_10k']
+                
+                logger.info(f"🎯 最佳机会: {symbol_name}")
+                logger.info(f"   💰 日化收益: {daily_rate:.3f}%")
+                logger.info(f"   💵 1万U日收益: ${daily_income:.2f}")
+                logger.info(f"   📊 评分: {best['score']}/100")
+                
+                # 记录前3个机会
+                for i, opp in enumerate(opportunities[:3], 1):
+                    symbol = opp['symbol'].replace('-USDT-SWAP', '')
+                    rate = opp['funding_rate_percent']
+                    daily = opp['daily_rate_percent']
+                    logger.info(f"   {i}. {symbol}: {rate:.3f}% → 日化 {daily:.3f}%")
+            else:
+                logger.info("📊 当前市场无负费率机会")
+            
+            return {
+                "status": "success",
+                "opportunities_count": len(opportunities),
+                "opportunities": opportunities[:5],  # 返回前5个
+                "analysis_time": result['analysis_time'],
+                "duration": result['duration_seconds']
+            }
+        else:
+            error_msg = result.get('error', '未知错误')
+            logger.error(f"❌ 负费率分析失败: {error_msg}")
+            return {"status": "error", "error": error_msg}
+            
+    except Exception as e:
+        logger.error(f"❌ 负费率分析异常: {e}")
         return {"status": "error", "error": str(e)}
 
 
@@ -185,6 +240,22 @@ async def lifespan(app: FastAPI):
         )
         logger.info("✅ Intelligent trading notification scheduled")
         
+        # 添加负费率监控定时任务
+        funding_monitor = NegativeFundingMonitorService()
+        
+        # 每小时检查一次负费率机会
+        scheduler.add_job(
+            funding_monitor.run_monitoring_cycle,
+            'interval',
+            hours=1,
+            id='negative_funding_monitor',
+            name='负费率吃利息机会监控'
+        )
+        logger.info("✅ Negative funding rate monitor scheduled")
+        
+        # 将负费率监控服务存储到应用状态
+        app.state.funding_monitor = funding_monitor
+        
         # 启动时立即执行交易决策分析和推送
         try:
             startup_results = await perform_startup_trading_analysis()
@@ -192,6 +263,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"⚠️ 启动交易分析失败: {e}")
             app.state.startup_analysis_results = {"status": "error", "error": str(e)}
+        
+        # 启动时执行负费率分析和推送
+        try:
+            funding_results = await perform_startup_funding_analysis()
+            app.state.startup_funding_results = funding_results
+        except Exception as e:
+            logger.warning(f"⚠️ 启动负费率分析失败: {e}")
+            app.state.startup_funding_results = {"status": "error", "error": str(e)}
         
         # 初始化ML增强服务（可选）
         if settings.ml_config.get('enable_ml_prediction', False):
@@ -270,6 +349,7 @@ def create_app() -> FastAPI:
     app.include_router(ml_strategy_optimization_router, prefix="/api/ml-optimization", tags=["ML策略优化"])
     app.include_router(backtest_router, prefix="/api", tags=["回测分析"])
     app.include_router(unified_trading_router, prefix="/api/unified", tags=["统一交易决策"])
+    app.include_router(funding_monitor_router, prefix="/api/funding", tags=["负费率监控"])
     
     # 根路径
     @app.get("/", summary="根路径")
@@ -324,27 +404,79 @@ def create_app() -> FastAPI:
     async def get_startup_analysis():
         """获取应用启动时的交易分析结果"""
         try:
+            trading_results = None
+            funding_results = None
+            
             if hasattr(app.state, 'startup_analysis_results'):
-                results = app.state.startup_analysis_results
+                trading_results = app.state.startup_analysis_results
                 
-                # 添加运行时间信息
-                if "timestamp" not in results and "summary" in results:
-                    results["analysis_time"] = datetime.now().isoformat()
-                
-                return {
-                    "status": "success",
-                    "startup_analysis": results,
-                    "timestamp": datetime.now().isoformat()
-                }
-            else:
-                return {
-                    "status": "no_data",
-                    "message": "启动分析结果不可用",
-                    "timestamp": datetime.now().isoformat()
-                }
+            if hasattr(app.state, 'startup_funding_results'):
+                funding_results = app.state.startup_funding_results
+            
+            return {
+                "status": "success",
+                "startup_analysis": {
+                    "trading_analysis": trading_results,
+                    "funding_analysis": funding_results
+                },
+                "timestamp": datetime.now().isoformat()
+            }
         except Exception as e:
             logger.error(f"获取启动分析结果失败: {e}")
             raise HTTPException(status_code=500, detail="获取启动分析结果失败")
+    
+    # 负费率机会快速查看
+    @app.get("/funding-opportunities", summary="快速查看负费率机会")
+    async def get_funding_opportunities():
+        """快速查看当前负费率吃利息机会"""
+        try:
+            if hasattr(app.state, 'funding_monitor'):
+                # 使用缓存的监控服务进行快速检查
+                funding_monitor = app.state.funding_monitor
+                
+                # 快速检查前20个热门币种
+                hot_symbols = await funding_monitor.get_top_volume_symbols(limit=20)
+                funding_rates = await funding_monitor.get_batch_funding_rates(hot_symbols[:15], batch_size=5)
+                
+                # 只分析负费率币种
+                negative_rates = [r for r in funding_rates if r['funding_rate'] < 0]
+                
+                if negative_rates:
+                    opportunities = []
+                    for rate_data in negative_rates:
+                        daily_rate = rate_data['funding_rate'] * 3
+                        opportunities.append({
+                            'symbol': rate_data['symbol'].replace('-USDT-SWAP', ''),
+                            'funding_rate_percent': rate_data['funding_rate'] * 100,
+                            'daily_rate_percent': abs(daily_rate * 100),
+                            'daily_income_10k': abs(daily_rate * 10000),
+                            'annual_rate_percent': abs(daily_rate * 365 * 100)
+                        })
+                    
+                    opportunities.sort(key=lambda x: x['funding_rate_percent'])
+                    
+                    return {
+                        "status": "success",
+                        "message": f"发现 {len(opportunities)} 个负费率机会",
+                        "opportunities": opportunities[:8],
+                        "timestamp": datetime.now().isoformat()
+                    }
+                else:
+                    return {
+                        "status": "success",
+                        "message": "当前无负费率机会",
+                        "opportunities": [],
+                        "timestamp": datetime.now().isoformat()
+                    }
+            else:
+                return {
+                    "status": "error",
+                    "message": "负费率监控服务未启动",
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            logger.error(f"获取负费率机会失败: {e}")
+            raise HTTPException(status_code=500, detail="获取负费率机会失败")
     
     # 快速市场概览
     @app.get("/market-overview", summary="快速市场概览")

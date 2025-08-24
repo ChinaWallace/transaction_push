@@ -103,14 +103,14 @@ class SchedulerService:
     async def _setup_scheduled_jobs(self):
         """设置定时任务"""
         try:
-            # 资金费率监控 - 每4小时执行一次
-            self.scheduler.add_job(
-                self._funding_rate_job,
-                trigger=IntervalTrigger(minutes=settings.funding_rate_interval),
-                id="funding_rate_monitor",
-                name="资金费率监控",
-                max_instances=1
-            )
+            # 资金费率监控 - 已由NegativeFundingMonitorService接管，此处禁用避免重复推送
+            # self.scheduler.add_job(
+            #     self._funding_rate_job,
+            #     trigger=IntervalTrigger(minutes=settings.funding_rate_interval),
+            #     id="funding_rate_monitor",
+            #     name="资金费率监控",
+            #     max_instances=1
+            # )
             
             # 持仓量监控 - 每5分钟执行一次
             self.scheduler.add_job(
@@ -218,20 +218,23 @@ class SchedulerService:
             raise
     
     async def _funding_rate_job(self):
-        """资金费率监控任务"""
-        try:
-            monitor_logger.info("Executing scheduled funding rate monitoring")
-            monitor_service = self._get_monitor_service()
-            
-            result = await monitor_service.monitor_funding_rate(notify=True)
-            
-            monitor_logger.info(
-                f"Funding rate monitoring completed: {result['negative_count']} negative, "
-                f"{result['high_positive_count']} high positive rates"
-            )
-            
-        except Exception as e:
-            logger.error(f"Funding rate monitoring job failed: {e}")
+        """资金费率监控任务 - 已禁用，由NegativeFundingMonitorService接管"""
+        # 此方法已被禁用，避免与详细的负费率机会分析服务冲突
+        # 详细的负费率分析由main.py中的NegativeFundingMonitorService.run_monitoring_cycle()处理
+        pass
+        # try:
+        #     monitor_logger.info("Executing scheduled funding rate monitoring")
+        #     monitor_service = self._get_monitor_service()
+        #     
+        #     result = await monitor_service.monitor_funding_rate(notify=True)
+        #     
+        #     monitor_logger.info(
+        #         f"Funding rate monitoring completed: {result['negative_count']} negative, "
+        #         f"{result['high_positive_count']} high positive rates"
+        #     )
+        #     
+        # except Exception as e:
+        #     logger.error(f"Funding rate monitoring job failed: {e}")
     
     async def _open_interest_job(self):
         """持仓量监控任务"""

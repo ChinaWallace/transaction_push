@@ -238,3 +238,6 @@ local/
 *.joblib
 *.pkl
 models/
+docs/
+scripts/run_tests.py
+tests/
