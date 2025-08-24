@@ -22,6 +22,9 @@ from app.api import (
     enhanced_trading_advice_router, ml_strategy_optimization_router,
     backtest_router, unified_trading_router
 )
+from app.api.kronos import router as kronos_router
+from app.api.kronos_integrated import router as kronos_integrated_router
+from app.api.enhanced_trading import router as enhanced_trading_router
 from app.api.funding_monitor import router as funding_monitor_router
 from app.services.scheduler_service import SchedulerService
 from app.services.ml_enhanced_service import MLEnhancedService
@@ -34,9 +37,9 @@ logger = get_logger(__name__)
 
 
 async def perform_startup_trading_analysis():
-    """启动时执行交易分析和推送"""
+    """启动时执行交易分析和推送 - 集成Kronos前置分析"""
     try:
-        logger.info("🎯 开始启动交易决策分析...")
+        logger.info("🎯 开始启动交易决策分析 (集成Kronos)...")
         
         # 导入启动交易服务
         from app.services.startup_trading_service import StartupTradingService
@@ -61,17 +64,88 @@ async def perform_startup_trading_analysis():
             logger.info(f"   📢 通知发送: {notifications} 条")
             logger.info(f"   🔥 强信号: {strong_signals} 个")
             
+            # 统计Kronos信号
+            kronos_signals = [s for s in analysis_results.get("strong_signals", []) if s.get("source") == "kronos_integrated"]
+            if kronos_signals:
+                logger.info(f"   🤖 Kronos强信号: {len(kronos_signals)} 个")
+            
             # 如果有强信号，记录详情
             for signal in analysis_results.get("strong_signals", [])[:3]:
                 symbol = signal.get("symbol", "unknown")
                 action = signal.get("action", "unknown")
                 confidence = signal.get("confidence", 0)
-                logger.info(f"   🚀 {symbol}: {action} ({confidence:.1f}%)")
+                source = signal.get("source", "traditional")
+                
+                if source == "kronos_integrated":
+                    kronos_conf = signal.get("kronos_confidence", 0)
+                    strength = signal.get("kronos_signal_strength", "未知")
+                    logger.info(f"   🤖 {symbol}: {action} (Kronos: {kronos_conf:.2f}, 强度: {strength})")
+                else:
+                    logger.info(f"   🚀 {symbol}: {action} ({confidence:.1f}%)")
         
         return analysis_results
         
     except Exception as e:
         logger.error(f"❌ 启动交易分析失败: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+async def perform_startup_kronos_analysis():
+    """启动时执行专门的Kronos集成分析"""
+    try:
+        logger.info("🤖 开始专门的Kronos集成分析...")
+        
+        from app.services.kronos_integrated_decision_service import get_kronos_integrated_service
+        
+        # 获取Kronos集成服务
+        kronos_service = await get_kronos_integrated_service()
+        
+        # 主要交易对列表
+        major_symbols = [
+            "BTC-USDT", "ETH-USDT", "BNB-USDT", "ADA-USDT", "SOL-USDT",
+            "XRP-USDT", "DOT-USDT", "DOGE-USDT", "AVAX-USDT", "MATIC-USDT"
+        ]
+        
+        # 批量Kronos分析
+        kronos_results = await kronos_service.batch_analyze_symbols(major_symbols, force_update=True)
+        
+        # 筛选强信号
+        strong_kronos_signals = []
+        for symbol, decision in kronos_results.items():
+            if decision and decision.kronos_confidence >= 0.7:
+                if decision.kronos_signal_strength.value in ["强", "极强"]:
+                    strong_kronos_signals.append({
+                        "symbol": symbol,
+                        "action": decision.final_action,
+                        "kronos_confidence": decision.kronos_confidence,
+                        "signal_strength": decision.kronos_signal_strength.value,
+                        "final_confidence": decision.final_confidence,
+                        "reasoning": decision.reasoning
+                    })
+        
+        # 记录结果
+        successful_count = sum(1 for r in kronos_results.values() if r is not None)
+        logger.info(f"✅ Kronos专门分析完成: {successful_count}/{len(major_symbols)} 个成功")
+        logger.info(f"🔥 发现 {len(strong_kronos_signals)} 个强Kronos信号")
+        
+        # 记录强信号详情
+        for signal in strong_kronos_signals[:3]:
+            symbol = signal["symbol"]
+            action = signal["action"]
+            kronos_conf = signal["kronos_confidence"]
+            strength = signal["signal_strength"]
+            logger.info(f"   🚀 {symbol}: {action} (Kronos: {kronos_conf:.2f}, 强度: {strength})")
+        
+        return {
+            "status": "success",
+            "total_analyzed": len(major_symbols),
+            "successful_analyses": successful_count,
+            "strong_signals": strong_kronos_signals,
+            "all_results": kronos_results
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Kronos专门分析失败: {e}")
         return {"status": "error", "error": str(e)}
 
 
@@ -272,6 +346,65 @@ async def lifespan(app: FastAPI):
             logger.warning(f"⚠️ 启动负费率分析失败: {e}")
             app.state.startup_funding_results = {"status": "error", "error": str(e)}
         
+        # 启动时执行专门的Kronos集成分析
+        if settings.kronos_config.get('enable_kronos_prediction', False):
+            try:
+                kronos_results = await perform_startup_kronos_analysis()
+                app.state.startup_kronos_results = kronos_results
+                
+                # 如果有强Kronos信号，记录到日志
+                if kronos_results.get("status") == "success":
+                    strong_count = len(kronos_results.get("strong_signals", []))
+                    if strong_count > 0:
+                        logger.info(f"🤖 Kronos启动分析发现 {strong_count} 个强信号")
+                        
+                        # 发送Kronos启动摘要通知
+                        from app.services.notification_service import NotificationService
+                        notification_service = NotificationService()
+                        
+                        strong_signals = kronos_results.get("strong_signals", [])[:3]
+                        message = f"🤖 **Kronos启动分析完成**\n\n"
+                        message += f"🔥 发现 {strong_count} 个强信号:\n\n"
+                        
+                        for i, signal in enumerate(strong_signals, 1):
+                            symbol = signal["symbol"]
+                            action = signal["action"]
+                            confidence = signal["kronos_confidence"]
+                            strength = signal["signal_strength"]
+                            message += f"{i}. **{symbol}**: {action}\n"
+                            message += f"   🤖 Kronos: {confidence:.2f} | 💪 {strength}\n\n"
+                        
+                        if strong_count > 3:
+                            message += f"... 还有 {strong_count - 3} 个强信号\n\n"
+                        
+                        message += f"⏰ {datetime.now().strftime('%H:%M:%S')}"
+                        
+                        await notification_service.send_notification(
+                            title=f"🤖 Kronos启动分析: {strong_count}个强信号",
+                            message=message,
+                            notification_type="kronos_startup",
+                            priority="high"
+                        )
+                        
+            except Exception as e:
+                logger.warning(f"⚠️ Kronos启动分析失败: {e}")
+                app.state.startup_kronos_results = {"status": "error", "error": str(e)}
+        else:
+            logger.info("📴 Kronos预测已禁用，跳过Kronos启动分析")
+            app.state.startup_kronos_results = {"status": "disabled"}
+        
+        # 初始化Kronos预测服务（可选）
+        if settings.kronos_config.get('enable_kronos_prediction', False):
+            try:
+                from app.services.kronos_prediction_service import get_kronos_service
+                kronos_service = await get_kronos_service()
+                logger.info("✅ Kronos预测服务初始化成功")
+                app.state.kronos_service = kronos_service
+            except Exception as e:
+                logger.warning(f"⚠️ Kronos预测服务初始化失败: {e}")
+                logger.info("💡 Kronos服务将在首次调用时尝试重新初始化")
+                app.state.kronos_service = None
+        
         # 初始化ML增强服务（可选）
         if settings.ml_config.get('enable_ml_prediction', False):
             ml_service = MLEnhancedService()
@@ -350,6 +483,9 @@ def create_app() -> FastAPI:
     app.include_router(backtest_router, prefix="/api", tags=["回测分析"])
     app.include_router(unified_trading_router, prefix="/api/unified", tags=["统一交易决策"])
     app.include_router(funding_monitor_router, prefix="/api/funding", tags=["负费率监控"])
+    app.include_router(kronos_router, prefix="/api/kronos", tags=["Kronos AI预测"])
+    app.include_router(kronos_integrated_router, prefix="/api/kronos-integrated", tags=["Kronos集成决策"])
+    app.include_router(enhanced_trading_router, prefix="/api/enhanced-trading", tags=["增强交易决策"])
     
     # 根路径
     @app.get("/", summary="根路径")

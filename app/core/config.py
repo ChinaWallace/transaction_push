@@ -88,11 +88,41 @@ class Settings(BaseSettings):
         }
     }, description="策略参数配置")
     
+    # Kronos预测模型配置
+    kronos_config: Dict[str, Any] = Field(default_factory=lambda: {
+        'enable_kronos_prediction': True,
+        'model_name': 'NeoQuasar/Kronos-small',  # 默认使用small模型
+        'tokenizer_name': 'NeoQuasar/Kronos-Tokenizer-base',
+        'max_context': 512,  # Kronos-small和base的最大上下文长度
+        'lookback_periods': 200,  # 历史数据回看期数
+        'prediction_horizon': 24,  # 预测未来24小时
+        'sampling_params': {
+            'temperature': 0.8,
+            'top_p': 0.9,
+            'sample_count': 5  # 生成5个预测样本取平均
+        },
+        'confidence_threshold': 0.5,  # 降低预测置信度阈值
+        'update_interval_minutes': 30,  # 预测更新间隔
+        'cache_predictions': True,
+        'use_gpu': True,  # 如果有GPU则使用
+        # 新增：强信号通知配置
+        'notification_config': {
+            'enable_strong_signal_notification': True,  # 启用强信号通知
+            'strong_signal_threshold': 0.65,  # 强信号阈值
+            'medium_signal_threshold': 0.5,   # 中等信号阈值
+            'notification_channels': ['feishu', 'wechat'],  # 通知渠道
+            'notification_priority': 'high',  # 通知优先级
+            'batch_notification': True,       # 批量通知
+            'max_notifications_per_hour': 10  # 每小时最大通知数
+        }
+    }, description="Kronos金融预测模型配置")
+    
     # 机器学习增强配置 - 针对高波动性优化，提高信号敏感度
     ml_config: Dict[str, Any] = Field(default_factory=lambda: {
         'enable_ml_prediction': True,
         'enable_anomaly_detection': True,
         'enable_adaptive_optimization': True,
+        'enable_kronos_integration': True,  # 启用Kronos集成
         'prediction_model': {
             'model_type': 'gradient_boosting',  # 对高波动性更敏感
             'lookback_periods': 24,  # 进一步减少以适应快速变化

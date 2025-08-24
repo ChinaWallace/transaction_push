@@ -5,7 +5,9 @@
 ## ✨ 核心特性
 
 🎯 **智能持仓分析** - 100分制评估持仓健康度，提供具体操作建议  
-� ***多周期趋势分析** - SuperTrend指标，支持日线/4H/1H/15分钟多时间周期  
+📈 **多周期趋势分析** - SuperTrend指标，支持日线/4H/1H/15分钟多时间周期  
+🤖 **Kronos AI预测** - 集成本地Kronos模型，提供24小时价格预测  
+🔄 **增强交易决策** - 融合传统技术分析和AI预测的智能交易信号  
 💰 **资金费率监控** - 负费率机会发现和高费率预警  
 📊 **持仓量异动检测** - 实时监控合约持仓量变化  
 🔍 **交易量异常监控** - 庄神指标检测成交量异常放大  
@@ -20,8 +22,21 @@
 - **智能建议生成**：持有、减仓、加仓、平仓、对冲、重新平衡
 - **风险警报机制**：自动识别严重亏损、高杠杆、集中度风险
 
+### 🤖 Kronos AI预测系统
+- **本地模型部署**：使用本地Kronos-master项目，无需外部API依赖
+- **24小时价格预测**：提供未来24小时的OHLCV价格预测
+- **智能信号生成**：自动生成买入/卖出/持有信号，包含置信度评估
+- **波动率预测**：预测未来价格波动率，辅助风险管理
+
+### 🔄 增强交易决策系统
+- **双重分析融合**：结合传统技术分析和Kronos AI预测
+- **信号一致性评分**：计算不同信号源的一致性程度，提高决策可靠性
+- **智能权重分配**：技术分析40% + Kronos预测60%的动态权重
+- **综合置信度**：基于多重信号的综合置信度评估
+- **自适应风险管理**：根据预测结果自动计算止损止盈和仓位大小
+
 ### 🤖 统一交易决策系统
-- **智能决策融合**：传统技术分析 + 机器学习预测
+- **智能决策融合**：传统技术分析 + 机器学习预测 + Kronos AI预测
 - **动态止盈止损**：基于ATR和置信度的自适应计算
 - **中文信号输出**：强烈买入、买入、持有、卖出、强烈卖出
 - **多币种支持**：BTC、ETH、SOL、ADA、DOT、AVAX、LINK、UNI等
@@ -57,6 +72,7 @@
 
 - **Web框架**：FastAPI + Uvicorn
 - **数据处理**：Pandas + NumPy + TA-Lib
+- **AI预测模型**：本地Kronos + PyTorch + Transformers
 - **机器学习**：Scikit-learn + Joblib
 - **交易所API**：OKX API + python-binance
 - **任务调度**：APScheduler
@@ -82,16 +98,13 @@ cd transaction_push
 pip install -r requirements.txt
 ```
 
-3. **配置环境变量** ⚠️ **重要**
+3. **配置环境变量**
 ```bash
 # 复制环境配置文件
 cp env.example .env
 
 # 编辑 .env 文件，填入你的配置
-# 必须配置的项目：
-# - 币安API密钥
-# - 数据库连接信息  
-# - 至少一个通知渠道
+# 必须配置：OKX API密钥、数据库连接、通知渠道
 ```
 
 4. **数据库初始化**
@@ -102,6 +115,15 @@ python scripts/init_db.py
 5. **启动服务**
 ```bash
 python main.py
+```
+
+### Windows快速启动
+```bash
+# 安装依赖
+scripts/install.bat
+
+# 启动服务
+scripts/start.bat
 ```
 
 ## ⚙️ 环境配置详解
@@ -157,11 +179,22 @@ SMTP_PASSWORD=your_email_password
 SMTP_FROM=your_email@gmail.com
 ```
 
+### Kronos AI预测配置（可选）
+```env
+# 启用Kronos预测功能
+KRONOS_CONFIG__ENABLE_KRONOS_PREDICTION=true
+KRONOS_CONFIG__USE_LOCAL_MODEL=true
+KRONOS_CONFIG__LOCAL_MODEL_PATH=./Kronos-master
+KRONOS_CONFIG__USE_GPU=true
+KRONOS_CONFIG__UPDATE_INTERVAL_MINUTES=30
+```
+
 ### 机器学习配置（可选）
 ```env
 # 启用ML功能
 ML_CONFIG__ENABLE_ML_PREDICTION=true
 ML_CONFIG__ENABLE_ANOMALY_DETECTION=true
+ML_CONFIG__ENABLE_KRONOS_INTEGRATION=true
 
 # 预测模型配置
 ML_CONFIG__PREDICTION_MODEL__MODEL_TYPE=random_forest
@@ -187,33 +220,36 @@ VOLUME_MONITOR_INTERVAL=60    # 交易量监控间隔
 POSITION_ANALYSIS_INTERVAL=120    # 持仓分析间隔
 ```
 
-## 📡 API接口
+## 📡 核心API接口
 
-### 交易决策API
+### 持仓分析
 ```bash
 # 获取账户持仓分析
 GET /api/trading/account-analysis
 
 # 获取交易建议
 GET /api/trading/advice/{symbol}
-
-# 获取市场分析
-GET /api/trading/market-analysis/{symbol}
 ```
 
-### 趋势分析API
+### 趋势分析
 ```bash
 # 单个标的趋势分析
 GET /api/trend/analyze/{symbol}
 
 # 批量趋势分析
 POST /api/trend/batch-analyze
-{
-  "symbols": ["ETH-USDT-SWAP", "SOL-USDT-SWAP"]
-}
 ```
 
-### 监控服务API
+### Kronos AI预测
+```bash
+# 单个交易对预测
+POST /api/kronos/predict/{symbol}
+
+# 服务健康检查
+GET /api/kronos/health
+```
+
+### 监控服务
 ```bash
 # 费率监控
 GET /api/monitor/funding-rate
@@ -223,20 +259,10 @@ GET /api/monitor/open-interest
 
 # 交易量监控
 GET /api/monitor/volume
-
-# 综合监控状态
-GET /api/monitor/status
 ```
 
-### 通知服务API
-```bash
-# 发送测试通知
-POST /api/notification/test
-{
-  "channel": "feishu",
-  "message": "测试消息"
-}
-```
+### 完整API文档
+启动服务后访问：http://localhost:8888/docs
 
 ## 📊 信号说明
 
@@ -292,15 +318,20 @@ transaction_push/
 │   ├── utils/             # 工具函数
 │   ├── schemas/           # Pydantic模型
 │   └── strategies/        # 交易策略
+├── Kronos-master/         # Kronos AI模型
 ├── tests/                 # 测试文件
 │   ├── test_config.py     # 配置测试
-│   └── test_services.py   # 服务测试
+│   ├── test_services.py   # 服务测试
+│   └── test_kronos_integrated.py # Kronos集成测试
+├── examples/              # 使用示例
 ├── docs/                  # 文档目录
 ├── logs/                  # 日志目录
+├── models/                # 训练模型存储
 ├── scripts/               # 部署脚本
 │   ├── init_db.py         # 数据库初始化
 │   ├── install.bat        # Windows安装脚本
 │   ├── start.bat          # Windows启动脚本
+│   ├── run_tests.py       # 测试运行脚本
 │   └── update_env_symbols.py # 更新币种配置
 ├── requirements.txt       # 依赖列表
 ├── env.example           # 环境变量示例
@@ -312,23 +343,17 @@ transaction_push/
 
 ### 持仓分析示例
 ```
-✅ 持仓分析完成 (评分: 55/100)
+✅ 持仓分析完成 (评分: 75/100)
 📊 账户概况:
    总权益: $8,234.55 USDT
    持仓数量: 3 个
-   未实现盈亏: $-221.65 USDT (-2.7%)
+   未实现盈亏: $+321.65 USDT (+3.9%)
    资金利用率: 7.7%
 
-⚠️ 风险评估:
-   风险等级: low
-   集中度风险: 3.5%
-
-🚨 风险警报 (2 个):
-   • ETH-USD-SWAP: 严重亏损 46.1%
-   • SOON-USDT-SWAP: 严重亏损 218.1%
-
 💡 主要建议:
-   • 持仓平衡建议: 持仓方向过于单一，缺乏对冲
+   • ETH-USDT-SWAP: 持有 (健康度: 85分)
+   • BTC-USDT-SWAP: 加仓 (健康度: 78分)
+   • SOL-USDT-SWAP: 减仓 (健康度: 45分)
 ```
 
 ### 趋势分析示例
@@ -339,10 +364,18 @@ transaction_push/
    策略建议: 坚决做多，分批建仓
    
    各周期状态:
-   • 日线: ↑ 多头
-   • 4小时: ↑ 多头  
-   • 1小时: ↑ 多头
-   • 15分钟: ↑ 多头
+   • 日线: ↑ 多头    • 4小时: ↑ 多头  
+   • 1小时: ↑ 多头   • 15分钟: ↑ 多头
+```
+
+### Kronos AI预测示例
+```
+🤖 ETH-USDT-SWAP Kronos AI预测:
+   预测信号: strong_buy
+   置信度: 78.5%
+   价格目标: $2,750.00 (+3.2%)
+   趋势方向: bullish
+   预测波动率: 8.2%
 ```
 
 ## 🔍 故障排查
@@ -352,46 +385,27 @@ transaction_push/
 **1. 数据库连接失败**
 - 检查MySQL服务是否启动
 - 确认DATABASE_URL配置正确
-- 检查数据库用户权限
 
-**2. 币安API连接失败**
-- 确认API密钥配置正确
-- 检查网络连接和代理设置
-- 验证API权限是否足够
+**2. OKX API连接问题**
+- 检查OKX API密钥、密码和Passphrase配置
+- 确认API权限包含交易和数据读取权限
 
 **3. 通知推送失败**
 - 检查Webhook URL是否正确
 - 确认机器人权限配置
-- 查看日志文件获取详细错误信息
 
-**4. OKX API连接问题**
-- 检查OKX API密钥、密码和Passphrase配置
-- 确认API权限包含交易和数据读取权限
-- 检查网络连接，可能需要配置代理
+**4. Kronos AI预测问题**
+- 确保安装了PyTorch和Transformers库
+- 检查Kronos-master目录是否存在且完整
+- 验证GPU驱动和CUDA版本（如果使用GPU）
 
-**5. 持仓分析问题**
-- 确保OKX账户有持仓数据
-- 检查账户API权限是否包含持仓查询
-- 持仓分析需要一定的计算时间，请耐心等待
-
-**6. ML模型相关问题**
-- 首次使用需要训练模型，可能需要较长时间
-- 确保有足够的历史数据用于训练
-- 检查模型文件是否正确保存在models/目录
-
-**7. 查看日志**
+**5. 查看日志**
 ```bash
 # 应用日志
 tail -f logs/app.log
 
-# 错误日志
+# 错误日志  
 tail -f logs/error.log
-
-# 监控日志
-tail -f logs/monitor.log
-
-# 交易日志
-tail -f logs/trading.log
 ```
 
 ## 📄 许可证

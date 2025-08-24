@@ -15,6 +15,8 @@ from app.services.trading_notification_service import TradingNotificationService
 from app.services.notification_service import NotificationService
 from app.services.okx_service import OKXService
 from app.services.position_analysis_service import PositionAnalysisService
+from app.services.kronos_integrated_decision_service import get_kronos_integrated_service, KronosEnhancedDecision, KronosSignalStrength
+from app.services.kronos_notification_service import get_kronos_notification_service
 from app.utils.exceptions import TradingToolError
 
 logger = get_logger(__name__)
@@ -31,18 +33,22 @@ class StartupTradingService:
         self.exchange_service = OKXService()
         self.position_analysis_service = PositionAnalysisService()
         
-        # 启动推送配置 - 优化推送条件
+        # 启动推送配置 - 优化推送条件，集成Kronos
         self.startup_config = {
             'enable_startup_push': True,
             'enable_position_analysis': True,  # 启用持仓分析
-            'min_confidence_threshold': 50.0,  # 进一步降低最低置信度阈值
-            'strong_signal_threshold': 65.0,   # 进一步降低强信号阈值
+            'enable_kronos_integration': True,  # 启用Kronos集成分析
+            'min_confidence_threshold': 45.0,  # 进一步降低最低置信度阈值
+            'strong_signal_threshold': 55.0,   # 大幅降低强信号阈值
+            'kronos_confidence_threshold': 0.5,  # 降低Kronos置信度阈值
+            'kronos_strong_signal_threshold': 0.65,  # 降低Kronos强信号阈值
             'max_symbols_to_analyze': 50,      # 最大分析交易对数量 - 支持所有监控币种
             'analysis_timeout': 300,           # 分析超时时间(秒)
             'always_send_summary': True,       # 总是发送分析摘要
             'max_anomaly_alerts': 1,           # 最多发送1个异常警报
             'send_individual_signals': True,   # 发送单个币种信号
             'individual_signal_threshold': 60.0,  # 单个信号推送阈值
+            'prioritize_kronos_signals': True,  # 优先处理Kronos信号
         }
     
     async def perform_startup_analysis(self, symbols: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -96,12 +102,35 @@ class StartupTradingService:
                     logger.error(f"❌ 持仓分析失败: {e}")
                     analysis_results["errors"].append(f"持仓分析: {str(e)}")
             
-            # 2. 并发分析所有交易对（限制并发数量避免API限制）
+            # 2. Kronos集成分析（如果启用）
+            kronos_results = {}
+            if self.startup_config.get('enable_kronos_integration', True):
+                logger.info("🤖 开始Kronos集成决策分析...")
+                try:
+                    kronos_service = await get_kronos_integrated_service()
+                    kronos_results = await kronos_service.batch_analyze_symbols(symbols, force_update=True)
+                    
+                    # 统计Kronos分析结果
+                    kronos_successful = sum(1 for r in kronos_results.values() if r is not None)
+                    logger.info(f"✅ Kronos集成分析完成: {kronos_successful}/{len(symbols)} 个成功")
+                    
+                    # 处理Kronos强信号
+                    await self._process_kronos_signals(kronos_results, analysis_results)
+                    
+                except Exception as e:
+                    logger.error(f"❌ Kronos集成分析失败: {e}")
+                    analysis_results["errors"].append(f"Kronos集成分析: {str(e)}")
+            
+            # 3. 并发分析所有交易对（限制并发数量避免API限制）
             semaphore = asyncio.Semaphore(3)  # 最多3个并发请求
             
             async def analyze_symbol_with_semaphore(symbol: str) -> Dict[str, Any]:
                 async with semaphore:
-                    return await self._analyze_single_symbol(symbol)
+                    # 如果有Kronos结果，优先使用Kronos增强分析
+                    if symbol in kronos_results and kronos_results[symbol] is not None:
+                        return await self._analyze_symbol_with_kronos(symbol, kronos_results[symbol])
+                    else:
+                        return await self._analyze_single_symbol(symbol)
             
             # 创建分析任务
             tasks = [analyze_symbol_with_semaphore(symbol) for symbol in symbols]
@@ -539,3 +568,267 @@ class StartupTradingService:
             logger.error(f"❌ 获取市场概览失败: {e}")
             overview["error"] = str(e)
             return overview
+    
+    async def _process_kronos_signals(self, kronos_results: Dict[str, Any], analysis_results: Dict[str, Any]) -> None:
+        """
+        处理Kronos信号并发送通知
+        
+        Args:
+            kronos_results: Kronos分析结果
+            analysis_results: 总体分析结果
+        """
+        try:
+            kronos_strong_signals = []
+            kronos_medium_signals = []
+            
+            for symbol, decision in kronos_results.items():
+                if decision is None:
+                    continue
+                
+                # 检查是否为强Kronos信号
+                is_strong_signal = (
+                    decision.kronos_confidence >= self.startup_config['kronos_strong_signal_threshold'] and
+                    decision.kronos_signal_strength in [KronosSignalStrength.STRONG, KronosSignalStrength.VERY_STRONG]
+                )
+                
+                # 检查是否为中等Kronos信号
+                is_medium_signal = (
+                    decision.kronos_confidence >= self.startup_config['kronos_confidence_threshold'] and
+                    decision.final_confidence >= 0.6
+                )
+                
+                # 构建Kronos信号数据
+                kronos_signal_data = {
+                    "symbol": symbol,
+                    "action": decision.final_action,
+                    "confidence": decision.final_confidence * 100,  # 转换为百分比
+                    "kronos_confidence": decision.kronos_confidence,
+                    "kronos_signal_strength": decision.kronos_signal_strength.value,
+                    "signal_confluence": decision.signal_confluence,
+                    "technical_signal": decision.technical_signal,
+                    "position_recommendation": decision.position_recommendation.value,
+                    "position_size": decision.position_size,
+                    "market_regime": decision.market_regime.value,
+                    "reasoning": decision.reasoning,
+                    "current_price": decision.entry_price,
+                    "stop_loss_price": decision.stop_loss,
+                    "take_profit_price": decision.take_profit,
+                    "risk_level": decision.position_risk.value,
+                    "timestamp": decision.timestamp,
+                    "source": "kronos_integrated"
+                }
+                
+                if is_strong_signal:
+                    kronos_strong_signals.append(kronos_signal_data)
+                    analysis_results["strong_signals"].append(kronos_signal_data)
+                    
+                    # 使用专门的Kronos通知服务发送强信号通知
+                    kronos_notification_service = await get_kronos_notification_service()
+                    if await kronos_notification_service.send_kronos_signal_notification(decision, "strong"):
+                        analysis_results["notifications_sent"] += 1
+                        logger.info(f"🚀 已发送强Kronos信号: {symbol} {decision.final_action} (Kronos: {decision.kronos_confidence:.2f})")
+                
+                elif is_medium_signal:
+                    kronos_medium_signals.append(kronos_signal_data)
+                    analysis_results["medium_signals"].append(kronos_signal_data)
+                    
+                    # 使用专门的Kronos通知服务发送中等信号通知
+                    kronos_notification_service = await get_kronos_notification_service()
+                    if await kronos_notification_service.send_kronos_signal_notification(decision, "medium"):
+                        analysis_results["notifications_sent"] += 1
+                        logger.info(f"📊 已发送中等Kronos信号: {symbol} {decision.final_action} (置信度: {decision.final_confidence:.2f})")
+            
+            # 记录Kronos信号统计
+            logger.info(f"🤖 Kronos信号统计: 强信号 {len(kronos_strong_signals)} 个, 中等信号 {len(kronos_medium_signals)} 个")
+            
+            # 如果有多个强Kronos信号，发送汇总通知
+            if len(kronos_strong_signals) >= 2:
+                kronos_notification_service = await get_kronos_notification_service()
+                strong_decisions = [decision for symbol, decision in kronos_results.items() 
+                                  if decision and decision.kronos_confidence >= self.startup_config['kronos_strong_signal_threshold']]
+                if await kronos_notification_service.send_batch_kronos_notification(strong_decisions, "strong_signals"):
+                    analysis_results["notifications_sent"] += 1
+                
+        except Exception as e:
+            logger.error(f"❌ 处理Kronos信号失败: {e}")
+            analysis_results["errors"].append(f"Kronos信号处理: {str(e)}")
+    
+    async def _analyze_symbol_with_kronos(self, symbol: str, kronos_decision: KronosEnhancedDecision) -> Dict[str, Any]:
+        """
+        基于Kronos决策分析单个交易对
+        
+        Args:
+            symbol: 交易对符号
+            kronos_decision: Kronos集成决策结果
+            
+        Returns:
+            增强的分析结果
+        """
+        try:
+            logger.info(f"🤖 Kronos增强分析 {symbol}...")
+            
+            # 基于Kronos决策构建分析结果
+            result = {
+                "symbol": symbol,
+                "action": kronos_decision.final_action,
+                "confidence": kronos_decision.final_confidence * 100,  # 转换为百分比
+                "current_price": kronos_decision.entry_price,
+                "position_size_percent": kronos_decision.position_size * 100,  # 转换为百分比
+                "leverage": 1.0,  # 默认无杠杆
+                "risk_level": kronos_decision.position_risk.value,
+                "entry_timing": "立即" if kronos_decision.final_confidence >= 0.8 else "谨慎",
+                "reasoning": kronos_decision.reasoning,
+                "stop_loss_price": kronos_decision.stop_loss,
+                "take_profit_price": kronos_decision.take_profit,
+                "risk_reward_ratio": self._calculate_risk_reward_ratio(
+                    kronos_decision.entry_price,
+                    kronos_decision.stop_loss,
+                    kronos_decision.take_profit
+                ),
+                "traditional_signal": kronos_decision.technical_signal,
+                "traditional_confidence": kronos_decision.technical_confidence * 100,
+                "ml_signal": "Kronos AI",
+                "ml_confidence": kronos_decision.kronos_confidence * 100,
+                "market_regime": kronos_decision.market_regime.value,
+                "volatility_level": "中等",  # 默认值
+                "key_factors": [
+                    f"Kronos置信度: {kronos_decision.kronos_confidence:.2f}",
+                    f"信号强度: {kronos_decision.kronos_signal_strength.value}",
+                    f"信号一致性: {kronos_decision.signal_confluence:.2f}",
+                    f"持仓建议: {kronos_decision.position_recommendation.value}"
+                ],
+                "timestamp": kronos_decision.timestamp,
+                "source": "kronos_integrated",
+                # Kronos特有字段
+                "kronos_confidence": kronos_decision.kronos_confidence,
+                "kronos_signal_strength": kronos_decision.kronos_signal_strength.value,
+                "signal_confluence": kronos_decision.signal_confluence,
+                "position_recommendation": kronos_decision.position_recommendation.value
+            }
+            
+            logger.info(f"🤖 {symbol}: {kronos_decision.final_action} (Kronos: {kronos_decision.kronos_confidence:.2f}, 综合: {kronos_decision.final_confidence:.2f})")
+            logger.info(f"   信号强度: {kronos_decision.kronos_signal_strength.value}, 一致性: {kronos_decision.signal_confluence:.2f}")
+            
+            return result
+            
+        except Exception as e:
+            logger.warning(f"❌ Kronos增强分析 {symbol} 失败: {e}")
+            return {"symbol": symbol, "error": str(e)}
+    
+    def _calculate_risk_reward_ratio(self, entry_price: Optional[float], stop_loss: Optional[float], take_profit: Optional[float]) -> float:
+        """计算风险收益比"""
+        if not all([entry_price, stop_loss, take_profit]):
+            return 1.0
+        
+        try:
+            risk = abs(entry_price - stop_loss)
+            reward = abs(take_profit - entry_price)
+            return reward / risk if risk > 0 else 1.0
+        except:
+            return 1.0
+    
+    async def _send_kronos_notification(self, signal_data: Dict[str, Any], signal_type: str) -> bool:
+        """
+        发送Kronos信号通知
+        
+        Args:
+            signal_data: 信号数据
+            signal_type: 信号类型 ("strong" 或 "medium")
+            
+        Returns:
+            是否发送成功
+        """
+        try:
+            symbol = signal_data["symbol"]
+            action = signal_data["action"]
+            kronos_confidence = signal_data["kronos_confidence"]
+            signal_strength = signal_data["kronos_signal_strength"]
+            confluence = signal_data["signal_confluence"]
+            
+            # 构建Kronos专用通知消息
+            if signal_type == "strong":
+                title = f"🚀 强Kronos信号: {symbol}"
+                emoji = "🔥"
+            else:
+                title = f"📊 Kronos信号: {symbol}"
+                emoji = "🤖"
+            
+            message = f"""
+{emoji} **{title}**
+
+📈 **交易行动**: {action}
+🤖 **Kronos置信度**: {kronos_confidence:.2f}
+💪 **信号强度**: {signal_strength}
+🤝 **信号一致性**: {confluence:.2f}
+💼 **持仓建议**: {signal_data.get('position_recommendation', 'N/A')}
+🌊 **市场状态**: {signal_data.get('market_regime', 'N/A')}
+
+💰 **当前价格**: ${signal_data.get('current_price', 0):.2f}
+🛑 **止损价格**: ${signal_data.get('stop_loss_price', 0):.2f}
+🎯 **止盈价格**: ${signal_data.get('take_profit_price', 0):.2f}
+📊 **建议仓位**: {signal_data.get('position_size', 0):.1%}
+
+💡 **决策依据**: {signal_data.get('reasoning', 'N/A')}
+
+⏰ 时间: {signal_data.get('timestamp', datetime.now()).strftime('%H:%M:%S')}
+"""
+            
+            # 发送通知
+            await self.notification_service.send_notification(
+                title=title,
+                message=message,
+                notification_type="kronos_signal",
+                priority="high" if signal_type == "strong" else "medium"
+            )
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ 发送Kronos通知失败: {e}")
+            return False
+    
+    async def _send_kronos_summary_notification(self, strong_signals: List[Dict[str, Any]]) -> bool:
+        """
+        发送Kronos强信号汇总通知
+        
+        Args:
+            strong_signals: 强信号列表
+            
+        Returns:
+            是否发送成功
+        """
+        try:
+            if not strong_signals:
+                return False
+            
+            title = f"🔥 发现 {len(strong_signals)} 个强Kronos信号"
+            
+            message = f"🤖 **Kronos AI集成分析汇总**\n\n"
+            
+            for i, signal in enumerate(strong_signals[:5], 1):  # 最多显示5个
+                symbol = signal["symbol"]
+                action = signal["action"]
+                kronos_conf = signal["kronos_confidence"]
+                strength = signal["kronos_signal_strength"]
+                
+                message += f"{i}. **{symbol}**: {action}\n"
+                message += f"   🤖 Kronos: {kronos_conf:.2f} | 💪 强度: {strength}\n\n"
+            
+            if len(strong_signals) > 5:
+                message += f"... 还有 {len(strong_signals) - 5} 个信号\n\n"
+            
+            message += f"⏰ 分析时间: {datetime.now().strftime('%H:%M:%S')}\n"
+            message += f"💡 建议优先关注Kronos置信度最高的信号"
+            
+            await self.notification_service.send_notification(
+                title=title,
+                message=message,
+                notification_type="kronos_summary",
+                priority="high"
+            )
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ 发送Kronos汇总通知失败: {e}")
+            return False
