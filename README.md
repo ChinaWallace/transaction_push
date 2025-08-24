@@ -104,21 +104,6 @@ python scripts/init_db.py
 python main.py
 ```
 
-服务启动后访问：
-- API文档：http://localhost:8000/docs
-- 健康检查：http://localhost:8000/health
-
-## 🧪 运行测试
-
-```bash
-# 运行所有测试
-pytest tests/
-
-# 运行单个测试文件
-python tests/test_config.py
-python tests/test_services.py
-```
-
 ## ⚙️ 环境配置详解
 
 ### OKX API配置（主要使用）
