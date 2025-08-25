@@ -68,8 +68,9 @@ class BinanceService:
             params['signature'] = self._generate_signature(params)
         
         try:
-            response = await self.http_client.get(url, params=params, headers=headers)
-            return response
+            async with self.http_client:
+                response = await self.http_client.get(url, params=params, headers=headers)
+                return response
         except Exception as e:
             logger.error(f"Binance API request failed: {e}")
             raise BinanceAPIError(f"API request failed: {e}")

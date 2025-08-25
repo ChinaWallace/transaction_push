@@ -219,29 +219,26 @@ class Settings(BaseSettings):
         
         # 热门DeFi币种
         'AAVE-USDT-SWAP', 'SNX-USDT-SWAP', '1INCH-USDT-SWAP', 'YFI-USDT-SWAP',
-        'BAL-USDT-SWAP', 'REN-USDT-SWAP', 'KNC-USDT-SWAP', 'ZRX-USDT-SWAP',
         
         # Layer2和新兴币种
-        'MATIC-USDT-SWAP', 'FTM-USDT-SWAP', 'ONE-USDT-SWAP', 'HBAR-USDT-SWAP',
-        'VET-USDT-SWAP', 'THETA-USDT-SWAP', 'TFUEL-USDT-SWAP', 'ENJ-USDT-SWAP',
+        'HBAR-USDT-SWAP', 'VET-USDT-SWAP', 'THETA-USDT-SWAP', 'ENJ-USDT-SWAP',
         
         # NFT和游戏币种
         'SHIB-USDT-SWAP', 'APT-USDT-SWAP', 'SUI-USDT-SWAP', 'AXS-USDT-SWAP',
         'SAND-USDT-SWAP', 'MANA-USDT-SWAP', 'GALA-USDT-SWAP', 'CHZ-USDT-SWAP',
         
         # 存储和基础设施
-        'FIL-USDT-SWAP', 'AR-USDT-SWAP', 'STORJ-USDT-SWAP', 'SC-USDT-SWAP',
+        'FIL-USDT-SWAP', 'AR-USDT-SWAP',
         
         # 新兴热门币种
         'PEPE-USDT-SWAP', 'FLOKI-USDT-SWAP', 'BONK-USDT-SWAP', 'WIF-USDT-SWAP',
-        'BOME-USDT-SWAP', 'SLERF-USDT-SWAP', 'MYRO-USDT-SWAP', 'POPCAT-USDT-SWAP',
         
         # AI和科技概念
-        'FET-USDT-SWAP', 'AGIX-USDT-SWAP', 'OCEAN-USDT-SWAP', 'RLC-USDT-SWAP',
+        'FET-USDT-SWAP', 'OCEAN-USDT-SWAP',
         
         # 其他潜力币种
-        'IMX-USDT-SWAP', 'LRC-USDT-SWAP', 'GMT-USDT-SWAP', 'APE-USDT-SWAP',
-        'LOOKS-USDT-SWAP', 'DYDX-USDT-SWAP', 'GMX-USDT-SWAP', 'GNS-USDT-SWAP'
+        'IMX-USDT-SWAP', 'GMT-USDT-SWAP', 'APE-USDT-SWAP',
+        'DYDX-USDT-SWAP', 'GMX-USDT-SWAP'
     ], description="费率监控币种列表 - 扩展到70+币种，覆盖各个热门赛道，增加收益机会发现")
     
     # TradingView集成配置

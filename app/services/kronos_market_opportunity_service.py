@@ -243,7 +243,7 @@ class KronosMarketOpportunityService:
             "DOGE-USDT-SWAP", "XRP-USDT-SWAP", "ADA-USDT-SWAP",
             "AVAX-USDT-SWAP", "DOT-USDT-SWAP", "LINK-USDT-SWAP",
             "UNI-USDT-SWAP", "LTC-USDT-SWAP", "BCH-USDT-SWAP",
-            "MATIC-USDT-SWAP", "ATOM-USDT-SWAP", "FTM-USDT-SWAP"
+            "ATOM-USDT-SWAP"
         ]
         
         return main_symbols

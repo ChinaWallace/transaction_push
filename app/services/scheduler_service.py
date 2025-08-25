@@ -347,8 +347,8 @@ class SchedulerService:
             
             db_healthy = db_manager.health_check()
             
-            okx_service = OKXService()
-            api_healthy = await okx_service.health_check()
+            async with OKXService() as okx_service:
+                api_healthy = await okx_service.health_check()
             
             # 如果有严重问题，发送警报
             if not db_healthy or not api_healthy:

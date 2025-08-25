@@ -12,6 +12,7 @@ import hmac
 import hashlib
 import base64
 import json
+import time
 from decimal import Decimal
 
 from app.core.logging import get_logger
@@ -22,6 +23,11 @@ from app.utils.okx_rate_limiter import get_okx_rate_limiter
 logger = get_logger(__name__)
 settings = get_settings()
 
+
+# 全局请求间隔管理
+_last_request_time = 0
+_request_lock = asyncio.Lock()
+_current_interval = 0.5  # 动态调整的请求间隔
 
 class OKXService:
     """OKX交易所服务类"""
@@ -44,13 +50,20 @@ class OKXService:
     
     async def __aenter__(self):
         """异步上下文管理器入口"""
-        self.session = aiohttp.ClientSession()
+        await self._ensure_session()
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """异步上下文管理器出口"""
-        if self.session:
-            await self.session.close()
+        try:
+            if self.session and not self.session.closed:
+                await self.session.close()
+                # 等待一小段时间确保连接完全关闭
+                await asyncio.sleep(0.1)
+        except Exception as e:
+            logger.warning(f"关闭session时出现异常: {e}")
+        finally:
+            self.session = None
     
     def _generate_signature(self, timestamp: str, method: str, request_path: str, body: str = "") -> str:
         """生成OKX API签名"""
@@ -63,6 +76,35 @@ class OKXService:
             ).digest()
         ).decode('utf-8')
         return signature
+    
+    async def _ensure_session(self):
+        """确保session可用"""
+        try:
+            if not self.session or self.session.closed:
+                # 如果有旧的session，先关闭
+                if self.session and not self.session.closed:
+                    await self.session.close()
+                
+                # 创建新的连接器 - 平衡性能和稳定性
+                connector = aiohttp.TCPConnector(
+                    limit=30,  # 进一步降低连接数限制
+                    limit_per_host=5,  # 每个主机最多5个连接
+                    keepalive_timeout=30,  # 保持连接30秒
+                    enable_cleanup_closed=True,
+                    # 不使用force_close，允许连接复用以提高性能
+                )
+                
+                # 创建新的session
+                self.session = aiohttp.ClientSession(
+                    connector=connector,
+                    trust_env=True,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                )
+                logger.debug("创建新的HTTP session")
+        except Exception as e:
+            logger.error(f"创建session失败: {e}")
+            self.session = None
+            raise TradingToolError(f"无法创建HTTP session: {e}")
     
     def _get_headers(self, method: str, request_path: str, body: str = "") -> Dict[str, str]:
         """获取请求头"""
@@ -86,24 +128,31 @@ class OKXService:
     
     async def _make_request(self, method: str, endpoint: str, params: Dict = None, data: Dict = None) -> Dict[str, Any]:
         """发起API请求 - 使用专业频率限制管理器"""
+        global _last_request_time, _request_lock, _current_interval
+        
+        # 全局请求间隔控制，避免频率限制
+        async with _request_lock:
+            current_time = time.time()
+            time_since_last = current_time - _last_request_time
+            
+            if time_since_last < _current_interval:
+                wait_time = _current_interval - time_since_last
+                await asyncio.sleep(wait_time)
+            
+            _last_request_time = time.time()
+        
         # 获取API调用许可
         permit_granted = await self.rate_limiter.acquire_permit(endpoint)
         if not permit_granted:
             # 如果无法获得许可，等待一段时间后重试
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(2.0)  # 增加等待时间
             permit_granted = await self.rate_limiter.acquire_permit(endpoint)
             if not permit_granted:
-                raise TradingToolError(f"OKX API频率限制，无法获得调用许可: {endpoint}")
+                logger.warning(f"OKX API频率限制，跳过请求: {endpoint}")
+                return []  # 返回空结果而不是抛出异常
         
-        # 每次请求都创建新的session，避免连接关闭问题
-        connector = None
-        if settings.proxy_enabled and settings.proxy_url:
-            connector = aiohttp.TCPConnector()
-        
-        session = aiohttp.ClientSession(
-            connector=connector,
-            trust_env=True  # 使用环境变量中的代理设置
-        )
+        # 确保session可用
+        await self._ensure_session()
         
         url = f"{self.base_url}{endpoint}"
         
@@ -125,19 +174,22 @@ class OKXService:
         max_retries = 3
         for attempt in range(max_retries):
             try:
+                # 确保session仍然可用
+                if not self.session or self.session.closed:
+                    await self._ensure_session()
+                
                 # 配置代理
                 proxy = None
                 if settings.proxy_enabled and settings.proxy_url:
                     proxy = settings.proxy_url
                 
-                async with session.request(
+                async with self.session.request(
                     method=method,
                     url=url,
                     headers=headers,
                     params=params,
                     data=body if body else None,
-                    proxy=proxy,
-                    timeout=aiohttp.ClientTimeout(total=30)
+                    proxy=proxy
                 ) as response:
                     result = await response.json()
                     
@@ -146,41 +198,68 @@ class OKXService:
                         
                         # 特殊处理频率限制错误
                         if 'Too Many Requests' in error_msg or result.get('code') == '50011':
+                            # 动态增加请求间隔
+                            _current_interval = min(_current_interval * 1.5, 3.0)  # 最大3秒间隔
+                            logger.warning(f"检测到频率限制，调整请求间隔至{_current_interval:.1f}秒")
+                            
                             if attempt < max_retries - 1:
-                                # 指数退避重试
-                                wait_time = (2 ** attempt) * 1.0  # 1s, 2s, 4s
+                                # 更长的等待时间，避免频率限制
+                                wait_time = (2 ** attempt) * 3.0  # 3s, 6s, 12s
                                 logger.warning(f"OKX频率限制，等待{wait_time}秒后重试 (尝试 {attempt + 1}/{max_retries})")
                                 await asyncio.sleep(wait_time)
                                 continue
                             else:
                                 logger.error(f"OKX频率限制，已达最大重试次数")
+                                # 不抛出异常，而是等待更长时间后返回空结果
+                                await asyncio.sleep(15.0)  # 等待15秒冷却
+                                return []
                         
                         logger.error(f"OKX API错误: {error_msg}")
                         raise TradingToolError(f"OKX API错误: {error_msg}")
                     
+                    # 请求成功，逐渐降低请求间隔
+                    if _current_interval > 0.5:
+                        _current_interval = max(_current_interval * 0.95, 0.5)  # 逐渐降低到最小0.5秒
+                    
                     return result.get('data', [])
                     
             except aiohttp.ClientError as e:
+                error_str = str(e)
+                if "Connector is closed" in error_str or "closed" in error_str.lower():
+                    # 连接器关闭，重新创建session
+                    logger.warning(f"连接器已关闭，重新创建session: {e}")
+                    self.session = None
+                    await self._ensure_session()
+                    
                 if attempt < max_retries - 1:
-                    wait_time = (2 ** attempt) * 0.5
+                    wait_time = (2 ** attempt) * 1.0  # 增加等待时间
                     logger.warning(f"网络请求失败，{wait_time}秒后重试: {e}")
                     await asyncio.sleep(wait_time)
                     continue
                 else:
                     logger.error(f"OKX API请求失败: {e}")
-                    raise ServiceUnavailableError(f"OKX服务不可用: {e}")
+                    # 不抛出异常，返回空结果避免阻塞
+                    return []
+                    
             except Exception as e:
+                error_str = str(e)
+                if "'NoneType' object has no attribute 'request'" in error_str:
+                    # session为None，重新创建
+                    logger.warning(f"Session为None，重新创建: {e}")
+                    self.session = None
+                    await self._ensure_session()
+                    
                 if attempt < max_retries - 1:
-                    wait_time = (2 ** attempt) * 0.5
+                    wait_time = (2 ** attempt) * 1.0
                     logger.warning(f"请求异常，{wait_time}秒后重试: {e}")
                     await asyncio.sleep(wait_time)
                     continue
                 else:
                     logger.error(f"OKX请求异常: {e}")
-                    raise TradingToolError(f"OKX请求失败: {e}")
+                    # 不抛出异常，返回空结果避免阻塞
+                    return []
         
-        # 确保session被正确关闭
-        await session.close()
+        # session会在上下文管理器中自动关闭，这里不需要手动关闭
     
     async def get_account_balance(self) -> Dict[str, Any]:
         """获取账户余额"""

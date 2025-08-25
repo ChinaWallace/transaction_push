@@ -89,12 +89,12 @@ async def predict_symbol(
     """生成单个交易对的Kronos预测"""
     try:
         # 获取历史数据
-        okx_service = OKXService()
-        historical_data = await okx_service.get_kline_data(
-            symbol=symbol,
-            timeframe='1h',
-            limit=lookback_periods + 50  # 多获取一些数据以确保足够
-        )
+        async with OKXService() as okx_service:
+            historical_data = await okx_service.get_kline_data(
+                symbol=symbol,
+                timeframe='1h',
+                limit=lookback_periods + 50  # 多获取一些数据以确保足够
+            )
         
         if historical_data is None or len(historical_data) < lookback_periods:
             raise HTTPException(
@@ -157,25 +157,25 @@ async def predict_batch(
 ) -> KronosBatchPredictionResponse:
     """批量生成多个交易对的Kronos预测"""
     try:
-        okx_service = OKXService()
-        symbols_data = {}
-        
-        # 获取所有交易对的历史数据
-        for symbol in request.symbols:
-            try:
-                historical_data = await okx_service.get_kline_data(
-                    symbol=symbol,
-                    timeframe='1h',
-                    limit=request.lookback_periods + 50
-                )
-                
-                if historical_data is not None and len(historical_data) >= request.lookback_periods:
-                    symbols_data[symbol] = historical_data
-                else:
-                    logger.warning(f"{symbol}历史数据不足")
+        async with OKXService() as okx_service:
+            symbols_data = {}
+            
+            # 获取所有交易对的历史数据
+            for symbol in request.symbols:
+                try:
+                    historical_data = await okx_service.get_kline_data(
+                        symbol=symbol,
+                        timeframe='1h',
+                        limit=request.lookback_periods + 50
+                    )
                     
-            except Exception as e:
-                logger.error(f"获取{symbol}历史数据失败: {e}")
+                    if historical_data is not None and len(historical_data) >= request.lookback_periods:
+                        symbols_data[symbol] = historical_data
+                    else:
+                        logger.warning(f"{symbol}历史数据不足")
+                        
+                except Exception as e:
+                    logger.error(f"获取{symbol}历史数据失败: {e}")
         
         if not symbols_data:
             raise HTTPException(status_code=400, detail="没有可用的历史数据")
