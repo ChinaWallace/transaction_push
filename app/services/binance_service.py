@@ -17,7 +17,7 @@ from decimal import Decimal
 from app.core.config import get_settings
 from app.core.logging import get_logger, trading_logger
 from app.models.market_data import KlineData, FundingRate, OpenInterest, VolumeData
-from app.utils.http_client import HTTPClient
+from app.utils.http_manager import get_http_manager, safe_http_request
 from app.utils.exceptions import BinanceAPIError, RateLimitError
 
 logger = get_logger(__name__)
@@ -32,7 +32,7 @@ class BinanceService:
         self.secret_key = settings.binance_secret_key
         self.base_url = settings.binance_base_url
         self.testnet = settings.binance_testnet
-        self.http_client = HTTPClient()
+        self.http_manager = None  # 延迟初始化
         
         if self.testnet:
             self.base_url = "https://testnet.binancefuture.com"

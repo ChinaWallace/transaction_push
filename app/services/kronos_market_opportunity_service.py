@@ -605,12 +605,12 @@ class KronosMarketOpportunityService:
             message += f"⏰ 扫描时间: {datetime.now().strftime('%H:%M:%S')}\n"
             message += "💡 仅推送Kronos AI识别的强信号，传统分析已停用"
             
-            success = await self.notification_service.send_notification(
-                title=f"🤖 Kronos强交易机会: {count}个",
+            result = await self.notification_service.send_notification(
                 message=message,
-                notification_type="kronos_strong_opportunities",
-                priority="high"
+                priority="high",
+                subject=f"🤖 Kronos强交易机会: {count}个"
             )
+            success = any(result.values()) if isinstance(result, dict) else bool(result)
             
             return 1 if success else 0
             

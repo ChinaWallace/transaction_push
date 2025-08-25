@@ -18,7 +18,11 @@ logger = get_logger(__name__)
 
 
 class HTTPClient:
-    """HTTP客户端类"""
+    """HTTP客户端类 - 使用连接池"""
+    
+    # 类级别的共享session，实现连接池复用
+    _shared_session = None
+    _session_lock = asyncio.Lock()
     
     def __init__(self, timeout: int = 30, max_retries: int = 3, use_proxy: bool = None):
         self.timeout = timeout
@@ -44,45 +48,80 @@ class HTTPClient:
         await self.close_session()
     
     async def start_session(self):
-        """启动会话"""
+        """启动会话 - 使用共享连接池"""
         if self.session is None:
-            connector = aiohttp.TCPConnector(
-                limit=100,
-                limit_per_host=30,
-                keepalive_timeout=30,
+            # 使用共享session实现连接池复用
+            async with HTTPClient._session_lock:
+                if HTTPClient._shared_session is None or HTTPClient._shared_session.closed:
+                    await self._create_shared_session()
+                self.session = HTTPClient._shared_session
+    
+    async def _create_shared_session(self):
+        """创建共享session"""
+        settings = get_settings()
+        http_config = settings.http_pool_config
+        
+        # 使用配置文件中的连接池配置
+        connector = aiohttp.TCPConnector(
+            limit=http_config["pool_limit"],                    # 总连接池大小
+            limit_per_host=http_config["pool_limit_per_host"],  # 每个主机的连接数
+            keepalive_timeout=http_config["keepalive_timeout"], # 保持连接时间
+            enable_cleanup_closed=True,                         # 自动清理关闭的连接
+            ttl_dns_cache=http_config["dns_cache_ttl"],        # DNS缓存时间
+            use_dns_cache=True,                                # 启用DNS缓存
+            ssl=False,                                         # 对于HTTP API，禁用SSL验证以提高性能
+            force_close=False                                  # 不强制关闭连接，复用连接
+        )
+        
+        timeout = aiohttp.ClientTimeout(
+            total=http_config["total_timeout"],
+            connect=http_config["connect_timeout"],      # 连接超时
+            sock_read=http_config["read_timeout"],       # 读取超时
+            sock_connect=http_config["connect_timeout"]  # socket连接超时
+        )
+        
+        # 设置代理
+        session_kwargs = {
+            'connector': connector,
+            'timeout': timeout,
+            'headers': {
+                'User-Agent': 'Python-Trading-Tool/1.0.0',
+                'Accept': 'application/json',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive'  # 保持连接
+            },
+            'cookie_jar': aiohttp.CookieJar(),  # 启用cookie支持
+            'raise_for_status': False,  # 不自动抛出HTTP错误
+            'trust_env': True  # 信任环境变量中的代理设置
+        }
+        
+        # 如果启用了代理，使用代理连接器
+        if http_config["proxy_enabled"] and http_config["proxy_url"]:
+            logger.info(f"Using proxy: {http_config['proxy_url']}")
+            # 代理情况下使用不同的连接器配置
+            proxy_connector = aiohttp.TCPConnector(
+                limit=http_config["pool_limit"] // 2,  # 代理时减少连接数
+                limit_per_host=http_config["pool_limit_per_host"] // 2,
+                keepalive_timeout=http_config["keepalive_timeout"],
                 enable_cleanup_closed=True
             )
-            
-            timeout = aiohttp.ClientTimeout(total=self.timeout)
-            
-            # 设置代理
-            session_kwargs = {
-                'connector': connector,
-                'timeout': timeout,
-                'headers': {
-                    'User-Agent': 'Python-Trading-Tool/1.0.0',
-                    'Accept': 'application/json',
-                    'Accept-Encoding': 'gzip, deflate'
-                }
-            }
-            
-            # 如果启用了代理，添加代理配置
-            if self.use_proxy and self.proxy_url:
-                logger.info(f"Using proxy: {self.proxy_url}")
-                session_kwargs['connector'] = aiohttp.TCPConnector(
-                    limit=100,
-                    limit_per_host=30,
-                    keepalive_timeout=30,
-                    enable_cleanup_closed=True
-                )
-            
-            self.session = aiohttp.ClientSession(**session_kwargs)
+            session_kwargs['connector'] = proxy_connector
+        
+        HTTPClient._shared_session = aiohttp.ClientSession(**session_kwargs)
+        logger.info("✅ HTTP连接池已创建")
     
     async def close_session(self):
-        """关闭会话"""
-        if self.session:
-            await self.session.close()
-            self.session = None
+        """关闭会话 - 不关闭共享session，只清理引用"""
+        self.session = None
+    
+    @classmethod
+    async def close_shared_session(cls):
+        """关闭共享session - 应用关闭时调用"""
+        async with cls._session_lock:
+            if cls._shared_session and not cls._shared_session.closed:
+                await cls._shared_session.close()
+                cls._shared_session = None
+                logger.info("🔒 HTTP连接池已关闭")
     
     def _check_rate_limit(self, url: str):
         """检查限流状态"""
@@ -206,3 +245,75 @@ class HTTPClient:
             kwargs['headers'] = headers
             
         return await self._make_request('DELETE', url, **kwargs)
+
+
+class HTTPConnectionPool:
+    """HTTP连接池管理器"""
+    
+    def __init__(self):
+        self.clients = {}
+        self._lock = asyncio.Lock()
+    
+    async def get_client(self, name: str = "default", **kwargs) -> HTTPClient:
+        """获取HTTP客户端实例"""
+        async with self._lock:
+            if name not in self.clients:
+                self.clients[name] = HTTPClient(**kwargs)
+            return self.clients[name]
+    
+    async def close_all(self):
+        """关闭所有客户端"""
+        async with self._lock:
+            for client in self.clients.values():
+                await client.close_session()
+            self.clients.clear()
+            
+            # 关闭共享session
+            await HTTPClient.close_shared_session()
+    
+    def get_pool_stats(self) -> Dict[str, Any]:
+        """获取连接池统计信息"""
+        stats = {
+            "total_clients": len(self.clients),
+            "client_names": list(self.clients.keys()),
+            "shared_session_active": HTTPClient._shared_session is not None and not HTTPClient._shared_session.closed
+        }
+        
+        # 如果有共享session，获取连接器统计
+        if HTTPClient._shared_session and not HTTPClient._shared_session.closed:
+            connector = HTTPClient._shared_session.connector
+            try:
+                if hasattr(connector, '_conns'):
+                    stats["total_connections"] = len(connector._conns)
+                if hasattr(connector, 'limit'):
+                    stats["connection_limit"] = connector.limit
+                if hasattr(connector, 'limit_per_host'):
+                    stats["per_host_limit"] = connector.limit_per_host
+                if hasattr(connector, '_keepalive_timeout'):
+                    stats["keepalive_timeout"] = connector._keepalive_timeout
+                elif hasattr(connector, 'keepalive_timeout'):
+                    stats["keepalive_timeout"] = connector.keepalive_timeout
+            except Exception:
+                # 忽略获取统计信息的错误
+                pass
+        
+        return stats
+
+
+# 全局HTTP连接池实例
+http_pool = HTTPConnectionPool()
+
+
+async def get_http_client(name: str = "default", **kwargs) -> HTTPClient:
+    """获取HTTP客户端实例"""
+    return await http_pool.get_client(name, **kwargs)
+
+
+async def close_http_pool():
+    """关闭HTTP连接池"""
+    await http_pool.close_all()
+
+
+def get_http_pool_stats() -> Dict[str, Any]:
+    """获取HTTP连接池统计信息"""
+    return http_pool.get_pool_stats()

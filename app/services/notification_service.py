@@ -18,7 +18,7 @@ import smtplib
 
 from app.core.config import get_settings
 from app.core.logging import get_logger, monitor_logger
-from app.utils.http_client import HTTPClient
+from app.utils.http_manager import get_http_manager, safe_http_request
 from app.utils.exceptions import NotificationError
 from app.models.notification import NotificationLog, AlertRule
 
@@ -30,8 +30,14 @@ class NotificationService:
     """通知推送服务类"""
     
     def __init__(self):
-        self.http_client = HTTPClient()
+        self.http_manager = None  # 延迟初始化
         self.notification_config = settings.notification_config
+    
+    async def _get_http_manager(self):
+        """获取HTTP管理器实例"""
+        if self.http_manager is None:
+            self.http_manager = await get_http_manager()
+        return self.http_manager
     
     async def send_notification(self, 
                               message: str, 
@@ -124,12 +130,12 @@ class NotificationService:
         }
         
         try:
-            async with self.http_client:
-                response = await self.http_client.post(
-                    webhook_url,
-                    json_data=payload,
-                    headers={"Content-Type": "application/json"}
-                )
+            response = await safe_http_request(
+                'POST',
+                webhook_url,
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            )
             
             # 飞书API成功响应应该包含 StatusCode: 0
             if response.get("StatusCode") == 0:
@@ -159,12 +165,12 @@ class NotificationService:
         }
         
         try:
-            async with self.http_client:
-                response = await self.http_client.post(
-                    webhook_url,
-                    json_data=payload,
-                    headers={"Content-Type": "application/json"}
-                )
+            response = await safe_http_request(
+                'POST',
+                webhook_url,
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            )
             
             if response.get("errcode") == 0:
                 return True
@@ -195,12 +201,12 @@ class NotificationService:
         }
         
         try:
-            async with self.http_client:
-                response = await self.http_client.post(
-                    url,
-                    json_data=payload,
-                    headers={"Content-Type": "application/json"}
-                )
+            response = await safe_http_request(
+                'POST',
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            )
             
             if response.get("ok"):
                 return True

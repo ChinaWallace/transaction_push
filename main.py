@@ -14,6 +14,7 @@ from app.core.config import get_settings
 from app.core.logging import get_logger
 from datetime import datetime
 from app.core.database import create_tables, db_manager
+from app.utils.db_monitor import get_db_monitor
 
 # 导入所有模型以确保表定义被注册
 import app.models  # 这会导入所有模型定义
@@ -30,8 +31,11 @@ from app.api.kronos_integrated import router as kronos_integrated_router
 from app.api.enhanced_trading import router as enhanced_trading_router
 from app.api.funding_monitor import router as funding_monitor_router
 from app.api.kronos_market_opportunities import router as kronos_market_opportunities_router
+from app.api.kronos_advanced_opportunities import router as kronos_advanced_opportunities_router
 from app.api.notification_stats import router as notification_stats_router
 from app.api.profit_opportunities import router as profit_opportunities_router
+from app.api.database import router as database_router
+from app.api.http_pool import router as http_pool_router
 from app.services.scheduler_service import SchedulerService
 from app.services.ml_enhanced_service import MLEnhancedService
 from app.services.ml_notification_service import MLNotificationService
@@ -298,11 +302,18 @@ async def lifespan(app: FastAPI):
             logger.warning(f"⚠️ Database table creation failed: {e}")
             logger.info("💡 Application will continue without database persistence")
         
-        # 测试数据库连接 - 允许在数据库不可用时继续运行
+        # 测试数据库连接和连接池 - 允许在数据库不可用时继续运行
         try:
+            db_monitor = get_db_monitor()
             if db_manager.health_check():
                 logger.info("✅ Database connection healthy")
+                
+                # 显示连接池状态
+                pool_stats = db_monitor.get_pool_stats()
+                logger.info(f"📊 Connection pool stats: {pool_stats}")
+                
                 app.state.database_available = True
+                app.state.db_monitor = db_monitor
             else:
                 logger.warning("⚠️ Database connection failed - running in memory mode")
                 app.state.database_available = False
@@ -382,8 +393,94 @@ async def lifespan(app: FastAPI):
                 name='Kronos网格交易机会扫描'
             )
             logger.info("✅ Kronos网格交易机会扫描已启动（2小时间隔）")
+            
+            # 添加Kronos套利机会扫描任务（每15分钟）
+            from app.services.kronos_arbitrage_scanner_service import get_kronos_arbitrage_scanner
+            
+            async def kronos_arbitrage_scan():
+                """Kronos套利机会扫描"""
+                try:
+                    scanner = await get_kronos_arbitrage_scanner()
+                    result = await scanner.scan_arbitrage_opportunities()
+                    
+                    if result.get("status") == "success":
+                        opportunities = result.get("opportunities_found", 0)
+                        logger.info(f"✅ Kronos套利扫描完成: 发现 {opportunities} 个套利机会")
+                    elif result.get("status") == "skipped":
+                        logger.debug("📊 Kronos套利扫描跳过（未到间隔时间）")
+                    else:
+                        logger.warning(f"⚠️ Kronos套利扫描异常: {result.get('error', '未知错误')}")
+                except Exception as e:
+                    logger.error(f"❌ Kronos套利扫描失败: {e}")
+            
+            scheduler.add_job(
+                kronos_arbitrage_scan,
+                'interval',
+                minutes=15,
+                id='kronos_arbitrage_scan',
+                name='Kronos套利机会扫描'
+            )
+            logger.info("✅ Kronos套利机会扫描已启动（15分钟间隔）")
+            
+            # 添加Kronos动量扫描任务（每10分钟）
+            from app.services.kronos_momentum_scanner_service import get_kronos_momentum_scanner
+            
+            async def kronos_momentum_scan():
+                """Kronos动量机会扫描"""
+                try:
+                    scanner = await get_kronos_momentum_scanner()
+                    result = await scanner.scan_momentum_opportunities()
+                    
+                    if result.get("status") == "success":
+                        signals = result.get("signals_found", 0)
+                        strong_signals = result.get("strong_signals", 0)
+                        logger.info(f"✅ Kronos动量扫描完成: 发现 {signals} 个信号，{strong_signals} 个强信号")
+                    elif result.get("status") == "skipped":
+                        logger.debug("📊 Kronos动量扫描跳过（未到间隔时间）")
+                    else:
+                        logger.warning(f"⚠️ Kronos动量扫描异常: {result.get('error', '未知错误')}")
+                except Exception as e:
+                    logger.error(f"❌ Kronos动量扫描失败: {e}")
+            
+            scheduler.add_job(
+                kronos_momentum_scan,
+                'interval',
+                minutes=10,
+                id='kronos_momentum_scan',
+                name='Kronos动量机会扫描'
+            )
+            logger.info("✅ Kronos动量机会扫描已启动（10分钟间隔）")
+            
+            # 添加Kronos巨鲸追踪任务（每5分钟）
+            from app.services.kronos_whale_tracker_service import get_kronos_whale_tracker
+            
+            async def kronos_whale_tracking():
+                """Kronos巨鲸活动追踪"""
+                try:
+                    tracker = await get_kronos_whale_tracker()
+                    result = await tracker.track_whale_activities()
+                    
+                    if result.get("status") == "success":
+                        whale_signals = result.get("whale_signals", 0)
+                        important_signals = result.get("important_signals", 0)
+                        logger.info(f"✅ Kronos巨鲸追踪完成: 发现 {whale_signals} 个信号，{important_signals} 个重要信号")
+                    elif result.get("status") == "skipped":
+                        logger.debug("📊 Kronos巨鲸追踪跳过（未到间隔时间）")
+                    else:
+                        logger.warning(f"⚠️ Kronos巨鲸追踪异常: {result.get('error', '未知错误')}")
+                except Exception as e:
+                    logger.error(f"❌ Kronos巨鲸追踪失败: {e}")
+            
+            scheduler.add_job(
+                kronos_whale_tracking,
+                'interval',
+                minutes=5,
+                id='kronos_whale_tracking',
+                name='Kronos巨鲸活动追踪'
+            )
+            logger.info("✅ Kronos巨鲸活动追踪已启动（5分钟间隔）")
         else:
-            logger.info("📴 Kronos预测已禁用，跳过每小时扫描")
+            logger.info("📴 Kronos预测已禁用，跳过所有Kronos扫描任务")
         
         # 添加负费率监控定时任务
         funding_monitor = NegativeFundingMonitorService()
@@ -590,6 +687,22 @@ async def lifespan(app: FastAPI):
             await app.state.scheduler.stop()
             logger.info("✅ Scheduler stopped")
         
+        # 清理HTTP连接池
+        try:
+            from app.utils.http_manager import cleanup_http_resources
+            await cleanup_http_resources()
+            logger.info("✅ HTTP connection pool cleaned up")
+        except Exception as e:
+            logger.error(f"⚠️ HTTP cleanup error: {e}")
+        
+        # 清理数据库连接
+        try:
+            from app.core.database import db_manager
+            db_manager.close_all_connections()
+            logger.info("✅ Database connections closed")
+        except Exception as e:
+            logger.error(f"⚠️ Database cleanup error: {e}")
+        
         logger.info("👋 Application shutdown completed!")
         
     except Exception as e:
@@ -637,8 +750,11 @@ def create_app() -> FastAPI:
     app.include_router(kronos_integrated_router, prefix="/api/kronos-integrated", tags=["Kronos集成决策"])
     app.include_router(enhanced_trading_router, prefix="/api/enhanced-trading", tags=["增强交易决策"])
     app.include_router(kronos_market_opportunities_router, prefix="/api/kronos-opportunities", tags=["Kronos市场机会"])
+    app.include_router(kronos_advanced_opportunities_router, prefix="/api/kronos-advanced", tags=["Kronos高级机会"])
     app.include_router(notification_stats_router)
     app.include_router(profit_opportunities_router)
+    app.include_router(database_router, prefix="/api/database", tags=["数据库管理"])
+    app.include_router(http_pool_router, prefix="/api/http-pool", tags=["HTTP连接池管理"])
     
     # 根路径
     @app.get("/", summary="根路径")
@@ -654,8 +770,10 @@ def create_app() -> FastAPI:
     @app.get("/health", summary="健康检查")
     async def health_check():
         try:
-            # 检查数据库连接
+            # 检查数据库连接和连接池
             db_healthy = db_manager.health_check()
+            db_monitor = get_db_monitor()
+            pool_stats = db_monitor.get_pool_stats() if db_healthy else {}
             
             # TODO: 检查币安API连接
             api_healthy = True  # 暂时设为True
@@ -672,6 +790,7 @@ def create_app() -> FastAPI:
             
             health_checks = {
                 "database": "healthy" if db_healthy else "unhealthy",
+                "connection_pool": pool_stats,
                 "binance_api": "healthy" if api_healthy else "unhealthy", 
                 "scheduler": "healthy" if scheduler_healthy else "unhealthy"
             }

@@ -27,6 +27,16 @@ class Settings(BaseSettings):
     database_url: str = Field(default="mysql+pymysql://root:8964@localhost:3306/trading_db", description="数据库连接URL")
     database_echo: bool = Field(default=False, description="数据库SQL日志")
     
+    # 数据库连接池配置
+    db_pool_size: int = Field(default=20, description="数据库连接池大小")
+    db_max_overflow: int = Field(default=30, description="数据库连接池最大溢出数")
+    db_pool_timeout: int = Field(default=30, description="获取连接超时时间(秒)")
+    db_pool_recycle: int = Field(default=3600, description="连接回收时间(秒)")
+    db_pool_pre_ping: bool = Field(default=True, description="连接前ping检查")
+    db_connect_timeout: int = Field(default=10, description="数据库连接超时(秒)")
+    db_read_timeout: int = Field(default=30, description="数据库读取超时(秒)")
+    db_write_timeout: int = Field(default=30, description="数据库写入超时(秒)")
+    
     # 币安API配置
     binance_api_key: str = Field(default="test_key", description="币安API Key")
     binance_secret_key: str = Field(default="test_secret", description="币安Secret Key")
@@ -46,6 +56,16 @@ class Settings(BaseSettings):
     # 代理配置
     proxy_url: Optional[str] = Field(default=None, description="HTTP代理URL (如: http://127.0.0.1:7890)")
     proxy_enabled: bool = Field(default=False, description="是否启用代理")
+    
+    # HTTP连接池配置
+    http_pool_limit: int = Field(default=200, description="HTTP连接池总大小")
+    http_pool_limit_per_host: int = Field(default=50, description="每个主机的连接数限制")
+    http_keepalive_timeout: int = Field(default=60, description="HTTP连接保持时间(秒)")
+    http_connect_timeout: int = Field(default=10, description="HTTP连接超时(秒)")
+    http_read_timeout: int = Field(default=30, description="HTTP读取超时(秒)")
+    http_total_timeout: int = Field(default=60, description="HTTP总超时(秒)")
+    http_dns_cache_ttl: int = Field(default=300, description="DNS缓存时间(秒)")
+    http_max_retries: int = Field(default=3, description="HTTP请求最大重试次数")
     
     # 通知推送配置
     feishu_webhook_url: Optional[str] = Field(default=None, description="飞书Webhook URL")
@@ -101,30 +121,34 @@ class Settings(BaseSettings):
             'top_p': 0.9,
             'sample_count': 5  # 生成5个预测样本取平均
         },
-        'confidence_threshold': 0.45,  # 进一步降低阈值，抓住更多机会
+        'confidence_threshold': 0.35,  # 大幅降低阈值，抓住更多机会
         'update_interval_minutes': 15,  # 缩短更新间隔到15分钟
         'cache_predictions': True,
         'use_gpu': True,  # 如果有GPU则使用
         # 专注ETH和SOL的分析配置
         'target_symbols': ['ETH-USDT-SWAP', 'SOL-USDT-SWAP'],  # 只分析这两个币种
         'enhanced_analysis': True,  # 对目标币种进行增强分析
+        # 强制只推送Kronos分析的信号
+        'strict_kronos_only': True,  # 严格模式：只推送经过Kronos分析的信号
+        'disable_traditional_signals': True,  # 禁用传统技术分析信号推送
         # 强信号通知配置 - 币圈优化
         'notification_config': {
             'enable_strong_signal_notification': True,  # 启用强信号通知
-            'strong_signal_threshold': 0.5,   # 降低强信号阈值
-            'medium_signal_threshold': 0.4,   # 降低中等信号阈值
+            'strong_signal_threshold': 0.4,   # 大幅降低强信号阈值
+            'medium_signal_threshold': 0.3,   # 大幅降低中等信号阈值
             'notification_channels': ['feishu', 'wechat'],  # 通知渠道
             'notification_priority': 'high',  # 通知优先级
             'batch_notification': False,      # 关闭批量通知，立即推送
             'enable_immediate_alerts': True,  # 启用立即告警
-            'profit_opportunity_threshold': 5.0  # 预期收益5%以上立即通知
+            'profit_opportunity_threshold': 3.0,  # 预期收益3%以上立即通知
+            'require_kronos_validation': True  # 要求所有信号都必须经过Kronos验证
         },
         # 市场机会扫描配置 - 增强版
         'market_scan_config': {
             'enable_market_scan': True,  # 启用市场机会扫描
             'enable_profit_scan': True,  # 启用收益机会扫描
-            'strong_signal_threshold': 0.6,  # 降低强信号扫描阈值
-            'profit_opportunity_threshold': 8.0,  # 收益机会阈值8%
+            'strong_signal_threshold': 0.45,  # 大幅降低强信号扫描阈值
+            'profit_opportunity_threshold': 5.0,  # 收益机会阈值5%
             'scan_intervals': {
                 'strong_signal_minutes': 10,  # 强信号扫描间隔缩短到10分钟
                 'profit_scan_minutes': 5,     # 收益机会扫描5分钟一次
@@ -140,7 +164,7 @@ class Settings(BaseSettings):
                     'grid_trading': 'medium'
                 },
                 'auto_notify_high_return': True,  # 自动推送高收益机会
-                'high_return_threshold': 12.0     # 12%以上收益自动推送
+                'high_return_threshold': 8.0     # 8%以上收益自动推送
             }
         }
     }, description="Kronos金融预测模型配置 - 专门分析ETH和SOL，增强收益机会扫描，币圈高频交易优化")
@@ -253,7 +277,7 @@ class Settings(BaseSettings):
     profit_maximization_config: Dict[str, Any] = Field(default_factory=lambda: {
         'enable_profit_scanning': True,
         'scan_interval_minutes': 3,  # 3分钟扫描一次
-        'min_expected_return': 5.0,  # 最低预期收益5%
+        'min_expected_return': 3.0,  # 最低预期收益3%
         'min_risk_reward_ratio': 1.5,  # 最低风险收益比1.5:1
         'max_position_risk': 0.03,   # 单笔最大风险3%
         
@@ -281,8 +305,8 @@ class Settings(BaseSettings):
         # 自动通知配置
         'auto_notification': {
             'enable': True,
-            'high_return_threshold': 10.0,     # 10%以上自动通知
-            'urgent_return_threshold': 15.0,   # 15%以上紧急通知
+            'high_return_threshold': 6.0,     # 6%以上自动通知
+            'urgent_return_threshold': 10.0,   # 10%以上紧急通知
             'max_notifications_per_hour': 20,  # 每小时最多20次通知
             'notification_channels': ['feishu', 'wechat'],
             'include_risk_warning': True       # 包含风险提示
@@ -361,6 +385,16 @@ class Settings(BaseSettings):
         return {
             "url": self.database_url,
             "echo": self.database_echo,
+            "pool_config": {
+                "pool_size": self.db_pool_size,
+                "max_overflow": self.db_max_overflow,
+                "pool_timeout": self.db_pool_timeout,
+                "pool_recycle": self.db_pool_recycle,
+                "pool_pre_ping": self.db_pool_pre_ping,
+                "connect_timeout": self.db_connect_timeout,
+                "read_timeout": self.db_read_timeout,
+                "write_timeout": self.db_write_timeout,
+            }
         }
     
     @property
@@ -409,6 +443,22 @@ class Settings(BaseSettings):
                 "smtp_from": self.smtp_from,
                 "enabled": bool(self.smtp_host and self.smtp_user and self.smtp_password)
             }
+        }
+    
+    @property
+    def http_pool_config(self) -> dict:
+        """获取HTTP连接池配置"""
+        return {
+            "pool_limit": self.http_pool_limit,
+            "pool_limit_per_host": self.http_pool_limit_per_host,
+            "keepalive_timeout": self.http_keepalive_timeout,
+            "connect_timeout": self.http_connect_timeout,
+            "read_timeout": self.http_read_timeout,
+            "total_timeout": self.http_total_timeout,
+            "dns_cache_ttl": self.http_dns_cache_ttl,
+            "max_retries": self.http_max_retries,
+            "proxy_enabled": self.proxy_enabled,
+            "proxy_url": self.proxy_url
         }
     
     @property

@@ -960,3 +960,4 @@ class BacktestReportService:
             raise TradingToolError(f"JSON导出失败: {str(e)}")
 
 
+

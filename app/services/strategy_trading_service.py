@@ -82,39 +82,121 @@ class StrategyTradingService:
     
     async def analyze_grid_opportunity(self, symbol: str, 
                                      investment: float = 1000) -> StrategyRecommendation:
-        """分析网格交易机会"""
+        """分析网格交易机会 - 集成Kronos预测"""
         try:
+            # 检查是否启用Kronos集成
+            settings = get_settings()
+            if not settings.kronos_config.get('enable_kronos_prediction', False):
+                logger.warning(f"Kronos预测功能已禁用，跳过{symbol}网格分析")
+                return StrategyRecommendation(
+                    symbol=symbol,
+                    strategy_type=StrategyType.GRID,
+                    recommended=False,
+                    confidence=0,
+                    parameters={},
+                    expected_daily_return=0,
+                    expected_annual_return=0,
+                    max_drawdown=0,
+                    risk_level='high',
+                    capital_requirement=investment,
+                    reasoning="Kronos预测功能未启用，无法进行网格分析"
+                )
+            
             async with self.okx_service as okx:
-                # 获取历史数据分析波动性
-                klines = await okx.get_kline_data(symbol, '1H', 168)  # 7天数据
+                # 获取历史数据
+                klines = await okx.get_kline_data(symbol, '1H', 200)  # 获取更多数据用于Kronos分析
                 current_price = await okx.get_current_price(symbol)
                 
                 if not klines or not current_price:
                     raise TradingToolError(f"无法获取{symbol}数据")
                 
-                # 分析价格波动
+                # 1. 使用Kronos进行预测分析
+                kronos_prediction = None
+                try:
+                    from app.services.kronos_prediction_service import get_kronos_service
+                    kronos_service = await get_kronos_service()
+                    
+                    # 准备数据给Kronos
+                    import pandas as pd
+                    df = pd.DataFrame(klines)
+                    df['close'] = df['close'].astype(float)
+                    df['open'] = df['open'].astype(float)
+                    df['high'] = df['high'].astype(float)
+                    df['low'] = df['low'].astype(float)
+                    df['volume'] = df['volume'].astype(float)
+                    
+                    # 获取Kronos预测
+                    kronos_prediction = await kronos_service.get_prediction(symbol, df)
+                    
+                except Exception as e:
+                    logger.warning(f"Kronos预测失败，使用传统分析: {e}")
+                
+                # 2. 传统波动性分析
                 prices = [k['close'] for k in klines]
                 volatility = np.std(prices) / np.mean(prices)
-                
-                # 计算价格区间
                 price_range = max(prices) - min(prices)
                 avg_price = np.mean(prices)
                 
-                # 建议网格参数
-                grid_num = min(20, max(5, int(price_range / avg_price * 100)))  # 根据波动性调整网格数
-                
-                # 设置价格区间 (当前价格 ±15%)
-                max_price = current_price * 1.15
-                min_price = current_price * 0.85
-                
-                # 计算预期收益
-                profit_per_grid = (max_price - min_price) / grid_num * 0.002  # 0.2%利润每格
-                daily_trades = volatility * 24  # 根据波动性估算每日交易次数
-                expected_daily_return = daily_trades * profit_per_grid / investment
-                
-                # 判断是否推荐 - 重点推荐波动大的币种
-                recommended = volatility > 0.03  # 波动性>3%才推荐
-                confidence = min(95, max(30, (volatility - 0.02) * 2000))
+                # 3. 结合Kronos预测调整网格参数
+                if kronos_prediction and kronos_prediction.confidence > 0.4:
+                    # 基于Kronos预测调整网格策略
+                    predicted_volatility = kronos_prediction.volatility
+                    trend_direction = kronos_prediction.trend_direction
+                    price_change_pct = kronos_prediction.price_change_pct
+                    
+                    # 根据Kronos预测调整价格区间
+                    if trend_direction == 'bullish':
+                        # 上涨趋势：网格区间偏上
+                        max_price = current_price * (1.20 + abs(price_change_pct))
+                        min_price = current_price * 0.90
+                    elif trend_direction == 'bearish':
+                        # 下跌趋势：网格区间偏下
+                        max_price = current_price * 1.10
+                        min_price = current_price * (0.80 - abs(price_change_pct))
+                    else:
+                        # 震荡趋势：对称网格
+                        max_price = current_price * 1.15
+                        min_price = current_price * 0.85
+                    
+                    # 根据Kronos预测的波动率调整网格数量
+                    volatility_factor = max(predicted_volatility, volatility)
+                    grid_num = min(25, max(8, int(volatility_factor * 200)))
+                    
+                    # 计算Kronos增强的预期收益
+                    profit_per_grid = (max_price - min_price) / grid_num * 0.003  # Kronos预测下提高利润率
+                    daily_trades = volatility_factor * 30  # 基于预测波动率
+                    expected_daily_return = daily_trades * profit_per_grid / investment
+                    
+                    # Kronos置信度影响推荐决策
+                    kronos_confidence_boost = kronos_prediction.confidence * 50
+                    base_confidence = min(95, max(40, (volatility_factor - 0.02) * 1500))
+                    confidence = min(95, base_confidence + kronos_confidence_boost)
+                    
+                    # 只有Kronos置信度足够高且预测有利时才推荐
+                    recommended = (
+                        kronos_prediction.confidence > 0.5 and
+                        volatility_factor > 0.025 and
+                        trend_direction in ['bullish', 'sideways']  # 避免强烈下跌趋势
+                    )
+                    
+                    reasoning = f"Kronos预测: {trend_direction}, 置信度: {kronos_prediction.confidence:.1%}, 预测波动率: {predicted_volatility:.3f}, 网格数: {grid_num}"
+                    
+                else:
+                    # 没有Kronos预测时，不推荐网格交易
+                    logger.warning(f"{symbol} Kronos预测不可用或置信度过低，不推荐网格交易")
+                    return StrategyRecommendation(
+                        symbol=symbol,
+                        strategy_type=StrategyType.GRID,
+                        recommended=False,
+                        confidence=0,
+                        parameters={},
+                        expected_daily_return=0,
+                        expected_annual_return=0,
+                        max_drawdown=0,
+                        risk_level='high',
+                        capital_requirement=investment,
+                        reasoning=f"Kronos预测不可用或置信度过低({kronos_prediction.confidence:.1%} < 40%)，不推荐网格交易"
+                    )
                 
                 return StrategyRecommendation(
                     symbol=symbol,
@@ -126,14 +208,16 @@ class StrategyTradingService:
                         'max_price': max_price,
                         'min_price': min_price,
                         'investment': investment,
-                        'current_price': current_price
+                        'current_price': current_price,
+                        'kronos_confidence': kronos_prediction.confidence if kronos_prediction else 0,
+                        'predicted_trend': trend_direction if kronos_prediction else 'unknown'
                     },
                     expected_daily_return=expected_daily_return,
                     expected_annual_return=expected_daily_return * 365,
-                    max_drawdown=0.15,  # 最大15%回撤
+                    max_drawdown=0.20 if trend_direction == 'bearish' else 0.15,
                     risk_level='medium' if recommended else 'high',
                     capital_requirement=investment,
-                    reasoning=f"波动性: {volatility:.3f}, 网格数: {grid_num}, 预期日收益: {expected_daily_return:.3f}%"
+                    reasoning=reasoning
                 )
                 
         except Exception as e:

@@ -426,6 +426,61 @@ class OKXService:
             logger.error(f"获取{symbol}价格失败: {e}")
             return None
     
+    async def get_tickers(self, inst_type: str = 'SWAP') -> List[Dict[str, Any]]:
+        """获取所有ticker数据"""
+        try:
+            params = {'instType': inst_type}
+            result = await self._make_request('GET', '/api/v5/market/tickers', params=params)
+            
+            tickers = []
+            for ticker in result:
+                tickers.append({
+                    'instId': ticker.get('instId', ''),
+                    'last': float(ticker.get('last', '0') or '0'),
+                    'lastSz': float(ticker.get('lastSz', '0') or '0'),
+                    'askPx': float(ticker.get('askPx', '0') or '0'),
+                    'askSz': float(ticker.get('askSz', '0') or '0'),
+                    'bidPx': float(ticker.get('bidPx', '0') or '0'),
+                    'bidSz': float(ticker.get('bidSz', '0') or '0'),
+                    'open24h': float(ticker.get('open24h', '0') or '0'),
+                    'high24h': float(ticker.get('high24h', '0') or '0'),
+                    'low24h': float(ticker.get('low24h', '0') or '0'),
+                    'volCcy24h': float(ticker.get('volCcy24h', '0') or '0'),
+                    'vol24h': float(ticker.get('vol24h', '0') or '0'),
+                    'sodUtc0': float(ticker.get('sodUtc0', '0') or '0'),
+                    'sodUtc8': float(ticker.get('sodUtc8', '0') or '0'),
+                    'ts': ticker.get('ts', '0')
+                })
+            
+            return tickers
+            
+        except Exception as e:
+            logger.error(f"获取ticker数据失败: {e}")
+            return []
+    
+    async def get_klines(self, symbol: str, timeframe: str = '1H', limit: int = 100) -> List[List[str]]:
+        """获取K线数据 - 兼容方法，返回原始格式"""
+        try:
+            kline_data = await self.get_kline_data(symbol, timeframe, limit)
+            
+            # 转换为原始格式 [timestamp, open, high, low, close, volume]
+            klines = []
+            for item in kline_data:
+                klines.append([
+                    str(item['timestamp']),
+                    str(item['open']),
+                    str(item['high']),
+                    str(item['low']),
+                    str(item['close']),
+                    str(item['volume'])
+                ])
+            
+            return klines
+            
+        except Exception as e:
+            logger.error(f"获取{symbol} K线数据失败: {e}")
+            return []
+    
     async def get_kline_data(self, symbol: str, timeframe: str = '1H', limit: int = 100) -> List[Dict[str, Any]]:
         """获取K线数据"""
         try:

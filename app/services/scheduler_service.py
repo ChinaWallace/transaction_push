@@ -269,45 +269,86 @@ class SchedulerService:
             logger.error(f"Volume anomaly monitoring job failed: {e}")
     
     async def _trend_analysis_job(self):
-        """趋势分析任务"""
+        """趋势分析任务 - 只推送经过Kronos分析的信号"""
         try:
-            monitor_logger.info("Executing scheduled trend analysis")
-            trend_service = self._get_trend_service()
+            monitor_logger.info("Executing scheduled Kronos-enhanced trend analysis")
             
-            # 分析配置的交易对趋势
-            symbols = settings.monitored_symbols
+            # 检查是否启用Kronos集成
+            if not settings.kronos_config.get('enable_kronos_prediction', False):
+                monitor_logger.info("Kronos预测功能已禁用，跳过趋势分析")
+                return
             
-            results = await trend_service.analyze_batch_symbols(symbols)
+            # 使用Kronos集成决策服务而不是传统趋势分析
+            try:
+                from app.services.kronos_integrated_decision_service import get_kronos_integrated_service, KronosSignalStrength
+                kronos_service = await get_kronos_integrated_service()
+            except ImportError:
+                monitor_logger.warning("Kronos集成服务不可用，跳过趋势分析")
+                return
             
-            # 发送强烈信号通知
+            # 分析配置的交易对趋势 - 只分析ETH和SOL
+            symbols = settings.monitored_symbols  # 只包含ETH-USDT-SWAP和SOL-USDT-SWAP
+            
+            # 使用Kronos进行批量分析
+            kronos_results = await kronos_service.batch_analyze_symbols(symbols, force_update=True)
+            
+            # 筛选需要推送的Kronos强信号
             strong_signals = []
-            for symbol, result in results.items():
-                if not isinstance(result, dict) or 'error' in result:
+            for symbol, decision in kronos_results.items():
+                if decision is None:
                     continue
+                
+                # 只推送Kronos置信度高的强信号
+                kronos_threshold = settings.kronos_config.get('notification_config', {}).get('strong_signal_threshold', 0.6)
+                
+                if (decision.kronos_confidence >= kronos_threshold and 
+                    decision.kronos_signal_strength in [KronosSignalStrength.VERY_STRONG, KronosSignalStrength.STRONG]):
                     
-                if result.get('should_notify', False) and result.get('signal_level') == 'strong':
                     strong_signals.append({
                         'symbol': symbol,
-                        'signal_data': result
+                        'kronos_decision': decision
                     })
             
+            # 发送Kronos强信号通知
             if strong_signals:
-                from app.services.notification_service import NotificationService
-                notification_service = NotificationService()
-                
-                for signal in strong_signals:
-                    message = trend_service.format_signal_notification(signal['signal_data'])
-                    await notification_service.send_notification(
-                        message,
-                        priority="high"
-                    )
+                try:
+                    from app.services.kronos_notification_service import get_kronos_notification_service
+                    kronos_notification_service = await get_kronos_notification_service()
+                    
+                    for signal in strong_signals:
+                        await kronos_notification_service.send_kronos_signal_notification(
+                            signal['symbol'],
+                            signal['kronos_decision'],
+                            priority="high"
+                        )
+                        
+                except ImportError:
+                    # 如果Kronos通知服务不可用，使用普通通知服务
+                    from app.services.notification_service import NotificationService
+                    notification_service = NotificationService()
+                    
+                    for signal in strong_signals:
+                        decision = signal['kronos_decision']
+                        message = f"""🤖 【Kronos预测信号 - {signal['symbol']}】
+
+🔮 Kronos预测置信度：{decision.kronos_confidence:.1%}
+📊 信号强度：{decision.kronos_signal_strength.value}
+💡 预测方向：{getattr(decision.kronos_prediction, 'predicted_direction', '未知') if decision.kronos_prediction else '未知'}
+💰 预期收益：{(getattr(decision.kronos_prediction, 'expected_return', 0) if decision.kronos_prediction else 0):.2%}
+
+⚠️ 注：此信号基于Kronos AI模型预测生成"""
+                        
+                        await notification_service.send_notification(
+                            message,
+                            priority="high"
+                        )
             
             monitor_logger.info(
-                f"Trend analysis completed: {len(strong_signals)} strong signals sent"
+                f"Kronos趋势分析完成: {len(strong_signals)} 个强信号推送"
             )
             
         except Exception as e:
-            logger.error(f"Trend analysis job failed: {e}")
+            logger.error(f"Kronos趋势分析任务失败: {e}")
     
     async def _daily_report_job(self):
         """每日监控报告任务"""
@@ -604,36 +645,86 @@ class SchedulerService:
             logger.error(f"Position analysis job failed: {e}")
     
     async def _grid_opportunities_job(self):
-        """网格交易机会分析任务"""
+        """网格交易机会分析任务 - 只推送经过Kronos分析的网格机会"""
         try:
-            monitor_logger.info("Executing scheduled grid opportunities analysis")
-            position_service = self._get_position_analysis_service()
+            monitor_logger.info("Executing scheduled Kronos-enhanced grid opportunities analysis")
             
-            # 执行网格机会分析
-            grid_analysis = await position_service.analyze_grid_opportunities()
+            # 检查是否启用Kronos集成
+            if not settings.kronos_config.get('enable_kronos_prediction', False):
+                monitor_logger.info("Kronos预测功能已禁用，跳过网格机会分析")
+                return
             
-            if not grid_analysis.get("error"):
-                high_score_count = grid_analysis.get("high_score_count", 0)
-                avg_return = grid_analysis.get("avg_annual_return", 0)
-                
-                # 只有在发现高分机会时才发送通知
-                if high_score_count > 0 or avg_return > 20:
-                    # 创建简化的市场分析用于通知
-                    market_analysis = {
-                        'market_sentiment': '分析中',
-                        'coin_contracts': [],
-                        'spot_opportunities': []
-                    }
+            # 使用策略交易服务进行Kronos增强的网格分析
+            try:
+                from app.services.strategy_trading_service import StrategyTradingService
+                strategy_service = StrategyTradingService()
+            except ImportError:
+                monitor_logger.warning("策略交易服务不可用，跳过网格分析")
+                return
+            
+            # 分析主要监控币种的网格机会（只分析ETH和SOL）
+            symbols = settings.monitored_symbols
+            kronos_grid_opportunities = []
+            
+            for symbol in symbols:
+                try:
+                    # 使用集成Kronos的网格分析
+                    grid_recommendation = await strategy_service.analyze_grid_opportunity(symbol, investment=1000)
                     
-                    await position_service.send_market_analysis_notification(grid_analysis, market_analysis)
-                    monitor_logger.info(f"Grid opportunities notification sent ({high_score_count} high-score opportunities)")
-                else:
-                    monitor_logger.info(f"Grid opportunities analysis completed (no high-score opportunities)")
+                    # 只推送Kronos推荐的高置信度网格机会
+                    if (grid_recommendation.recommended and 
+                        grid_recommendation.confidence > 60 and
+                        grid_recommendation.parameters.get('kronos_confidence', 0) > 0.5):
+                        
+                        kronos_grid_opportunities.append({
+                            'symbol': symbol,
+                            'recommendation': grid_recommendation
+                        })
+                        
+                except Exception as e:
+                    logger.warning(f"分析{symbol}网格机会失败: {e}")
+                    continue
+            
+            # 发送Kronos网格机会通知
+            if kronos_grid_opportunities:
+                try:
+                    from app.services.notification_service import NotificationService
+                    notification_service = NotificationService()
+                    
+                    # 构建通知消息
+                    message_parts = ["🤖 【Kronos网格交易机会】\n"]
+                    
+                    for opportunity in kronos_grid_opportunities:
+                        rec = opportunity['recommendation']
+                        symbol = opportunity['symbol']
+                        
+                        message_parts.append(f"""
+📊 {symbol}
+├ Kronos置信度: {rec.parameters.get('kronos_confidence', 0):.1%}
+├ 预测趋势: {rec.parameters.get('predicted_trend', 'unknown')}
+├ 网格数量: {rec.parameters.get('grid_num', 0)}
+├ 预期年化收益: {rec.expected_annual_return:.1%}
+└ 推荐置信度: {rec.confidence:.0f}%
+""")
+                    
+                    message_parts.append("\n⚠️ 注：此网格机会基于Kronos AI预测分析生成，请谨慎操作")
+                    
+                    full_message = "".join(message_parts)
+                    
+                    await notification_service.send_notification(
+                        full_message,
+                        priority="medium"
+                    )
+                    
+                    monitor_logger.info(f"Kronos网格机会通知已发送: {len(kronos_grid_opportunities)} 个机会")
+                    
+                except Exception as e:
+                    logger.error(f"发送Kronos网格机会通知失败: {e}")
             else:
-                logger.warning(f"Grid opportunities analysis failed: {grid_analysis.get('error')}")
+                monitor_logger.info("未发现符合Kronos标准的网格交易机会")
             
         except Exception as e:
-            logger.error(f"Grid opportunities analysis job failed: {e}")
+            logger.error(f"Kronos网格机会分析任务失败: {e}")
     
     async def _market_opportunities_job(self):
         """市场交易机会分析任务"""
