@@ -33,10 +33,10 @@ class PositionRecommendation(Enum):
 
 class PositionRisk(Enum):
     """持仓风险等级"""
-    LOW = "low"                      # 低风险
-    MEDIUM = "medium"                # 中等风险
-    HIGH = "high"                    # 高风险
-    CRITICAL = "critical"            # 危险
+    LOW = "低风险"                    # 低风险
+    MEDIUM = "中等风险"               # 中等风险
+    HIGH = "高风险"                   # 高风险
+    CRITICAL = "极高风险"             # 危险
 
 
 class PositionAnalysisService:
@@ -263,61 +263,97 @@ class PositionAnalysisService:
         }
 
     def _assess_position_health(self, position: Dict, market_signals: Dict) -> Dict[str, Any]:
-        """评估持仓健康度"""
+        """评估持仓健康度 - 针对数字货币优化"""
         score = 100
         risk_factors = []
         
-        # 1. 盈亏情况 (30分)
-        pnl_ratio = position.get('unrealized_pnl_ratio', 0)
-        if pnl_ratio < -0.15:  # 亏损超过15%
-            score -= 30
-            risk_factors.append("严重亏损")
-        elif pnl_ratio < -0.08:  # 亏损超过8%
-            score -= 20
-            risk_factors.append("较大亏损")
-        elif pnl_ratio < -0.03:  # 亏损超过3%
-            score -= 10
-            risk_factors.append("轻微亏损")
-        elif pnl_ratio > 0.15:  # 盈利超过15%
-            score += 10  # 奖励分
+        # 获取关键数据
+        unrealized_pnl_usd = position.get('unrealized_pnl_usd', 0)
+        position_value_usd = position.get('position_value_usd', 0)
+        avg_price = position.get('avg_price', 0)
+        mark_price = position.get('mark_price', 0)
         
-        # 2. 杠杆风险 (25分)
-        leverage = position.get('leverage', 1)
-        if leverage > 20:
+        # 计算实际盈亏比例（基于持仓价值）
+        if position_value_usd > 0:
+            actual_pnl_ratio = unrealized_pnl_usd / position_value_usd
+        else:
+            actual_pnl_ratio = 0
+        
+        # 计算价格偏离度
+        if avg_price > 0 and mark_price > 0:
+            price_deviation = (mark_price - avg_price) / avg_price
+            side = position.get('side', '')
+            if side == 'short':
+                price_deviation = -price_deviation  # 做空时反向计算
+        else:
+            price_deviation = actual_pnl_ratio
+        
+        # 1. 盈亏情况评估 (40分) - 加重权重，更严格
+        if actual_pnl_ratio < -0.10:  # 亏损超过10%
+            score -= 40
+            risk_factors.append(f"严重亏损 {abs(actual_pnl_ratio)*100:.1f}%")
+        elif actual_pnl_ratio < -0.05:  # 亏损超过5%
             score -= 25
-            risk_factors.append("极高杠杆")
-        elif leverage > 10:
+            risk_factors.append(f"较大亏损 {abs(actual_pnl_ratio)*100:.1f}%")
+        elif actual_pnl_ratio < -0.02:  # 亏损超过2%
             score -= 15
-            risk_factors.append("高杠杆")
-        elif leverage > 5:
-            score -= 8
-            risk_factors.append("中等杠杆")
+            risk_factors.append(f"轻微亏损 {abs(actual_pnl_ratio)*100:.1f}%")
+        elif actual_pnl_ratio > 0.10:  # 盈利超过10%
+            score += 5  # 适度奖励分
         
-        # 3. 市场趋势一致性 (25分)
+        # 2. 杠杆风险评估 (25分) - 更严格的杠杆控制
+        leverage = position.get('leverage', 1)
+        if leverage > 15:
+            score -= 25
+            risk_factors.append(f"极高杠杆 {leverage:.1f}x")
+        elif leverage > 8:
+            score -= 18
+            risk_factors.append(f"高杠杆 {leverage:.1f}x")
+        elif leverage > 3:
+            score -= 10
+            risk_factors.append(f"中等杠杆 {leverage:.1f}x")
+        
+        # 3. 市场趋势一致性 (20分)
         side = position.get('side', '')
         market_trend = market_signals.get('trend', 'neutral')
         
         if (side == 'long' and market_trend == 'bearish') or (side == 'short' and market_trend == 'bullish'):
-            score -= 25
+            score -= 20
             risk_factors.append("逆势持仓")
         elif market_trend == 'neutral':
-            score -= 10
+            score -= 8
             risk_factors.append("趋势不明")
         
-        # 4. 波动率风险 (20分)
+        # 4. 波动率风险 (15分)
         volatility = market_signals.get('volatility', 'medium')
         if volatility == 'high':
-            score -= 20
+            score -= 15
             risk_factors.append("高波动率")
         elif volatility == 'medium':
             score -= 5
         
-        # 确定风险等级
-        if score >= 80:
+        # 5. 持仓规模风险 - 新增评估维度
+        if position_value_usd > 50000:  # 超过5万美元
+            score -= 10
+            risk_factors.append("大额持仓")
+        elif position_value_usd > 20000:  # 超过2万美元
+            score -= 5
+            risk_factors.append("中等规模持仓")
+        
+        # 6. 价格偏离风险 - 新增评估维度
+        if abs(price_deviation) > 0.15:  # 价格偏离超过15%
+            score -= 15
+            risk_factors.append(f"价格大幅偏离 {abs(price_deviation)*100:.1f}%")
+        elif abs(price_deviation) > 0.08:  # 价格偏离超过8%
+            score -= 8
+            risk_factors.append(f"价格明显偏离 {abs(price_deviation)*100:.1f}%")
+        
+        # 确定风险等级 - 更严格的标准
+        if score >= 85:
             risk_level = PositionRisk.LOW
-        elif score >= 60:
+        elif score >= 70:
             risk_level = PositionRisk.MEDIUM
-        elif score >= 40:
+        elif score >= 50:
             risk_level = PositionRisk.HIGH
         else:
             risk_level = PositionRisk.CRITICAL
@@ -325,7 +361,10 @@ class PositionAnalysisService:
         return {
             "score": max(0, min(100, score)),
             "risk_level": risk_level,
-            "risk_factors": risk_factors
+            "risk_factors": risk_factors,
+            "actual_pnl_ratio": actual_pnl_ratio,
+            "price_deviation": price_deviation,
+            "position_value_usd": position_value_usd
         }
     
     def _generate_position_recommendation(self, position: Dict, market_signals: Dict, 
@@ -728,7 +767,7 @@ class PositionAnalysisService:
             }
             
             message_parts.extend([
-                f"⚠️ 风险评估: {risk_emoji.get(risk_level, '🟡')} {risk_level.value.upper()}",
+                f"⚠️ 风险评估: {risk_emoji.get(risk_level, '🟡')} {risk_level.value}",
                 f"  • 风险评分: {risk_assessment.get('risk_score', 0)}/100",
                 f"  • 集中度风险: {risk_assessment.get('concentration_risk', 0):.1f}%",
                 ""

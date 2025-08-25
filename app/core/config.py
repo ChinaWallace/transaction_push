@@ -83,7 +83,7 @@ class Settings(BaseSettings):
     # 监控参数配置 - 针对数字货币高波动性优化
     open_interest_threshold: float = Field(default=1.03, description="持仓量变化阈值(降低以捕捉更多信号)")
     volume_multiplier: float = Field(default=2.5, description="成交量异常倍数(降低以提高敏感度)")
-    funding_rate_interval: int = Field(default=120, description="费率监控间隔(分钟) - 优化为2小时")
+    funding_rate_interval: int = Field(default=30, description="费率监控间隔(分钟) - 优化为30分钟")
     trend_analysis_interval: int = Field(default=5, description="趋势分析间隔(分钟) - 优化为5分钟")
     open_interest_interval: int = Field(default=3, description="持仓量监控间隔(分钟) - 优化为3分钟")
     volume_monitor_interval: int = Field(default=15, description="交易量监控间隔(分钟) - 优化为15分钟")

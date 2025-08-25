@@ -137,52 +137,177 @@ class StrategyTradingService:
                 price_range = max(prices) - min(prices)
                 avg_price = np.mean(prices)
                 
-                # 3. 结合Kronos预测调整网格参数
-                if kronos_prediction and kronos_prediction.confidence > 0.4:
+                # 3. 获取资金费率信息 - 考虑负费率收益
+                funding_rate = 0
+                funding_income_annual = 0
+                try:
+                    funding_data = await okx.get_funding_rate(symbol)
+                    funding_rate = funding_data.get('funding_rate', 0)
+                    # 计算年化资金费率收益 (每8小时收取一次，一年365*3=1095次)
+                    funding_income_annual = abs(funding_rate) * 1095 if funding_rate < 0 else 0
+                except Exception as e:
+                    logger.warning(f"获取{symbol}资金费率失败: {e}")
+                
+                # 4. 结合Kronos预测调整网格参数 - 激进但合理的策略
+                if kronos_prediction and kronos_prediction.confidence > 0.5:  # 降低置信度要求
                     # 基于Kronos预测调整网格策略
                     predicted_volatility = kronos_prediction.volatility
                     trend_direction = kronos_prediction.trend_direction
                     price_change_pct = kronos_prediction.price_change_pct
                     
-                    # 根据Kronos预测调整价格区间
-                    if trend_direction == 'bullish':
-                        # 上涨趋势：网格区间偏上
-                        max_price = current_price * (1.20 + abs(price_change_pct))
-                        min_price = current_price * 0.90
+                    # 计算趋势强度
+                    recent_prices = prices[-24:]  # 最近24小时价格
+                    price_trend = (recent_prices[-1] - recent_prices[0]) / recent_prices[0]
+                    trend_strength = abs(price_trend)
+                    
+                    # 网格交易机会评分 - 重新设计更激进的评分系统
+                    grid_opportunity_score = 0
+                    
+                    # 1. 波动率收益潜力 (40分) - 波动率越高，网格收益越大
+                    if predicted_volatility > 0.15:  # 超高波动率 >15%
+                        grid_opportunity_score += 40
+                        volatility_multiplier = 2.5  # 高波动率奖励
+                    elif predicted_volatility > 0.10:  # 高波动率 >10%
+                        grid_opportunity_score += 35
+                        volatility_multiplier = 2.0
+                    elif predicted_volatility > 0.06:  # 中高波动率 >6%
+                        grid_opportunity_score += 30
+                        volatility_multiplier = 1.5
+                    elif predicted_volatility > 0.03:  # 中等波动率 >3%
+                        grid_opportunity_score += 25
+                        volatility_multiplier = 1.2
+                    elif predicted_volatility > 0.015:  # 低波动率 >1.5%
+                        grid_opportunity_score += 15
+                        volatility_multiplier = 1.0
+                    else:  # 极低波动率
+                        grid_opportunity_score += 5
+                        volatility_multiplier = 0.8
+                    
+                    # 2. 趋势方向适应性 (25分) - 不同趋势采用不同网格策略
+                    if trend_direction == 'sideways':
+                        grid_opportunity_score += 25  # 横盘最稳定
+                        trend_risk_factor = 1.0
+                    elif trend_direction == 'bullish':
+                        if trend_strength < 0.10:  # 温和上涨，网格可以跟随
+                            grid_opportunity_score += 20
+                            trend_risk_factor = 1.1  # 轻微增加风险
+                        else:  # 强烈上涨，网格容易被突破但收益也大
+                            grid_opportunity_score += 15
+                            trend_risk_factor = 1.3
                     elif trend_direction == 'bearish':
-                        # 下跌趋势：网格区间偏下
-                        max_price = current_price * 1.10
-                        min_price = current_price * (0.80 - abs(price_change_pct))
+                        if trend_strength < 0.08:  # 温和下跌，可以做空网格
+                            grid_opportunity_score += 18
+                            trend_risk_factor = 1.2
+                        else:  # 强烈下跌，风险较高但可以获得负费率收益
+                            grid_opportunity_score += 10
+                            trend_risk_factor = 1.5
+                    
+                    # 3. 负费率收益加成 (20分) - 重要的额外收益来源
+                    if funding_rate < -0.01:  # 强负费率 < -1%
+                        grid_opportunity_score += 20
+                        funding_bonus = abs(funding_income_annual)
+                    elif funding_rate < -0.005:  # 中等负费率 < -0.5%
+                        grid_opportunity_score += 15
+                        funding_bonus = abs(funding_income_annual)
+                    elif funding_rate < 0:  # 轻微负费率
+                        grid_opportunity_score += 10
+                        funding_bonus = abs(funding_income_annual)
+                    else:  # 正费率或零费率
+                        grid_opportunity_score += 0
+                        funding_bonus = 0
+                    
+                    # 4. Kronos预测置信度 (15分)
+                    if kronos_prediction.confidence > 0.8:
+                        grid_opportunity_score += 15
+                    elif kronos_prediction.confidence > 0.7:
+                        grid_opportunity_score += 12
+                    elif kronos_prediction.confidence > 0.6:
+                        grid_opportunity_score += 10
+                    elif kronos_prediction.confidence > 0.5:
+                        grid_opportunity_score += 8
+                    
+                    # 降低推荐门槛，只要有60分以上就可以考虑
+                    if grid_opportunity_score >= 60:
+                        # 根据趋势和波动率动态调整网格参数
+                        if trend_direction == 'sideways':
+                            # 横盘震荡：对称网格，根据波动率调整区间
+                            price_range_factor = min(0.20, max(0.08, predicted_volatility * 2))
+                            max_price = current_price * (1 + price_range_factor)
+                            min_price = current_price * (1 - price_range_factor)
+                        elif trend_direction == 'bullish':
+                            # 上涨趋势：网格区间偏上，为突破留空间
+                            price_range_factor = min(0.25, max(0.10, predicted_volatility * 2.5))
+                            max_price = current_price * (1 + price_range_factor * 1.2)
+                            min_price = current_price * (1 - price_range_factor * 0.8)
+                        elif trend_direction == 'bearish':
+                            # 下跌趋势：网格区间偏下，可获得负费率收益
+                            price_range_factor = min(0.25, max(0.10, predicted_volatility * 2.5))
+                            max_price = current_price * (1 + price_range_factor * 0.8)
+                            min_price = current_price * (1 - price_range_factor * 1.2)
+                        
+                        # 根据波动率动态调整网格数量 - 波动率越高，网格越密
+                        if predicted_volatility > 0.15:  # 超高波动率
+                            grid_num = min(30, max(15, int(predicted_volatility * 120)))
+                        elif predicted_volatility > 0.08:  # 高波动率
+                            grid_num = min(20, max(12, int(predicted_volatility * 150)))
+                        elif predicted_volatility > 0.04:  # 中等波动率
+                            grid_num = min(15, max(8, int(predicted_volatility * 200)))
+                        else:  # 低波动率
+                            grid_num = min(10, max(6, int(predicted_volatility * 250)))
+                        
+                        # 计算网格交易收益预期
+                        grid_spacing = (max_price - min_price) / grid_num
+                        
+                        # 每次网格交易的利润率 (考虑手续费)
+                        profit_per_grid = grid_spacing * 0.004  # 0.4%的利润率 (扣除手续费后)
+                        
+                        # 基于波动率估算每日交易频率
+                        # 高波动率 = 更多交易机会，但也要考虑趋势风险
+                        base_daily_trades = predicted_volatility * 50 * volatility_multiplier
+                        
+                        # 根据趋势调整交易频率
+                        if trend_direction == 'sideways':
+                            daily_trades = base_daily_trades  # 横盘最稳定
+                        elif trend_direction in ['bullish', 'bearish']:
+                            daily_trades = base_daily_trades * 0.7  # 趋势市场减少频率
+                        
+                        # 限制每日最大交易次数 (避免过度乐观)
+                        daily_trades = min(daily_trades, grid_num * 3)
+                        
+                        # 计算每日网格收益
+                        daily_grid_return = (daily_trades * profit_per_grid) / investment
+                        
+                        # 加上负费率收益 (如果有的话)
+                        daily_funding_return = funding_income_annual / 365 if funding_bonus > 0 else 0
+                        
+                        # 总的每日预期收益
+                        expected_daily_return = daily_grid_return + daily_funding_return
+                        
+                        # 根据风险调整收益预期
+                        risk_adjusted_return = expected_daily_return / trend_risk_factor
+                        
+                        # 设置合理的收益上限 (避免过度乐观)
+                        final_daily_return = min(risk_adjusted_return, 0.025)  # 最高日收益2.5%
+                        
+                        confidence = min(95, grid_opportunity_score)
+                        recommended = True
+                        
+                        reasoning = f"网格机会评分: {grid_opportunity_score}/100, Kronos预测: {trend_direction}(强度:{trend_strength:.2%}), 置信度: {kronos_prediction.confidence:.1%}, 波动率: {predicted_volatility:.3f}, 资金费率: {funding_rate:.4f}, 预期日收益: {final_daily_return:.2%}"
+                        
+                        # 更新变量名以保持一致性
+                        expected_daily_return = final_daily_return
+                        grid_suitability_score = grid_opportunity_score
+                        
                     else:
-                        # 震荡趋势：对称网格
-                        max_price = current_price * 1.15
-                        min_price = current_price * 0.85
-                    
-                    # 根据Kronos预测的波动率调整网格数量
-                    volatility_factor = max(predicted_volatility, volatility)
-                    grid_num = min(25, max(8, int(volatility_factor * 200)))
-                    
-                    # 计算Kronos增强的预期收益
-                    profit_per_grid = (max_price - min_price) / grid_num * 0.003  # Kronos预测下提高利润率
-                    daily_trades = volatility_factor * 30  # 基于预测波动率
-                    expected_daily_return = daily_trades * profit_per_grid / investment
-                    
-                    # Kronos置信度影响推荐决策
-                    kronos_confidence_boost = kronos_prediction.confidence * 50
-                    base_confidence = min(95, max(40, (volatility_factor - 0.02) * 1500))
-                    confidence = min(95, base_confidence + kronos_confidence_boost)
-                    
-                    # 只有Kronos置信度足够高且预测有利时才推荐
-                    recommended = (
-                        kronos_prediction.confidence > 0.5 and
-                        volatility_factor > 0.025 and
-                        trend_direction in ['bullish', 'sideways']  # 避免强烈下跌趋势
-                    )
-                    
-                    reasoning = f"Kronos预测: {trend_direction}, 置信度: {kronos_prediction.confidence:.1%}, 预测波动率: {predicted_volatility:.3f}, 网格数: {grid_num}"
+                        recommended = False
+                        confidence = 0
+                        expected_daily_return = 0
+                        grid_suitability_score = grid_opportunity_score
+                        reasoning = f"网格机会评分不足: {grid_opportunity_score}/100, 当前市场条件收益潜力有限"
                     
                 else:
                     # 没有Kronos预测时，不推荐网格交易
+                    confidence_msg = f"({kronos_prediction.confidence:.1%} < 60%)" if kronos_prediction else "预测不可用"
                     logger.warning(f"{symbol} Kronos预测不可用或置信度过低，不推荐网格交易")
                     return StrategyRecommendation(
                         symbol=symbol,
@@ -195,7 +320,7 @@ class StrategyTradingService:
                         max_drawdown=0,
                         risk_level='high',
                         capital_requirement=investment,
-                        reasoning=f"Kronos预测不可用或置信度过低({kronos_prediction.confidence:.1%} < 40%)，不推荐网格交易"
+                        reasoning=f"Kronos预测不可用或置信度过低{confidence_msg}，网格交易需要高置信度的横盘或弱趋势预测"
                     )
                 
                 return StrategyRecommendation(
@@ -204,18 +329,27 @@ class StrategyTradingService:
                     recommended=recommended,
                     confidence=confidence,
                     parameters={
-                        'grid_num': grid_num,
-                        'max_price': max_price,
-                        'min_price': min_price,
+                        'grid_num': grid_num if recommended else 0,
+                        'max_price': max_price if recommended else 0,
+                        'min_price': min_price if recommended else 0,
                         'investment': investment,
                         'current_price': current_price,
                         'kronos_confidence': kronos_prediction.confidence if kronos_prediction else 0,
-                        'predicted_trend': trend_direction if kronos_prediction else 'unknown'
+                        'predicted_trend': trend_direction if kronos_prediction else 'unknown',
+                        'grid_suitability_score': grid_suitability_score if 'grid_suitability_score' in locals() else 0,
+                        'trend_strength': trend_strength if 'trend_strength' in locals() else 0,
+                        'predicted_volatility': predicted_volatility if 'predicted_volatility' in locals() else 0,
+                        'funding_rate': funding_rate,
+                        'funding_income_annual': funding_income_annual,
+                        'daily_grid_return': daily_grid_return if 'daily_grid_return' in locals() else 0,
+                        'daily_funding_return': daily_funding_return if 'daily_funding_return' in locals() else 0,
+                        'volatility_multiplier': volatility_multiplier if 'volatility_multiplier' in locals() else 1,
+                        'trend_risk_factor': trend_risk_factor if 'trend_risk_factor' in locals() else 1
                     },
                     expected_daily_return=expected_daily_return,
                     expected_annual_return=expected_daily_return * 365,
-                    max_drawdown=0.20 if trend_direction == 'bearish' else 0.15,
-                    risk_level='medium' if recommended else 'high',
+                    max_drawdown=0.20 if trend_direction == 'bearish' else 0.15 if recommended else 0.30,
+                    risk_level='low' if recommended and confidence > 85 else 'medium' if recommended and confidence > 70 else 'high',
                     capital_requirement=investment,
                     reasoning=reasoning
                 )
