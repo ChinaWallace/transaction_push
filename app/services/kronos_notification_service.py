@@ -235,7 +235,7 @@ class KronosNotificationService:
         decisions: List[KronosEnhancedDecision],
         signal_type: str
     ) -> bool:
-        """发送批量通知"""
+        """发送批量通知 - 优化版，包含明确方向和理由"""
         try:
             count = len(decisions)
             
@@ -254,14 +254,45 @@ class KronosNotificationService:
                 kronos_conf = decision.kronos_confidence
                 strength = decision.kronos_signal_strength.value
                 
-                message += f"{i}. **{symbol}**: {action}\n"
-                message += f"   🤖 Kronos: {kronos_conf:.2f} | 💪 {strength}\n\n"
+                # 确定方向
+                if "买入" in action or "做多" in action:
+                    direction = "📈 看涨"
+                    direction_emoji = "🚀"
+                elif "卖出" in action or "做空" in action:
+                    direction = "📉 看跌"
+                    direction_emoji = "🔻"
+                else:
+                    direction = "🔄 观望"
+                    direction_emoji = "⏸️"
+                
+                # 提取关键理由
+                reasoning_parts = []
+                if decision.kronos_prediction:
+                    change_pct = decision.kronos_prediction.price_change_pct * 100
+                    if abs(change_pct) > 1:
+                        reasoning_parts.append(f"预测变化{change_pct:+.1f}%")
+                
+                if decision.signal_confluence > 0.7:
+                    reasoning_parts.append("多指标一致")
+                elif decision.signal_confluence > 0.5:
+                    reasoning_parts.append("指标基本一致")
+                
+                if decision.kronos_signal_strength.value in ["强", "极强"]:
+                    reasoning_parts.append(f"信号{strength}")
+                
+                key_reason = "，".join(reasoning_parts[:2]) if reasoning_parts else "AI综合分析"
+                
+                message += f"{i}. **{symbol}** {direction_emoji}\n"
+                message += f"   📊 方向: {direction} | 🎯 操作: {action}\n"
+                message += f"   🤖 Kronos: {kronos_conf:.2f} | 💪 强度: {strength}\n"
+                message += f"   💡 理由: {key_reason}\n\n"
             
             if count > 5:
                 message += f"... 还有 {count - 5} 个信号\n\n"
             
             message += f"⏰ 分析时间: {datetime.now().strftime('%H:%M:%S')}\n"
-            message += f"💡 建议优先关注Kronos置信度最高的信号"
+            message += f"🎯 建议优先关注置信度最高且方向明确的信号\n"
+            message += f"⚠️ 仅推送Kronos AI识别的强信号，传统分析已停用"
             
             success = await self.notification_service.send_notification(
                 message=message,

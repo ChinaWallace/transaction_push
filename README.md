@@ -103,7 +103,7 @@ python install_dependencies.py
 
 **方法二：手动安装**
 ```bash
-#先安装TA-Lib，见底部
+先安装TA-Lib，见底部
 
 # 然后安装其他依赖
 pip install -r requirements.txt

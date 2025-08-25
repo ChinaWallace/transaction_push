@@ -17,6 +17,7 @@ from decimal import Decimal
 from app.core.logging import get_logger
 from app.core.config import get_settings
 from app.utils.exceptions import TradingToolError, ServiceUnavailableError
+from app.utils.okx_rate_limiter import get_okx_rate_limiter
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -39,6 +40,7 @@ class OKXService:
             self.base_url = self.config["base_url"]
         
         self.session = None
+        self.rate_limiter = get_okx_rate_limiter()  # 使用专业的频率限制管理器
     
     async def __aenter__(self):
         """异步上下文管理器入口"""
@@ -83,7 +85,16 @@ class OKXService:
         return headers
     
     async def _make_request(self, method: str, endpoint: str, params: Dict = None, data: Dict = None) -> Dict[str, Any]:
-        """发起API请求"""
+        """发起API请求 - 使用专业频率限制管理器"""
+        # 获取API调用许可
+        permit_granted = await self.rate_limiter.acquire_permit(endpoint)
+        if not permit_granted:
+            # 如果无法获得许可，等待一段时间后重试
+            await asyncio.sleep(1.0)
+            permit_granted = await self.rate_limiter.acquire_permit(endpoint)
+            if not permit_granted:
+                raise TradingToolError(f"OKX API频率限制，无法获得调用许可: {endpoint}")
+        
         # 每次请求都创建新的session，避免连接关闭问题
         connector = None
         if settings.proxy_enabled and settings.proxy_url:
@@ -110,39 +121,66 @@ class OKXService:
         
         headers = self._get_headers(method, request_path, body)
         
-        try:
-            # 配置代理
-            proxy = None
-            if settings.proxy_enabled and settings.proxy_url:
-                proxy = settings.proxy_url
-            
-            async with session.request(
-                method=method,
-                url=url,
-                headers=headers,
-                params=params,
-                data=body if body else None,
-                proxy=proxy,
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
-                result = await response.json()
+        # 重试机制处理频率限制
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # 配置代理
+                proxy = None
+                if settings.proxy_enabled and settings.proxy_url:
+                    proxy = settings.proxy_url
                 
-                if result.get('code') != '0':
-                    error_msg = result.get('msg', 'Unknown error')
-                    logger.error(f"OKX API错误: {error_msg}")
-                    raise TradingToolError(f"OKX API错误: {error_msg}")
-                
-                return result.get('data', [])
-                
-        except aiohttp.ClientError as e:
-            logger.error(f"OKX API请求失败: {e}")
-            raise ServiceUnavailableError(f"OKX服务不可用: {e}")
-        except Exception as e:
-            logger.error(f"OKX请求异常: {e}")
-            raise TradingToolError(f"OKX请求失败: {e}")
-        finally:
-            # 确保session被正确关闭
-            await session.close()
+                async with session.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    params=params,
+                    data=body if body else None,
+                    proxy=proxy,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    result = await response.json()
+                    
+                    if result.get('code') != '0':
+                        error_msg = result.get('msg', 'Unknown error')
+                        
+                        # 特殊处理频率限制错误
+                        if 'Too Many Requests' in error_msg or result.get('code') == '50011':
+                            if attempt < max_retries - 1:
+                                # 指数退避重试
+                                wait_time = (2 ** attempt) * 1.0  # 1s, 2s, 4s
+                                logger.warning(f"OKX频率限制，等待{wait_time}秒后重试 (尝试 {attempt + 1}/{max_retries})")
+                                await asyncio.sleep(wait_time)
+                                continue
+                            else:
+                                logger.error(f"OKX频率限制，已达最大重试次数")
+                        
+                        logger.error(f"OKX API错误: {error_msg}")
+                        raise TradingToolError(f"OKX API错误: {error_msg}")
+                    
+                    return result.get('data', [])
+                    
+            except aiohttp.ClientError as e:
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) * 0.5
+                    logger.warning(f"网络请求失败，{wait_time}秒后重试: {e}")
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"OKX API请求失败: {e}")
+                    raise ServiceUnavailableError(f"OKX服务不可用: {e}")
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) * 0.5
+                    logger.warning(f"请求异常，{wait_time}秒后重试: {e}")
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"OKX请求异常: {e}")
+                    raise TradingToolError(f"OKX请求失败: {e}")
+        
+        # 确保session被正确关闭
+        await session.close()
     
     async def get_account_balance(self) -> Dict[str, Any]:
         """获取账户余额"""

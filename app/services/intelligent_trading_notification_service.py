@@ -84,15 +84,19 @@ class IntelligentTradingNotificationService:
         self.min_risk_reward = 2.0          # 最低风险收益比2:1
         self.min_expected_profit = 50.0     # 最低预期盈利50 USDT
         
-        # 推送频率控制 - 分级间隔设置
+        # 推送频率控制 - 币圈专用：快速响应，抓住机会
         self.last_notification_time = {}
         self.notification_intervals = {
-            'premium': timedelta(minutes=0),    # 顶级机会立即推送
-            'high': timedelta(minutes=30),      # 高质量机会30分钟间隔
-            'medium': timedelta(hours=1),       # 中等机会1小时间隔
-            'low': timedelta(hours=2)           # 低质量机会2小时间隔
+            'premium': timedelta(minutes=5),    # 顶级机会5分钟间隔，快速响应
+            'high': timedelta(minutes=15),      # 高质量机会15分钟间隔
+            'medium': timedelta(minutes=30),    # 中等机会30分钟间隔
+            'low': timedelta(hours=1)           # 低质量机会1小时间隔
         }
-        self.min_notification_interval = timedelta(hours=2)  # 默认间隔（向后兼容）
+        self.min_notification_interval = timedelta(minutes=30)  # 默认间隔缩短
+        
+        # 移除每日限制 - 币圈机会不等人，全天候监控
+        # 改用智能过滤：相同交易对的相同信号类型才限制
+        self.signal_history = {}  # 记录信号历史，避免重复推送相同信号
     
     async def scan_and_notify_opportunities(self, 
                                           symbols: List[str] = None,
@@ -172,28 +176,36 @@ class IntelligentTradingNotificationService:
         return opportunities
     
     async def _analyze_single_opportunity(self, symbol: str) -> Optional[TradingOpportunity]:
-        """分析单个交易对的机会"""
+        """分析单个交易对的机会 - 优化Kronos集成"""
         try:
-            # 获取交易建议
-            recommendation = await self.unified_service.get_trading_recommendation(symbol)
-            
-            # 获取Kronos预测
+            # 优先获取Kronos预测 - 作为核心决策依据
             kronos_prediction = None
             market_anomalies = []
+            
             try:
                 if self.kronos_service is None:
                     self.kronos_service = await get_kronos_service()
                 
-                # 获取Kronos预测
-                kronos_prediction = await self.kronos_service.predict_price(symbol)
-                
-                # 基于Kronos预测检测市场异常
-                if kronos_prediction:
-                    market_anomalies = self._detect_market_anomalies(kronos_prediction)
+                # 获取Kronos预测 - 使用更稳定的方法
+                if self.kronos_service:
+                    # 先尝试从缓存获取
+                    kronos_prediction = await self.kronos_service.get_cached_prediction(symbol)
+                    
+                    # 如果缓存没有，则生成新预测
+                    if not kronos_prediction:
+                        kronos_prediction = await self.kronos_service.predict_price(symbol)
+                    
+                    # 基于Kronos预测检测市场异常
+                    if kronos_prediction:
+                        market_anomalies = self._detect_market_anomalies(kronos_prediction)
+                        logger.info(f"✅ {symbol} Kronos预测成功: 信号={kronos_prediction.signal}, 置信度={kronos_prediction.confidence:.2f}")
                     
             except Exception as e:
-                logger.debug(f"Kronos预测失败 {symbol}: {e}")
+                logger.warning(f"Kronos预测失败 {symbol}: {e}")
                 kronos_prediction = None
+            
+            # 获取传统交易建议 - 作为辅助参考
+            recommendation = await self.unified_service.get_trading_recommendation(symbol)
             
             # 评估机会质量
             opportunity_level = self._evaluate_opportunity_level(
@@ -281,60 +293,91 @@ class IntelligentTradingNotificationService:
                                   recommendation, 
                                   kronos_prediction, 
                                   anomalies: List[str]) -> OpportunityLevel:
-        """评估机会等级"""
+        """评估机会等级 - 优化Kronos权重"""
         score = 0
         
-        # 基础信号强度 (40分)
-        if recommendation.confidence > 85:
-            score += 40
-        elif recommendation.confidence > 75:
-            score += 30
-        elif recommendation.confidence > 65:
-            score += 20
-        else:
-            score += 10
-        
-        # 风险收益比 (25分)
-        if recommendation.risk_reward_ratio > 4:
-            score += 25
-        elif recommendation.risk_reward_ratio > 3:
-            score += 20
-        elif recommendation.risk_reward_ratio > 2:
-            score += 15
-        else:
-            score += 5
-        
-        # Kronos信号确认 (20分)
+        # Kronos预测权重提升到50分 (核心决策依据)
         if kronos_prediction:
-            if (recommendation.action.value in ['buy', 'strong_buy'] and 
-                kronos_prediction.signal in ['buy', 'strong_buy']):
+            kronos_confidence = kronos_prediction.confidence
+            kronos_signal = kronos_prediction.signal
+            price_change = abs(kronos_prediction.price_change_pct)
+            
+            # Kronos置信度评分 (30分)
+            if kronos_confidence >= 0.8:
+                score += 30
+            elif kronos_confidence >= 0.7:
+                score += 25
+            elif kronos_confidence >= 0.6:
                 score += 20
-            elif (recommendation.action.value in ['sell', 'strong_sell'] and 
-                  kronos_prediction.signal in ['sell', 'strong_sell']):
-                score += 20
-            elif kronos_prediction.confidence > 0.8:
+            elif kronos_confidence >= 0.5:
                 score += 15
             else:
                 score += 5
-        
-        # 风险等级调整 (15分)
-        if recommendation.risk_level in [RiskLevel.LOW, RiskLevel.VERY_LOW]:
-            score += 15
-        elif recommendation.risk_level == RiskLevel.MEDIUM:
-            score += 10
+            
+            # Kronos信号强度评分 (20分)
+            if kronos_signal in ['strong_buy', 'strong_sell']:
+                score += 20
+            elif kronos_signal in ['buy', 'sell']:
+                score += 15
+            elif price_change >= 0.05:  # 预测5%以上变化
+                score += 10
+            elif price_change >= 0.03:  # 预测3%以上变化
+                score += 5
         else:
-            score += 0
+            # 没有Kronos预测时，严重扣分
+            score -= 20
         
-        # 市场异常加分
+        # 传统信号强度 (25分，权重降低)
+        if recommendation.confidence > 85:
+            score += 25
+        elif recommendation.confidence > 75:
+            score += 20
+        elif recommendation.confidence > 65:
+            score += 15
+        else:
+            score += 8
+        
+        # 风险收益比 (15分，权重降低)
+        if recommendation.risk_reward_ratio > 4:
+            score += 15
+        elif recommendation.risk_reward_ratio > 3:
+            score += 12
+        elif recommendation.risk_reward_ratio > 2:
+            score += 8
+        else:
+            score += 3
+        
+        # Kronos与传统信号一致性加分 (10分)
+        if kronos_prediction:
+            if ((recommendation.action.value in ['buy', 'strong_buy'] and 
+                 kronos_prediction.signal in ['buy', 'strong_buy']) or
+                (recommendation.action.value in ['sell', 'strong_sell'] and 
+                 kronos_prediction.signal in ['sell', 'strong_sell'])):
+                score += 10  # 信号一致性加分
+            elif ((recommendation.action.value in ['buy', 'strong_buy'] and 
+                   kronos_prediction.signal in ['sell', 'strong_sell']) or
+                  (recommendation.action.value in ['sell', 'strong_sell'] and 
+                   kronos_prediction.signal in ['buy', 'strong_buy'])):
+                score -= 15  # 信号冲突扣分
+        
+        # 市场异常加分 (基于Kronos检测)
         if len(anomalies) > 0:
-            score += min(10, len(anomalies) * 3)
+            score += min(15, len(anomalies) * 4)  # 提高异常检测权重
         
-        # 等级判定
-        if score >= 85:
+        # 风险等级调整 (10分，权重降低)
+        if recommendation.risk_level in [RiskLevel.LOW, RiskLevel.VERY_LOW]:
+            score += 10
+        elif recommendation.risk_level == RiskLevel.MEDIUM:
+            score += 5
+        else:
+            score -= 5  # 高风险扣分
+        
+        # 等级判定 - 调整阈值，更重视Kronos预测
+        if score >= 80:
             return OpportunityLevel.PREMIUM
-        elif score >= 70:
+        elif score >= 60:
             return OpportunityLevel.HIGH
-        elif score >= 50:
+        elif score >= 35:
             return OpportunityLevel.MEDIUM
         else:
             return OpportunityLevel.LOW
@@ -365,33 +408,49 @@ class IntelligentTradingNotificationService:
         return min(0.95, max(0.3, base_probability))
     
     def _extract_key_factors(self, recommendation, kronos_prediction, anomalies) -> List[str]:
-        """提取关键决策因素"""
+        """提取关键决策因素 - 优先展示Kronos预测"""
         factors = []
         
-        # 从reasoning中提取
-        reasoning_parts = recommendation.reasoning.split('|')
-        for part in reasoning_parts[:3]:  # 取前3个最重要的
-            factors.append(part.strip())
-        
-        # Kronos信号
-        if kronos_prediction and kronos_prediction.confidence > 0.75:
-            factors.append(f"Kronos预测: {kronos_prediction.signal} ({kronos_prediction.confidence:.1%})")
+        # 优先展示Kronos预测结果
+        if kronos_prediction:
+            # Kronos核心预测信息
+            factors.append(f"🤖 Kronos: {kronos_prediction.signal} (置信度{kronos_prediction.confidence:.1%})")
             
-            # 添加价格变化预测
-            if abs(kronos_prediction.price_change_pct) > 0.03:  # 3%以上变化
-                direction = "上涨" if kronos_prediction.price_change_pct > 0 else "下跌"
-                factors.append(f"预测{direction}: {abs(kronos_prediction.price_change_pct):.1%}")
+            # 价格变化预测 - 降低阈值以显示更多信息
+            if abs(kronos_prediction.price_change_pct) > 0.01:  # 1%以上变化就显示
+                direction = "📈上涨" if kronos_prediction.price_change_pct > 0 else "📉下跌"
+                factors.append(f"{direction}: {abs(kronos_prediction.price_change_pct):.1%}")
             
-            # 添加趋势方向
+            # 趋势方向
             if kronos_prediction.trend_direction != 'sideways':
-                trend_text = "看涨" if kronos_prediction.trend_direction == 'bullish' else "看跌"
-                factors.append(f"趋势方向: {trend_text}")
+                trend_emoji = "🚀" if kronos_prediction.trend_direction == 'bullish' else "🔻"
+                trend_text = "看涨趋势" if kronos_prediction.trend_direction == 'bullish' else "看跌趋势"
+                factors.append(f"{trend_emoji} {trend_text}")
+            
+            # 波动率预警
+            if hasattr(kronos_prediction, 'volatility') and kronos_prediction.volatility > 0.05:
+                factors.append(f"⚠️ 高波动率: {kronos_prediction.volatility:.1%}")
+        else:
+            # 没有Kronos预测时的提示
+            factors.append("❌ Kronos预测不可用")
         
-        # 异常情况
+        # 传统分析作为补充 - 权重降低
+        if recommendation and recommendation.reasoning:
+            reasoning_parts = recommendation.reasoning.split('|')
+            # 只取最重要的1-2个传统因素
+            for part in reasoning_parts[:2]:
+                clean_part = part.strip()
+                if clean_part and len(factors) < 4:  # 为Kronos预留更多空间
+                    factors.append(f"📊 {clean_part}")
+        
+        # 市场异常情况 - 基于Kronos检测
         if anomalies:
-            factors.append(f"市场异常: {len(anomalies)}项")
+            if len(anomalies) == 1:
+                factors.append(f"🔍 {anomalies[0]}")
+            else:
+                factors.append(f"🔍 检测到{len(anomalies)}项异常")
         
-        return factors[:5]  # 最多5个关键因素
+        return factors[:5]  # 最多5个关键因素，确保Kronos信息优先显示
     
     def _determine_urgency(self, recommendation, kronos_prediction) -> Tuple[str, datetime]:
         """确定紧急程度和有效期"""
@@ -435,6 +494,7 @@ class IntelligentTradingNotificationService:
                     message, priority="urgent"
                 )
                 self.last_notification_time[op.symbol] = datetime.now()
+                self._update_signal_history(op)
                 sent_count += 1
         
         # 高质量机会 - 有限制推送
@@ -451,40 +511,82 @@ class IntelligentTradingNotificationService:
             )
             for op in high_ops_to_send[:3]:
                 self.last_notification_time[op.symbol] = datetime.now()
+                self._update_signal_history(op)
             sent_count += len(high_ops_to_send[:3])
         
         return {'sent_count': sent_count}
     
     def _should_send_notification(self, opportunity: TradingOpportunity, force_send: bool) -> bool:
-        """判断是否应该发送通知 - 优化版"""
+        """判断是否应该发送通知 - 币圈优化版：快速响应，智能去重"""
         if force_send:
             return True
         
-        # 获取对应级别的时间间隔
-        level_key = opportunity.level.value.lower()  # premium, high, medium, low
-        required_interval = self.notification_intervals.get(level_key, self.min_notification_interval)
+        level_key = opportunity.level.value.lower()
+        current_time = datetime.now()
         
-        # 检查时间间隔
+        # 智能去重：检查是否是相同交易对的相同信号类型
+        signal_key = f"{opportunity.symbol}_{opportunity.action.value}_{level_key}"
+        last_signal_time = self.signal_history.get(signal_key)
+        
+        # 相同信号的最小间隔（避免重复推送相同内容）
+        same_signal_interval = {
+            'premium': timedelta(minutes=10),   # 相同顶级信号10分钟间隔
+            'high': timedelta(minutes=20),      # 相同高质量信号20分钟间隔
+            'medium': timedelta(minutes=45),    # 相同中等信号45分钟间隔
+            'low': timedelta(hours=2)           # 相同低质量信号2小时间隔
+        }
+        
+        if last_signal_time:
+            required_same_signal_interval = same_signal_interval.get(level_key, timedelta(hours=1))
+            if current_time - last_signal_time < required_same_signal_interval:
+                # 除非置信度显著提升（+10%以上）
+                if opportunity.confidence > getattr(self, f'last_{signal_key}_confidence', 0) + 10:
+                    logger.info(f"{opportunity.symbol} 置信度显著提升，允许重新推送")
+                else:
+                    return False
+        
+        # 检查不同交易对的时间间隔（更宽松）
+        required_interval = self.notification_intervals.get(level_key, self.min_notification_interval)
         last_time = self.last_notification_time.get(opportunity.symbol)
-        if last_time and datetime.now() - last_time < required_interval:
-            # 顶级机会例外 - 即使刚推送过也允许再次推送
-            if opportunity.level == OpportunityLevel.PREMIUM and opportunity.confidence > 85:
-                logger.info(f"顶级机会 {opportunity.symbol} 超高置信度 {opportunity.confidence}%，忽略时间间隔限制")
-                return True
+        
+        if last_time and current_time - last_time < required_interval:
+            # 顶级机会的特殊处理
+            if opportunity.level == OpportunityLevel.PREMIUM:
+                # 如果是不同方向的信号（如从买入变卖出），立即推送
+                last_action = getattr(self, f'last_{opportunity.symbol}_action', None)
+                if (last_action and 
+                    ((last_action in ['buy', 'strong_buy'] and opportunity.action.value in ['sell', 'strong_sell']) or
+                     (last_action in ['sell', 'strong_sell'] and opportunity.action.value in ['buy', 'strong_buy']))):
+                    logger.info(f"{opportunity.symbol} 信号方向反转，立即推送")
+                    return True
+                
+                # 极高置信度（90%+）可以忽略时间限制
+                if opportunity.confidence > 90:
+                    logger.info(f"顶级机会 {opportunity.symbol} 极高置信度 {opportunity.confidence}%，忽略时间限制")
+                    return True
             return False
         
-        # 顶级机会总是发送（已通过时间检查）
+        # 质量检查 - 降低门槛，抓住更多机会
         if opportunity.level == OpportunityLevel.PREMIUM:
-            return True
+            # 顶级机会：Kronos支持 OR 高置信度
+            has_kronos_support = (hasattr(opportunity, 'ml_signal_strength') and 
+                                opportunity.ml_signal_strength > 0.5)  # 降低阈值
+            return has_kronos_support or opportunity.confidence > 80  # 降低阈值
         
-        # 高质量机会需要满足额外条件
-        if opportunity.level == OpportunityLevel.HIGH:
-            return (opportunity.confidence > self.min_confidence and
-                   opportunity.risk_reward_ratio > self.min_risk_reward and
-                   opportunity.expected_profit_usdt > self.min_expected_profit)
+        elif opportunity.level == OpportunityLevel.HIGH:
+            # 高质量机会：降低门槛
+            return (opportunity.confidence > (self.min_confidence - 5) and  # 70%
+                   opportunity.risk_reward_ratio > (self.min_risk_reward - 0.5) and  # 1.5:1
+                   opportunity.expected_profit_usdt > (self.min_expected_profit - 20))  # 30 USDT
         
-        # 中等和低质量机会的基础条件检查
-        return opportunity.confidence > (self.min_confidence - 10)
+        elif opportunity.level == OpportunityLevel.MEDIUM:
+            # 中等机会：适中门槛
+            return (opportunity.confidence > (self.min_confidence - 10) and  # 65%
+                   opportunity.risk_reward_ratio > (self.min_risk_reward - 1))  # 1:1
+        
+        else:
+            # 低质量机会：基础门槛
+            return opportunity.confidence > (self.min_confidence - 15)  # 60%
     
     def _format_premium_opportunity_message(self, op: TradingOpportunity) -> str:
         """格式化顶级机会消息"""
@@ -752,6 +854,68 @@ class IntelligentTradingNotificationService:
 ⚠️ 请及时关注市场变化！"""
 
         return message
+
+
+    def _update_signal_history(self, opportunity: TradingOpportunity):
+        """更新信号历史记录"""
+        current_time = datetime.now()
+        level_key = opportunity.level.value.lower()
+        signal_key = f"{opportunity.symbol}_{opportunity.action.value}_{level_key}"
+        
+        # 记录信号时间和置信度
+        self.signal_history[signal_key] = current_time
+        setattr(self, f'last_{signal_key}_confidence', opportunity.confidence)
+        setattr(self, f'last_{opportunity.symbol}_action', opportunity.action.value)
+        
+        # 清理过期记录（保留最近24小时）
+        cutoff_time = current_time - timedelta(hours=24)
+        expired_keys = [
+            key for key, timestamp in self.signal_history.items()
+            if timestamp < cutoff_time
+        ]
+        for key in expired_keys:
+            del self.signal_history[key]
+    
+    def get_signal_stats(self) -> Dict[str, Any]:
+        """获取信号统计"""
+        current_time = datetime.now()
+        
+        # 统计最近1小时、4小时、24小时的信号数量
+        stats = {
+            'last_1h': 0,
+            'last_4h': 0, 
+            'last_24h': 0,
+            'by_level': {'premium': 0, 'high': 0, 'medium': 0, 'low': 0},
+            'by_symbol': {},
+            'by_action': {'buy': 0, 'sell': 0, 'strong_buy': 0, 'strong_sell': 0, 'hold': 0}
+        }
+        
+        for signal_key, timestamp in self.signal_history.items():
+            time_diff = (current_time - timestamp).total_seconds() / 3600  # 转换为小时
+            
+            if time_diff <= 1:
+                stats['last_1h'] += 1
+            if time_diff <= 4:
+                stats['last_4h'] += 1
+            if time_diff <= 24:
+                stats['last_24h'] += 1
+            
+            # 解析信号key: symbol_action_level
+            parts = signal_key.split('_')
+            if len(parts) >= 3:
+                symbol = parts[0]
+                action = parts[1]
+                level = parts[2]
+                
+                stats['by_level'][level] = stats['by_level'].get(level, 0) + 1
+                stats['by_symbol'][symbol] = stats['by_symbol'].get(symbol, 0) + 1
+                stats['by_action'][action] = stats['by_action'].get(action, 0) + 1
+        
+        return {
+            'timestamp': current_time.isoformat(),
+            'stats': stats,
+            'total_active_signals': len(self.signal_history)
+        }
 
 
 # 全局服务实例

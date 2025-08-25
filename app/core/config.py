@@ -88,7 +88,7 @@ class Settings(BaseSettings):
         }
     }, description="策略参数配置")
     
-    # Kronos预测模型配置 - 专门分析ETH和SOL
+    # Kronos预测模型配置 - 专门分析ETH和SOL，增加收益机会扫描
     kronos_config: Dict[str, Any] = Field(default_factory=lambda: {
         'enable_kronos_prediction': True,
         'model_name': 'NeoQuasar/Kronos-small',  # 默认使用small模型
@@ -101,55 +101,83 @@ class Settings(BaseSettings):
             'top_p': 0.9,
             'sample_count': 5  # 生成5个预测样本取平均
         },
-        'confidence_threshold': 0.5,  # 降低预测置信度阈值
-        'update_interval_minutes': 30,  # 预测更新间隔
+        'confidence_threshold': 0.45,  # 进一步降低阈值，抓住更多机会
+        'update_interval_minutes': 15,  # 缩短更新间隔到15分钟
         'cache_predictions': True,
         'use_gpu': True,  # 如果有GPU则使用
         # 专注ETH和SOL的分析配置
         'target_symbols': ['ETH-USDT-SWAP', 'SOL-USDT-SWAP'],  # 只分析这两个币种
         'enhanced_analysis': True,  # 对目标币种进行增强分析
-        # 强信号通知配置
+        # 强信号通知配置 - 币圈优化
         'notification_config': {
             'enable_strong_signal_notification': True,  # 启用强信号通知
-            'strong_signal_threshold': 0.55,  # 强信号阈值 - 降低以捕获更多机会
-            'medium_signal_threshold': 0.45,   # 中等信号阈值 - 相应降低
+            'strong_signal_threshold': 0.5,   # 降低强信号阈值
+            'medium_signal_threshold': 0.4,   # 降低中等信号阈值
             'notification_channels': ['feishu', 'wechat'],  # 通知渠道
             'notification_priority': 'high',  # 通知优先级
-            'batch_notification': True,       # 批量通知
-            'max_notifications_per_hour': 10  # 每小时最大通知数
+            'batch_notification': False,      # 关闭批量通知，立即推送
+            'enable_immediate_alerts': True,  # 启用立即告警
+            'profit_opportunity_threshold': 5.0  # 预期收益5%以上立即通知
+        },
+        # 市场机会扫描配置 - 增强版
+        'market_scan_config': {
+            'enable_market_scan': True,  # 启用市场机会扫描
+            'enable_profit_scan': True,  # 启用收益机会扫描
+            'strong_signal_threshold': 0.6,  # 降低强信号扫描阈值
+            'profit_opportunity_threshold': 8.0,  # 收益机会阈值8%
+            'scan_intervals': {
+                'strong_signal_minutes': 10,  # 强信号扫描间隔缩短到10分钟
+                'profit_scan_minutes': 5,     # 收益机会扫描5分钟一次
+                'grid_trading_hours': 1       # 网格交易扫描间隔缩短到1小时
+            },
+            'top_volume_limit': 100,  # 扫描交易量前100的币种
+            'notification_config': {
+                'enable_opportunity_notifications': True,
+                'max_opportunities_per_notification': 3,  # 减少到3个，提高质量
+                'priority_mapping': {
+                    'strong_signal': 'high',
+                    'profit_opportunity': 'urgent',  # 收益机会最高优先级
+                    'grid_trading': 'medium'
+                },
+                'auto_notify_high_return': True,  # 自动推送高收益机会
+                'high_return_threshold': 12.0     # 12%以上收益自动推送
+            }
         }
-    }, description="Kronos金融预测模型配置 - 专门分析ETH和SOL，对账户已有持仓和负费率币种提供买入建议")
+    }, description="Kronos金融预测模型配置 - 专门分析ETH和SOL，增强收益机会扫描，币圈高频交易优化")
     
-    # 机器学习增强配置 - 针对高波动性优化，提高信号敏感度
+    # 机器学习增强配置 - 与Kronos协同工作，专注异常检测和特征工程
     ml_config: Dict[str, Any] = Field(default_factory=lambda: {
-        'enable_ml_prediction': True,
-        'enable_anomaly_detection': True,
-        'enable_adaptive_optimization': True,
-        'enable_kronos_integration': True,  # 启用Kronos集成
+        'enable_ml_prediction': True,  # 保留ML预测作为Kronos的补充
+        'enable_anomaly_detection': True,  # 重点：异常检测
+        'enable_adaptive_optimization': False,  # 关闭：避免与Kronos冲突
+        'enable_kronos_integration': True,  # 启用与Kronos的深度集成
+        'ml_role': 'assistant',  # ML作为Kronos的助手，而非主要预测器
         'prediction_model': {
-            'model_type': 'gradient_boosting',  # 对高波动性更敏感
-            'lookback_periods': 24,  # 进一步减少以适应快速变化
-            'prediction_horizon': 2,  # 缩短预测期间到2小时
-            'retrain_interval_hours': 8,  # 更频繁重训练
-            'min_accuracy_threshold': 0.60,  # 降低准确度要求以提高敏感度
+            'model_type': 'random_forest',  # 轻量级模型，专注特征重要性分析
+            'lookback_periods': 48,  # 更长历史用于异常检测
+            'prediction_horizon': 1,  # 短期预测，主要用于验证Kronos
+            'retrain_interval_hours': 24,  # 降低重训练频率
+            'min_accuracy_threshold': 0.65,  # 提高准确度要求
             'signal_threshold': {
-                'strong_buy': 0.65,  # 65%强买入阈值
-                'buy': 0.55,         # 降低买入阈值
-                'sell': 0.55,        # 降低卖出阈值
-                'strong_sell': 0.65  # 65%强卖出阈值
+                'strong_buy': 0.75,  # 提高阈值，只在高确定性时发出信号
+                'buy': 0.65,         
+                'sell': 0.65,        
+                'strong_sell': 0.75  
             }
         },
         'anomaly_detection': {
             'algorithm': 'isolation_forest',
-            'contamination': 0.20,  # 进一步增加以捕捉更多异常
-            'sensitivity': 0.95,    # 最大化敏感度
-            'min_samples': 30       # 进一步减少样本要求
+            'contamination': 0.15,  # 适中的异常检测敏感度
+            'sensitivity': 0.85,    # 平衡敏感度和准确性
+            'min_samples': 50,      # 增加样本要求提高稳定性
+            'focus_areas': ['volume_spike', 'price_gap', 'volatility_burst', 'funding_anomaly']
         },
-        'adaptive_optimization': {
-            'enable_parameter_tuning': True,
-            'optimization_interval_hours': 4,  # 更频繁的参数优化
-            'performance_window_days': 2,      # 进一步缩短评估窗口
-            'min_improvement_threshold': 0.02  # 进一步降低改进阈值
+        'kronos_integration': {
+            'enable_signal_validation': True,  # 验证Kronos信号
+            'enable_confidence_boost': True,   # 当ML和Kronos一致时提升置信度
+            'enable_anomaly_alert': True,      # ML检测到异常时提醒Kronos重新预测
+            'weight_in_ensemble': 0.25,       # ML在集成决策中的权重（Kronos占75%）
+            'validation_threshold': 0.7       # ML验证Kronos信号的阈值
         },
         'feature_engineering': {
             'technical_indicators': True,
@@ -158,18 +186,20 @@ class Settings(BaseSettings):
             'market_microstructure': True,
             'volatility_clustering': True,
             'momentum_features': True,
-            'price_acceleration': True,  # 新增价格加速度特征
-            'volume_price_trend': True   # 新增量价趋势特征
+            'price_acceleration': True,
+            'volume_price_trend': True,
+            'funding_rate_features': True,    # 新增：资金费率特征
+            'order_book_features': False      # 暂时关闭：数据获取复杂
         },
-        # 高频监控配置 - 提高响应速度
-        'high_frequency_mode': {
+        # 专注异常监控而非高频交易
+        'anomaly_monitoring': {
             'enable': True,
-            'signal_update_seconds': 15,  # 15秒更新一次信号
-            'volatility_threshold': 0.03, # 降低到3%波动率阈值
-            'emergency_stop_loss': 0.06,  # 6%紧急止损
-            'momentum_threshold': 0.02    # 2%动量阈值
+            'check_interval_minutes': 5,      # 5分钟检查一次异常
+            'alert_threshold': 0.8,           # 异常严重度阈值
+            'auto_notify_kronos': True,       # 自动通知Kronos服务重新预测
+            'emergency_threshold': 0.95       # 紧急异常阈值
         }
-    }, description="机器学习增强配置 - 高敏感度优化，专为捕捉ETH和SOL高波动币种信号")
+    }, description="机器学习增强配置 - 与Kronos协同工作，专注异常检测和信号验证，避免功能重复")
     
     # 主要监控币种配置 - 只分析ETH和SOL，使用Kronos进行深度分析
     monitored_symbols: List[str] = Field(default=[
@@ -177,39 +207,42 @@ class Settings(BaseSettings):
         'SOL-USDT-SWAP'
     ], description="主要监控的交易对列表 - 只分析ETH和SOL，使用Kronos进行深度分析和交易决策")
     
-    # 费率监控币种配置 - 其他币种只监控负费率买入机会
+    # 费率监控币种配置 - 扩展到更多币种，增加收益机会
     funding_rate_only_symbols: List[str] = Field(default=[
-        'BTC-USDT-SWAP',
-        'BNB-USDT-SWAP',
-        'ADA-USDT-SWAP',
-        'DOT-USDT-SWAP',
-        'AVAX-USDT-SWAP',
-        'ATOM-USDT-SWAP',
-        'NEAR-USDT-SWAP',
-        'ALGO-USDT-SWAP',
-        'LINK-USDT-SWAP',
-        'UNI-USDT-SWAP',
-        'SUSHI-USDT-SWAP',
-        'CRV-USDT-SWAP',
-        'COMP-USDT-SWAP',
-        'MKR-USDT-SWAP',
-        'OP-USDT-SWAP',
-        'ARB-USDT-SWAP',
-        'SHIB-USDT-SWAP',
-        'APT-USDT-SWAP',
-        'SUI-USDT-SWAP',
-        'FIL-USDT-SWAP',
-        'AR-USDT-SWAP',
-        'STORJ-USDT-SWAP',
-        'AXS-USDT-SWAP',
-        'SAND-USDT-SWAP',
-        'MANA-USDT-SWAP',
-        'LTC-USDT-SWAP',
-        'BCH-USDT-SWAP',
-        'ETC-USDT-SWAP',
-        'XRP-USDT-SWAP',
-        'DOGE-USDT-SWAP'
-    ], description="费率监控币种列表 - 只监控负费率买入机会，不进行完整技术分析")
+        # 主流币种
+        'BTC-USDT-SWAP', 'BNB-USDT-SWAP', 'ADA-USDT-SWAP', 'DOT-USDT-SWAP',
+        'AVAX-USDT-SWAP', 'ATOM-USDT-SWAP', 'NEAR-USDT-SWAP', 'ALGO-USDT-SWAP',
+        'LINK-USDT-SWAP', 'UNI-USDT-SWAP', 'SUSHI-USDT-SWAP', 'CRV-USDT-SWAP',
+        'COMP-USDT-SWAP', 'MKR-USDT-SWAP', 'OP-USDT-SWAP', 'ARB-USDT-SWAP',
+        'LTC-USDT-SWAP', 'BCH-USDT-SWAP', 'ETC-USDT-SWAP', 'XRP-USDT-SWAP',
+        'DOGE-USDT-SWAP',
+        
+        # 热门DeFi币种
+        'AAVE-USDT-SWAP', 'SNX-USDT-SWAP', '1INCH-USDT-SWAP', 'YFI-USDT-SWAP',
+        'BAL-USDT-SWAP', 'REN-USDT-SWAP', 'KNC-USDT-SWAP', 'ZRX-USDT-SWAP',
+        
+        # Layer2和新兴币种
+        'MATIC-USDT-SWAP', 'FTM-USDT-SWAP', 'ONE-USDT-SWAP', 'HBAR-USDT-SWAP',
+        'VET-USDT-SWAP', 'THETA-USDT-SWAP', 'TFUEL-USDT-SWAP', 'ENJ-USDT-SWAP',
+        
+        # NFT和游戏币种
+        'SHIB-USDT-SWAP', 'APT-USDT-SWAP', 'SUI-USDT-SWAP', 'AXS-USDT-SWAP',
+        'SAND-USDT-SWAP', 'MANA-USDT-SWAP', 'GALA-USDT-SWAP', 'CHZ-USDT-SWAP',
+        
+        # 存储和基础设施
+        'FIL-USDT-SWAP', 'AR-USDT-SWAP', 'STORJ-USDT-SWAP', 'SC-USDT-SWAP',
+        
+        # 新兴热门币种
+        'PEPE-USDT-SWAP', 'FLOKI-USDT-SWAP', 'BONK-USDT-SWAP', 'WIF-USDT-SWAP',
+        'BOME-USDT-SWAP', 'SLERF-USDT-SWAP', 'MYRO-USDT-SWAP', 'POPCAT-USDT-SWAP',
+        
+        # AI和科技概念
+        'FET-USDT-SWAP', 'AGIX-USDT-SWAP', 'OCEAN-USDT-SWAP', 'RLC-USDT-SWAP',
+        
+        # 其他潜力币种
+        'IMX-USDT-SWAP', 'LRC-USDT-SWAP', 'GMT-USDT-SWAP', 'APE-USDT-SWAP',
+        'LOOKS-USDT-SWAP', 'DYDX-USDT-SWAP', 'GMX-USDT-SWAP', 'GNS-USDT-SWAP'
+    ], description="费率监控币种列表 - 扩展到70+币种，覆盖各个热门赛道，增加收益机会发现")
     
     # TradingView集成配置
     tradingview_config: Dict[str, Any] = Field(default_factory=lambda: {
@@ -219,13 +252,64 @@ class Settings(BaseSettings):
         'chart_timeframes': ['1m', '5m', '15m', '1h', '4h', '1d']
     }, description="TradingView功能配置")
     
+    # 收益最大化策略配置 - 币圈专用
+    profit_maximization_config: Dict[str, Any] = Field(default_factory=lambda: {
+        'enable_profit_scanning': True,
+        'scan_interval_minutes': 3,  # 3分钟扫描一次
+        'min_expected_return': 5.0,  # 最低预期收益5%
+        'min_risk_reward_ratio': 1.5,  # 最低风险收益比1.5:1
+        'max_position_risk': 0.03,   # 单笔最大风险3%
+        
+        # 策略权重配置
+        'strategy_weights': {
+            'breakout': 1.0,      # 突破策略
+            'momentum': 1.2,      # 动量策略（币圈特色）
+            'funding_rate': 0.8,  # 费率套利
+            'volatility': 1.1,    # 波动率策略
+            'reversal': 0.9,      # 反转策略
+            'technical_pattern': 0.7  # 技术形态
+        },
+        
+        # 币圈特色配置
+        'crypto_specific': {
+            'enable_meme_coin_boost': True,    # 启用meme币加成
+            'meme_coin_multiplier': 1.5,       # meme币收益倍数
+            'enable_defi_season_detection': True,  # DeFi季节检测
+            'enable_nft_trend_analysis': True,     # NFT趋势分析
+            'enable_layer2_opportunities': True,   # Layer2机会
+            'high_volatility_threshold': 0.15,     # 高波动率阈值15%
+            'momentum_acceleration_factor': 2.0    # 动量加速因子
+        },
+        
+        # 自动通知配置
+        'auto_notification': {
+            'enable': True,
+            'high_return_threshold': 10.0,     # 10%以上自动通知
+            'urgent_return_threshold': 15.0,   # 15%以上紧急通知
+            'max_notifications_per_hour': 20,  # 每小时最多20次通知
+            'notification_channels': ['feishu', 'wechat'],
+            'include_risk_warning': True       # 包含风险提示
+        },
+        
+        # 市场状态适应
+        'market_adaptation': {
+            'bull_market_multiplier': 1.3,     # 牛市收益倍数
+            'bear_market_safety_factor': 0.7,  # 熊市安全系数
+            'sideways_market_threshold': 0.8,  # 震荡市场阈值
+            'volatility_adjustment': True,     # 波动率自适应
+            'volume_confirmation': True        # 成交量确认
+        }
+    }, description="收益最大化策略配置 - 专为币圈高波动环境设计，多策略并行，自动发现高收益机会")
+    
     # 数据缓存配置
     cache_config: Dict[str, Any] = Field(default_factory=lambda: {
         'enable_cache': True,
-        'cache_ttl_minutes': 5,
-        'max_cache_size_mb': 100,
-        'cache_compression': True
-    }, description="数据缓存配置")
+        'cache_ttl_minutes': 2,  # 缩短缓存时间，提高数据新鲜度
+        'max_cache_size_mb': 200,  # 增加缓存大小
+        'cache_compression': True,
+        'enable_prediction_cache': True,  # 启用预测结果缓存
+        'prediction_cache_ttl_minutes': 10  # 预测缓存10分钟
+    }, description="数据缓存配置 - 优化币圈高频交易")
     
     # 数据保留配置
     data_retention_days: int = Field(default=30, description="数据保留天数")
