@@ -96,6 +96,11 @@ class CoreNotificationService:
         self.http_manager = None  # 延迟初始化
         self.notification_config = settings.notification_config
         
+        # 兼容旧的配置格式
+        self.feishu_webhook = settings.feishu_webhook_url
+        self.telegram_bot_token = settings.telegram_bot_token
+        self.telegram_chat_id = settings.telegram_chat_id
+        
         # 通知规则配置
         self.notification_rules = self._initialize_notification_rules()
         
@@ -108,7 +113,8 @@ class CoreNotificationService:
         self.batch_queue = {}           # type -> list of pending notifications
         self.batch_timers = {}          # type -> timer for batch processing
         self.batch_config = {
-            NotificationType.TRADING_SIGNAL: {'max_size': 3, 'timeout_minutes': 15},
+            # 交易信号不使用批量处理，立即发送
+            # NotificationType.TRADING_SIGNAL: {'max_size': 3, 'timeout_minutes': 15},
             NotificationType.ML_PREDICTION: {'max_size': 5, 'timeout_minutes': 30},
             NotificationType.GRID_OPPORTUNITY: {'max_size': 10, 'timeout_minutes': 60},
         }
@@ -222,20 +228,25 @@ class CoreNotificationService:
         """检查是否应该发送通知"""
         rule = self.notification_rules.get(content.type)
         if not rule or not rule.enabled:
+            logger.debug(f"通知规则未启用: {content.type.value}")
             return False
         
         # 检查优先级
         if content.priority.value < rule.min_priority.value:
+            logger.debug(f"通知优先级不足: {content.priority.value} < {rule.min_priority.value}")
             return False
         
         # 检查冷却时间
         if not self._check_cooldown(content.type, rule.cooldown_minutes):
+            logger.debug(f"通知冷却时间未到: {content.type.value}")
             return False
         
         # 检查频率限制
         if not self._check_rate_limit(content.type):
+            logger.debug(f"通知频率限制: {content.type.value}")
             return False
         
+        logger.debug(f"通知检查通过: {content.type.value}")
         return True
     
     def _check_cooldown(self, notification_type: NotificationType, cooldown_minutes: int) -> bool:
@@ -435,6 +446,8 @@ class CoreNotificationService:
     
     async def send_trading_signal(self, signal_data: Dict[str, Any]) -> Dict[str, bool]:
         """发送交易信号通知"""
+        logger.info(f"收到交易信号通知请求: {signal_data.get('symbol')} - {signal_data.get('action')}")
+        
         content = NotificationContent(
             type=NotificationType.TRADING_SIGNAL,
             priority=NotificationPriority.HIGH,
@@ -442,7 +455,11 @@ class CoreNotificationService:
             message="",  # 将在格式化函数中填充
             metadata=signal_data
         )
-        return await self.send_notification(content)
+        
+        result = await self.send_notification(content)
+        logger.info(f"交易信号通知发送结果: {result}")
+        
+        return result
     
     async def send_position_analysis(self, analysis_data: Dict[str, Any]) -> Dict[str, bool]:
         """发送持仓分析通知"""
@@ -523,7 +540,14 @@ class CoreNotificationService:
         if confidence < 0.75:
             return False
         
-        if action not in ['strong_buy', 'strong_sell', 'buy', 'sell']:
+        # 支持中英文动作名称
+        valid_actions = [
+            'strong_buy', 'strong_sell', 'buy', 'sell',
+            '强烈买入', '强烈卖出', '买入', '卖出'
+        ]
+        
+        if action not in valid_actions:
+            logger.debug(f"交易信号被过滤: 动作 '{action}' 不在有效列表中")
             return False
         
         return True
@@ -551,17 +575,60 @@ class CoreNotificationService:
         confidence = data.get('confidence', 0)
         price = data.get('current_price', 0)
         
-        message = f"""🎯 {symbol} 交易信号
-
-📊 交易动作: {action}
-🎲 置信度: {confidence:.1%}
-💰 当前价格: ${price:.4f}
-
-⏰ 信号时间: {content.timestamp.strftime('%H:%M:%S')}
-
-⚠️ 请谨慎交易，注意风险控制！"""
+        # 智能处理置信度格式 - 自动检测是否已经是百分比格式
+        if confidence > 1.0:
+            # 如果大于1，说明已经是百分比格式，直接使用
+            confidence_display = f"{confidence:.1f}%"
+        else:
+            # 如果小于等于1，说明是小数格式，转换为百分比
+            confidence_display = f"{confidence:.1%}"
         
-        content.message = message
+        # 获取止盈止损信息
+        stop_loss = data.get('stop_loss')
+        take_profit = data.get('take_profit')
+        reasoning = data.get('reasoning', '')
+        key_factors = data.get('key_factors', [])
+        
+        message_parts = [
+            f"🎯 {symbol} 交易信号",
+            "",
+            f"📊 交易动作: {action}",
+            f"🎲 置信度: {confidence_display}",
+            f"💰 当前价格: ${price:.4f}"
+        ]
+        
+        # 添加止盈止损信息
+        if stop_loss:
+            message_parts.append(f"🛡️ 止损价格: ${stop_loss:.4f}")
+        if take_profit:
+            message_parts.append(f"🎯 止盈价格: ${take_profit:.4f}")
+        
+        message_parts.extend([
+            "",
+            f"⏰ 信号时间: {content.timestamp.strftime('%H:%M:%S')}"
+        ])
+        
+        # 添加分析理由
+        if reasoning:
+            message_parts.extend([
+                "",
+                f"📈 分析理由: {reasoning[:200]}..."  # 限制长度
+            ])
+        
+        # 添加关键因素
+        if key_factors:
+            message_parts.extend([
+                "",
+                "🔍 关键因素:",
+                *[f"  • {factor}" for factor in key_factors[:3]]  # 最多显示3个
+            ])
+        
+        message_parts.extend([
+            "",
+            "⚠️ 请谨慎交易，注意风险控制！"
+        ])
+        
+        content.message = "\n".join(message_parts)
         return content
     
     def _format_position_analysis(self, content: NotificationContent) -> NotificationContent:
@@ -664,7 +731,13 @@ class CoreNotificationService:
     async def _send_feishu(self, message: str, priority: str = "normal") -> bool:
         """发送飞书通知"""
         try:
-            webhook_url = self.notification_config.get('feishu_webhook')
+            # 兼容新旧配置格式
+            webhook_url = (
+                self.feishu_webhook or 
+                self.notification_config.get('feishu', {}).get('webhook_url') or
+                self.notification_config.get('feishu_webhook')
+            )
+            
             if not webhook_url:
                 logger.warning("飞书webhook未配置")
                 return False
@@ -686,9 +759,7 @@ class CoreNotificationService:
                 }
             }
             
-            http_manager = await self._get_http_manager()
             response = await safe_http_request(
-                http_manager,
                 'POST',
                 webhook_url,
                 json=payload,
@@ -704,8 +775,17 @@ class CoreNotificationService:
     async def _send_telegram(self, message: str, priority: str = "normal") -> bool:
         """发送Telegram通知"""
         try:
-            bot_token = self.notification_config.get('telegram_bot_token')
-            chat_id = self.notification_config.get('telegram_chat_id')
+            # 兼容新旧配置格式
+            bot_token = (
+                self.telegram_bot_token or
+                self.notification_config.get('telegram', {}).get('bot_token') or
+                self.notification_config.get('telegram_bot_token')
+            )
+            chat_id = (
+                self.telegram_chat_id or
+                self.notification_config.get('telegram', {}).get('chat_id') or
+                self.notification_config.get('telegram_chat_id')
+            )
             
             if not bot_token or not chat_id:
                 logger.warning("Telegram配置未完整")
@@ -718,9 +798,7 @@ class CoreNotificationService:
                 "parse_mode": "Markdown"
             }
             
-            http_manager = await self._get_http_manager()
             response = await safe_http_request(
-                http_manager,
                 'POST',
                 url,
                 json=payload,

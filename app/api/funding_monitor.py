@@ -46,6 +46,53 @@ async def check_negative_funding():
         raise HTTPException(status_code=500, detail=f"检查失败: {str(e)}")
 
 
+@router.get("/check-enhanced", summary="增强版负费率检查（含价格预测和仓位建议）")
+async def check_enhanced_negative_funding():
+    """增强版负费率检查，包含价格预测和仓位建议"""
+    try:
+        result = await monitor_service.run_enhanced_monitoring_cycle()
+        
+        if result['success']:
+            # 统计增强信息
+            enhanced_opportunities = [opp for opp in result['opportunities'] if opp.get('price_prediction')]
+            recommended_actions = [opp for opp in result['opportunities'] 
+                                 if opp.get('position_recommendation', {}).get('recommended_action') == '开多']
+            
+            return {
+                "status": "success",
+                "message": f"增强检查完成，发现 {result['negative_funding_count']} 个机会，{len(enhanced_opportunities)} 个含预测分析",
+                "data": {
+                    "total_symbols_checked": result['total_symbols_checked'],
+                    "negative_funding_count": result['negative_funding_count'],
+                    "enhanced_analysis_count": len(enhanced_opportunities),
+                    "recommended_actions_count": len(recommended_actions),
+                    "opportunities": result['opportunities'][:10],  # 只返回前10个
+                    "analysis_time": result['analysis_time'],
+                    "duration_seconds": result['duration_seconds']
+                },
+                "summary": {
+                    "best_opportunity": result['opportunities'][0] if result['opportunities'] else None,
+                    "opportunity_types": {
+                        "纯套利": len([opp for opp in result['opportunities'] if opp.get('opportunity_type') == '纯套利']),
+                        "趋势套利": len([opp for opp in result['opportunities'] if opp.get('opportunity_type') == '趋势套利']),
+                        "反转套利": len([opp for opp in result['opportunities'] if opp.get('opportunity_type') == '反转套利'])
+                    },
+                    "urgency_distribution": {
+                        "立即": len([opp for opp in result['opportunities'] if opp.get('urgency') == '立即']),
+                        "尽快": len([opp for opp in result['opportunities'] if opp.get('urgency') == '尽快']),
+                        "正常": len([opp for opp in result['opportunities'] if opp.get('urgency') == '正常']),
+                        "观望": len([opp for opp in result['opportunities'] if opp.get('urgency') == '观望'])
+                    }
+                }
+            }
+        else:
+            raise HTTPException(status_code=500, detail=result.get('error', '增强检查失败'))
+            
+    except Exception as e:
+        logger.error(f"增强版负费率检查API异常: {e}")
+        raise HTTPException(status_code=500, detail=f"增强检查失败: {str(e)}")
+
+
 @router.get("/opportunities", summary="获取当前负费率机会")
 async def get_current_opportunities():
     """获取当前负费率机会（快速版本，只检查缓存的币种）"""
@@ -209,3 +256,110 @@ async def run_periodic_monitor():
 
 
 # 注意：启动检查已移到main.py中的lifespan管理
+
+
+@router.get("/predict/{symbol}", summary="获取单币种价格预测")
+async def predict_symbol_price(symbol: str):
+    """获取单币种的价格预测分析"""
+    try:
+        # 验证交易对格式
+        if not symbol.endswith('-USDT-SWAP'):
+            raise HTTPException(status_code=400, detail="仅支持USDT永续合约，格式如: ETH-USDT-SWAP")
+        
+        # 分析价格预测
+        prediction = await monitor_service.analyze_price_prediction(symbol)
+        
+        if not prediction:
+            raise HTTPException(status_code=404, detail=f"无法获取 {symbol} 的价格预测数据")
+        
+        return {
+            "status": "success",
+            "message": f"{symbol} 价格预测分析完成",
+            "data": {
+                "symbol": prediction.symbol,
+                "current_price": prediction.current_price,
+                "direction": prediction.direction.value,
+                "confidence": prediction.confidence,
+                "target_price_24h": prediction.target_price_24h,
+                "support_level": prediction.support_level,
+                "resistance_level": prediction.resistance_level,
+                "volatility_score": prediction.volatility_score,
+                "trend_strength": prediction.trend_strength,
+                "reasoning": prediction.reasoning,
+                "analysis_time": datetime.now().isoformat()
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"价格预测API异常 {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=f"预测失败: {str(e)}")
+
+
+@router.get("/position-advice/{symbol}", summary="获取仓位建议")
+async def get_position_advice(symbol: str, funding_rate: float):
+    """获取基于价格预测和费率的仓位建议
+    
+    Args:
+        symbol: 交易对符号 (如: ETH-USDT-SWAP)
+        funding_rate: 当前费率 (如: -0.008 表示 -0.8%)
+    """
+    try:
+        # 验证参数
+        if not symbol.endswith('-USDT-SWAP'):
+            raise HTTPException(status_code=400, detail="仅支持USDT永续合约")
+        
+        if not (-0.1 <= funding_rate <= 0.1):
+            raise HTTPException(status_code=400, detail="费率范围应在 -10% 到 10% 之间")
+        
+        # 先获取价格预测
+        prediction = await monitor_service.analyze_price_prediction(symbol)
+        if not prediction:
+            raise HTTPException(status_code=404, detail=f"无法获取 {symbol} 的价格预测")
+        
+        # 生成仓位建议
+        recommendation = await monitor_service.generate_position_recommendation(
+            symbol, funding_rate, prediction
+        )
+        
+        if not recommendation:
+            raise HTTPException(status_code=404, detail=f"无法生成 {symbol} 的仓位建议")
+        
+        return {
+            "status": "success",
+            "message": f"{symbol} 仓位建议生成完成",
+            "data": {
+                "symbol": recommendation.symbol,
+                "funding_rate": funding_rate,
+                "funding_rate_percent": funding_rate * 100,
+                "price_prediction": {
+                    "direction": prediction.direction.value,
+                    "confidence": prediction.confidence,
+                    "target_price_24h": prediction.target_price_24h,
+                    "current_price": prediction.current_price
+                },
+                "position_recommendation": {
+                    "recommended_action": recommendation.recommended_action,
+                    "position_size_usdt": recommendation.position_size_usdt,
+                    "leverage": recommendation.leverage,
+                    "entry_price": recommendation.entry_price,
+                    "stop_loss_price": recommendation.stop_loss_price,
+                    "take_profit_price": recommendation.take_profit_price,
+                    "risk_reward_ratio": recommendation.risk_reward_ratio,
+                    "max_loss_usdt": recommendation.max_loss_usdt,
+                    "expected_daily_income": recommendation.expected_daily_income,
+                    "holding_period_days": recommendation.holding_period_days,
+                    "risk_level": recommendation.risk_level.value,
+                    "confidence": recommendation.confidence,
+                    "reasoning": recommendation.reasoning
+                },
+                "analysis_time": datetime.now().isoformat()
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"仓位建议API异常 {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=f"建议生成失败: {str(e)}")

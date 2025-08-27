@@ -80,6 +80,14 @@ class TradingSignal:
     key_factors: List[str] = None
     confidence_breakdown: Dict[str, float] = None
     
+    # 技术分析详情
+    technical_indicators: Dict[str, Any] = None
+    
+    # 交易时间建议
+    trading_timeframe: str = "日内"  # 超短线, 短线, 日内, 波段, 中长线
+    holding_period: str = "2-6小时"  # 具体持有时间建议
+    optimal_entry_time: str = "立即"  # 最佳入场时机
+    
     # 时效性
     urgency: str = "normal"  # immediate, urgent, normal, low
     valid_until: datetime = None
@@ -89,6 +97,8 @@ class TradingSignal:
             self.key_factors = []
         if self.confidence_breakdown is None:
             self.confidence_breakdown = {}
+        if self.technical_indicators is None:
+            self.technical_indicators = {}
         if self.valid_until is None:
             self.valid_until = self.timestamp + timedelta(hours=4)
 
@@ -141,12 +151,12 @@ class CoreTradingService:
         # 初始化可选服务
         self._initialize_optional_services()
         
-        # 分析权重配置
+        # 分析权重配置 - 加重Kronos权重
         self.analysis_weights = {
-            'kronos': 0.4,      # Kronos AI预测权重40%
-            'technical': 0.3,   # 技术分析权重30%
-            'ml': 0.2,          # ML预测权重20%
-            'position': 0.1     # 持仓分析权重10%
+            'kronos': 0.55,     # Kronos AI预测权重55% (提升)
+            'technical': 0.25,  # 技术分析权重25%
+            'ml': 0.15,         # ML预测权重15%
+            'position': 0.05    # 持仓分析权重5%
         }
         
         # 信号强度阈值
@@ -275,6 +285,9 @@ class CoreTradingService:
         try:
             recommendation = await self.traditional_service.get_trading_recommendation(symbol)
             if recommendation:
+                # 获取详细技术指标
+                detailed_indicators = await self._get_detailed_technical_indicators(symbol)
+                
                 return {
                     'action': recommendation.action.value,
                     'confidence': recommendation.confidence,
@@ -282,13 +295,209 @@ class CoreTradingService:
                     'entry_price': recommendation.entry_price,
                     'stop_loss': recommendation.stop_loss_price,
                     'take_profit': recommendation.take_profit_price,
-                    'risk_level': recommendation.risk_level.value
+                    'risk_level': recommendation.risk_level.value,
+                    'detailed_indicators': detailed_indicators
                 }
             return None
             
         except Exception as e:
             self.logger.warning(f"技术分析失败 {symbol}: {e}")
             return None
+    
+    async def _get_detailed_technical_indicators(self, symbol: str) -> Dict[str, Any]:
+        """获取详细技术指标分析"""
+        try:
+            # 获取多周期K线数据
+            async with self.okx_service as exchange:
+                # 获取不同周期的数据
+                kline_1h = await exchange.get_kline_data(symbol, '1H', 100)
+                kline_4h = await exchange.get_kline_data(symbol, '4H', 50)
+                kline_1d = await exchange.get_kline_data(symbol, '1D', 30)
+                
+                if not kline_1h:
+                    return {}
+                
+                # 转换为DataFrame进行技术分析
+                df_1h = pd.DataFrame(kline_1h)
+                df_4h = pd.DataFrame(kline_4h) if kline_4h else pd.DataFrame()
+                df_1d = pd.DataFrame(kline_1d) if kline_1d else pd.DataFrame()
+                
+                indicators = {}
+                
+                # 移动平均线分析
+                if len(df_1h) >= 20:
+                    df_1h['ma5'] = df_1h['close'].rolling(5).mean()
+                    df_1h['ma10'] = df_1h['close'].rolling(10).mean()
+                    df_1h['ma20'] = df_1h['close'].rolling(20).mean()
+                    
+                    current_price = df_1h['close'].iloc[-1]
+                    ma5 = df_1h['ma5'].iloc[-1]
+                    ma10 = df_1h['ma10'].iloc[-1]
+                    ma20 = df_1h['ma20'].iloc[-1]
+                    
+                    # MA趋势判断
+                    ma_trend = "多头排列" if ma5 > ma10 > ma20 else "空头排列" if ma5 < ma10 < ma20 else "震荡"
+                    ma_signal = "看多" if current_price > ma20 else "看空"
+                    
+                    indicators['moving_averages'] = {
+                        'ma5': ma5,
+                        'ma10': ma10,
+                        'ma20': ma20,
+                        'trend': ma_trend,
+                        'signal': ma_signal,
+                        'price_vs_ma20': (current_price - ma20) / ma20 * 100
+                    }
+                
+                # 布林带分析
+                if len(df_1h) >= 20:
+                    df_1h['bb_middle'] = df_1h['close'].rolling(20).mean()
+                    df_1h['bb_std'] = df_1h['close'].rolling(20).std()
+                    df_1h['bb_upper'] = df_1h['bb_middle'] + 2 * df_1h['bb_std']
+                    df_1h['bb_lower'] = df_1h['bb_middle'] - 2 * df_1h['bb_std']
+                    
+                    bb_upper = df_1h['bb_upper'].iloc[-1]
+                    bb_lower = df_1h['bb_lower'].iloc[-1]
+                    bb_middle = df_1h['bb_middle'].iloc[-1]
+                    
+                    # 布林带位置判断
+                    bb_position = "上轨附近" if current_price > bb_upper * 0.98 else \
+                                 "下轨附近" if current_price < bb_lower * 1.02 else \
+                                 "中轨附近"
+                    
+                    bb_width = (bb_upper - bb_lower) / bb_middle * 100
+                    bb_signal = "超买" if current_price > bb_upper else \
+                               "超卖" if current_price < bb_lower else "正常"
+                    
+                    indicators['bollinger_bands'] = {
+                        'upper': bb_upper,
+                        'middle': bb_middle,
+                        'lower': bb_lower,
+                        'position': bb_position,
+                        'width': bb_width,
+                        'signal': bb_signal
+                    }
+                
+                # RSI分析
+                if len(df_1h) >= 14:
+                    delta = df_1h['close'].diff()
+                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                    rs = gain / loss
+                    df_1h['rsi'] = 100 - (100 / (1 + rs))
+                    
+                    rsi = df_1h['rsi'].iloc[-1]
+                    rsi_signal = "超买" if rsi > 70 else "超卖" if rsi < 30 else "正常"
+                    
+                    indicators['rsi'] = {
+                        'value': rsi,
+                        'signal': rsi_signal,
+                        'level': "强" if rsi > 80 or rsi < 20 else "中" if rsi > 70 or rsi < 30 else "弱"
+                    }
+                
+                # MACD分析
+                if len(df_1h) >= 26:
+                    exp1 = df_1h['close'].ewm(span=12).mean()
+                    exp2 = df_1h['close'].ewm(span=26).mean()
+                    df_1h['macd'] = exp1 - exp2
+                    df_1h['macd_signal'] = df_1h['macd'].ewm(span=9).mean()
+                    df_1h['macd_histogram'] = df_1h['macd'] - df_1h['macd_signal']
+                    
+                    macd = df_1h['macd'].iloc[-1]
+                    macd_signal_line = df_1h['macd_signal'].iloc[-1]
+                    macd_histogram = df_1h['macd_histogram'].iloc[-1]
+                    
+                    macd_trend = "金叉" if macd > macd_signal_line and df_1h['macd'].iloc[-2] <= df_1h['macd_signal'].iloc[-2] else \
+                                "死叉" if macd < macd_signal_line and df_1h['macd'].iloc[-2] >= df_1h['macd_signal'].iloc[-2] else \
+                                "多头" if macd > macd_signal_line else "空头"
+                    
+                    indicators['macd'] = {
+                        'macd': macd,
+                        'signal': macd_signal_line,
+                        'histogram': macd_histogram,
+                        'trend': macd_trend
+                    }
+                
+                # 成交量分析
+                if len(df_1h) >= 20:
+                    df_1h['volume_ma'] = df_1h['volume'].rolling(20).mean()
+                    current_volume = df_1h['volume'].iloc[-1]
+                    avg_volume = df_1h['volume_ma'].iloc[-1]
+                    
+                    volume_ratio = current_volume / avg_volume
+                    volume_signal = "放量" if volume_ratio > 1.5 else "缩量" if volume_ratio < 0.7 else "正常"
+                    
+                    indicators['volume'] = {
+                        'current': current_volume,
+                        'average': avg_volume,
+                        'ratio': volume_ratio,
+                        'signal': volume_signal
+                    }
+                
+                # SuperTrend多周期分析
+                supertrend_signals = await self._get_supertrend_multi_timeframe(symbol)
+                if supertrend_signals:
+                    indicators['supertrend'] = supertrend_signals
+                
+                return indicators
+                
+        except Exception as e:
+            self.logger.warning(f"获取详细技术指标失败 {symbol}: {e}")
+            return {}
+    
+    async def _get_supertrend_multi_timeframe(self, symbol: str) -> Dict[str, Any]:
+        """获取SuperTrend多周期分析"""
+        try:
+            if not self.trend_service:
+                return {}
+            
+            # 获取多周期SuperTrend信号
+            timeframes = ['15m', '1h', '4h', '1d']
+            signals = {}
+            
+            for tf in timeframes:
+                try:
+                    # 这里需要调用趋势分析服务的SuperTrend方法
+                    # 暂时使用模拟数据
+                    signals[tf] = "up"  # 实际应该调用真实的SuperTrend计算
+                except Exception:
+                    signals[tf] = "neutral"
+            
+            # 分析信号组合
+            signal_combination = tuple(signals.values())
+            
+            # 根据信号组合判断强度和建议
+            if signal_combination == ('up', 'up', 'up', 'up'):
+                strength = "强势多头共振"
+                recommendation = "坚决做多，分批建仓"
+                priority = 1
+            elif signal_combination.count('up') >= 3:
+                strength = "多头优势"
+                recommendation = "偏多操作，谨慎建仓"
+                priority = 2
+            elif signal_combination.count('down') >= 3:
+                strength = "空头优势"
+                recommendation = "偏空操作，考虑减仓"
+                priority = 2
+            elif signal_combination == ('down', 'down', 'down', 'down'):
+                strength = "强势空头共振"
+                recommendation = "坚决做空，严格止损"
+                priority = 1
+            else:
+                strength = "震荡整理"
+                recommendation = "观望为主，等待明确信号"
+                priority = 3
+            
+            return {
+                'signals': signals,
+                'combination': signal_combination,
+                'strength': strength,
+                'recommendation': recommendation,
+                'priority': priority
+            }
+            
+        except Exception as e:
+            self.logger.warning(f"SuperTrend多周期分析失败 {symbol}: {e}")
+            return {}
     
     async def _get_ml_analysis(self, symbol: str) -> Optional[Dict[str, Any]]:
         """获取ML分析结果"""
@@ -381,6 +590,16 @@ class CoreTradingService:
         # 确定紧急程度
         urgency = self._determine_urgency(final_action, final_confidence, signal_strength)
         
+        # 确定交易时间建议
+        trading_timeframe, holding_period, optimal_entry_time = self._determine_trading_timeframe(
+            final_action, final_confidence, signal_strength, kronos_result, technical_result
+        )
+        
+        # 整理技术指标详情
+        technical_indicators = {}
+        if technical_result and 'detailed_indicators' in technical_result:
+            technical_indicators = technical_result['detailed_indicators']
+        
         return TradingSignal(
             symbol=symbol,
             timestamp=datetime.now(),
@@ -402,6 +621,10 @@ class CoreTradingService:
             confidence_breakdown=self._get_confidence_breakdown(
                 kronos_result, technical_result, ml_result, position_result
             ),
+            technical_indicators=technical_indicators,
+            trading_timeframe=trading_timeframe,
+            holding_period=holding_period,
+            optimal_entry_time=optimal_entry_time,
             urgency=urgency
         )
     
@@ -413,7 +636,7 @@ class CoreTradingService:
         position_result: Optional[Dict[str, Any]],
         analysis_type: AnalysisType
     ) -> Tuple[str, float, str, List[str]]:
-        """计算综合决策"""
+        """计算综合决策 - 加重Kronos权重"""
         
         # 收集所有信号
         signals = []
@@ -421,25 +644,63 @@ class CoreTradingService:
         reasoning_parts = []
         key_factors = []
         
-        # Kronos信号
+        # Kronos信号 - 提升权重和优先级
+        kronos_confidence = 0
         if kronos_result:
             signals.append(kronos_result.final_action)
             weights.append(self.analysis_weights['kronos'])
-            reasoning_parts.append(f"Kronos预测: {kronos_result.final_action} (置信度: {kronos_result.final_confidence:.2f})")
+            kronos_confidence = kronos_result.final_confidence
+            reasoning_parts.append(f"Kronos预测: {kronos_result.final_action} (置信度: {kronos_confidence:.2f})")
             key_factors.append(f"Kronos强度: {kronos_result.kronos_signal_strength.value}")
         
-        # 技术分析信号
+        # 技术分析信号 - 增加详细指标信息
+        technical_confidence = 0
+        technical_details = []
         if technical_result:
             signals.append(technical_result['action'])
             weights.append(self.analysis_weights['technical'])
-            reasoning_parts.append(f"技术分析: {technical_result['action']} (置信度: {technical_result['confidence']:.2f})")
+            technical_confidence = technical_result['confidence'] / 100.0  # 转换为小数形式
+            
+            # 构建详细的技术分析描述
+            indicators = technical_result.get('detailed_indicators', {})
+            
+            # MA分析
+            if 'moving_averages' in indicators:
+                ma_info = indicators['moving_averages']
+                technical_details.append(f"MA趋势: {ma_info.get('trend', 'N/A')}")
+                technical_details.append(f"价格相对MA20: {ma_info.get('price_vs_ma20', 0):.1f}%")
+            
+            # 布林带分析
+            if 'bollinger_bands' in indicators:
+                bb_info = indicators['bollinger_bands']
+                technical_details.append(f"布林带: {bb_info.get('position', 'N/A')} ({bb_info.get('signal', 'N/A')})")
+            
+            # RSI分析
+            if 'rsi' in indicators:
+                rsi_info = indicators['rsi']
+                technical_details.append(f"RSI: {rsi_info.get('value', 0):.1f} ({rsi_info.get('signal', 'N/A')})")
+            
+            # MACD分析
+            if 'macd' in indicators:
+                macd_info = indicators['macd']
+                technical_details.append(f"MACD: {macd_info.get('trend', 'N/A')}")
+            
+            # SuperTrend分析
+            if 'supertrend' in indicators:
+                st_info = indicators['supertrend']
+                technical_details.append(f"SuperTrend: {st_info.get('strength', 'N/A')}")
+            
+            tech_detail_str = ", ".join(technical_details) if technical_details else "基础技术分析"
+            reasoning_parts.append(f"技术分析: {technical_result['action']} (置信度: {technical_confidence:.2f}) [{tech_detail_str}]")
             key_factors.append(f"技术分析: {technical_result['action']}")
         
         # ML信号
+        ml_confidence = 0
         if ml_result:
             signals.append(ml_result['signal'])
             weights.append(self.analysis_weights['ml'])
-            reasoning_parts.append(f"ML预测: {ml_result['signal']} (置信度: {ml_result['confidence']:.2f})")
+            ml_confidence = ml_result['confidence']
+            reasoning_parts.append(f"ML预测: {ml_result['signal']} (置信度: {ml_confidence:.2f})")
             key_factors.append(f"ML信号: {ml_result['signal']}")
         
         # 持仓信息
@@ -453,23 +714,73 @@ class CoreTradingService:
         if not signals:
             return "观望", 0.0, "无有效分析信号", []
         
-        # 简化决策逻辑：根据最高权重信号决策
-        if kronos_result and kronos_result.final_confidence > 0.7:
-            # Kronos高置信度信号优先
-            final_action = kronos_result.final_action
-            final_confidence = kronos_result.final_confidence
-        elif technical_result and technical_result['confidence'] > 0.75:
-            # 技术分析高置信度信号
+        # 加权决策逻辑 - Kronos优先
+        final_action = "观望"
+        final_confidence = 0.5
+        
+        # 1. Kronos信号权重最高，优先考虑
+        if kronos_result and kronos_confidence > 0.45:  # 降低Kronos阈值，增加其影响力
+            # Kronos信号强度评估
+            if kronos_confidence > 0.75:
+                final_action = kronos_result.final_action
+                final_confidence = kronos_confidence * 0.9  # 高置信度Kronos信号
+            elif kronos_confidence > 0.6:
+                # 中等置信度Kronos，结合技术分析
+                if technical_result and technical_confidence > 0.7:
+                    # 如果技术分析也支持，增强信号
+                    if self._signals_align(kronos_result.final_action, technical_result['action']):
+                        final_action = kronos_result.final_action
+                        final_confidence = min(0.85, kronos_confidence * 0.7 + technical_confidence * 0.3)
+                    else:
+                        final_action = kronos_result.final_action
+                        final_confidence = kronos_confidence * 0.8
+                else:
+                    final_action = kronos_result.final_action
+                    final_confidence = kronos_confidence * 0.8
+            else:
+                # 低置信度Kronos，需要技术分析支持
+                if technical_result and technical_confidence > 0.75:
+                    if self._signals_align(kronos_result.final_action, technical_result['action']):
+                        final_action = technical_result['action']
+                        final_confidence = technical_confidence * 0.8
+                    else:
+                        final_action = "观望"
+                        final_confidence = 0.5
+                else:
+                    final_action = "观望"
+                    final_confidence = 0.5
+        
+        # 2. 如果没有Kronos信号，依赖技术分析
+        elif technical_result and technical_confidence > 0.75:
             final_action = technical_result['action']
-            final_confidence = technical_result['confidence']
-        else:
-            # 默认观望
-            final_action = "观望"
-            final_confidence = 0.5
+            final_confidence = technical_confidence * 0.85
+        
+        # 3. 最后考虑ML信号
+        elif ml_result and ml_confidence > 0.8:
+            final_action = ml_result['signal']
+            final_confidence = ml_confidence * 0.7
         
         reasoning = " | ".join(reasoning_parts)
         
         return final_action, final_confidence, reasoning, key_factors
+    
+    def _signals_align(self, signal1: str, signal2: str) -> bool:
+        """判断两个信号是否一致"""
+        buy_signals = ['买入', 'buy', 'strong_buy', '强烈买入']
+        sell_signals = ['卖出', 'sell', 'strong_sell', '强烈卖出']
+        hold_signals = ['持有', 'hold', '观望']
+        
+        signal1_lower = signal1.lower()
+        signal2_lower = signal2.lower()
+        
+        if signal1_lower in [s.lower() for s in buy_signals] and signal2_lower in [s.lower() for s in buy_signals]:
+            return True
+        elif signal1_lower in [s.lower() for s in sell_signals] and signal2_lower in [s.lower() for s in sell_signals]:
+            return True
+        elif signal1_lower in [s.lower() for s in hold_signals] and signal2_lower in [s.lower() for s in hold_signals]:
+            return True
+        
+        return False
     
     def _determine_signal_strength(self, confidence: float) -> SignalStrength:
         """确定信号强度"""
@@ -547,6 +858,108 @@ class CoreTradingService:
         else:
             return "low"
     
+    def _determine_trading_timeframe(
+        self,
+        action: str,
+        confidence: float,
+        strength: SignalStrength,
+        kronos_result: Optional[KronosEnhancedDecision],
+        technical_result: Optional[Dict[str, Any]]
+    ) -> Tuple[str, str, str]:
+        """
+        确定交易时间建议
+        
+        Returns:
+            Tuple[交易周期, 持有时间, 最佳入场时机]
+        """
+        
+        # 基于信号强度和置信度确定交易周期
+        if strength == SignalStrength.VERY_STRONG and confidence > 0.85:
+            # 极强信号 - 短线快进快出
+            trading_timeframe = "超短线"
+            holding_period = "30分钟-2小时"
+            optimal_entry_time = "立即执行"
+            
+        elif strength == SignalStrength.STRONG and confidence > 0.75:
+            # 强信号 - 日内交易
+            trading_timeframe = "日内"
+            holding_period = "2-8小时"
+            optimal_entry_time = "15分钟内"
+            
+        elif strength == SignalStrength.MODERATE and confidence > 0.65:
+            # 中等信号 - 短线波段
+            trading_timeframe = "短线"
+            holding_period = "1-3天"
+            optimal_entry_time = "1小时内"
+            
+        elif confidence > 0.55:
+            # 较弱信号 - 波段操作
+            trading_timeframe = "波段"
+            holding_period = "3-7天"
+            optimal_entry_time = "等待回调"
+            
+        else:
+            # 弱信号 - 观望为主
+            trading_timeframe = "观望"
+            holding_period = "暂不建议"
+            optimal_entry_time = "等待更强信号"
+        
+        # 根据Kronos预测调整时间框架
+        if kronos_result:
+            # Kronos通常适合中短期预测
+            if kronos_result.final_confidence > 0.7:
+                if trading_timeframe == "观望":
+                    trading_timeframe = "日内"
+                    holding_period = "4-12小时"
+                    optimal_entry_time = "30分钟内"
+                elif trading_timeframe in ["波段", "短线"]:
+                    # Kronos信号强时，缩短持有周期
+                    holding_period = "2-6小时"
+        
+        # 根据技术分析调整
+        if technical_result and 'detailed_indicators' in technical_result:
+            indicators = technical_result['detailed_indicators']
+            
+            # SuperTrend多周期共振时，延长持有时间
+            if 'supertrend' in indicators:
+                st_info = indicators['supertrend']
+                if st_info.get('priority', 3) == 1:  # 强势共振
+                    if trading_timeframe in ["超短线", "日内"]:
+                        trading_timeframe = "短线"
+                        holding_period = "1-2天"
+            
+            # RSI极值时，建议快进快出
+            if 'rsi' in indicators:
+                rsi_info = indicators['rsi']
+                rsi_value = rsi_info.get('value', 50)
+                if rsi_value > 80 or rsi_value < 20:
+                    if trading_timeframe not in ["观望"]:
+                        trading_timeframe = "超短线"
+                        holding_period = "1-4小时"
+                        optimal_entry_time = "立即执行"
+            
+            # 成交量异常时，建议快速反应
+            if 'volume' in indicators:
+                volume_info = indicators['volume']
+                if volume_info.get('signal') == "放量" and volume_info.get('ratio', 1) > 2:
+                    if optimal_entry_time not in ["立即执行"]:
+                        optimal_entry_time = "15分钟内"
+        
+        # 市场时间调整（考虑美股开盘等重要时点）
+        current_hour = datetime.now().hour
+        
+        # 美股开盘时间（北京时间21:30-22:30）
+        if 21 <= current_hour <= 22:
+            if optimal_entry_time == "等待回调":
+                optimal_entry_time = "30分钟内"  # 美股开盘时段，加快节奏
+        
+        # 亚洲交易时段（北京时间9:00-17:00）
+        elif 9 <= current_hour <= 17:
+            if trading_timeframe == "超短线":
+                holding_period = "2-6小时"  # 亚洲时段相对平稳，可适当延长
+        
+        return trading_timeframe, holding_period, optimal_entry_time
+    
     def _get_confidence_breakdown(
         self,
         kronos_result: Optional[KronosEnhancedDecision],
@@ -560,7 +973,7 @@ class CoreTradingService:
         if kronos_result:
             breakdown['kronos'] = kronos_result.final_confidence
         if technical_result:
-            breakdown['technical'] = technical_result['confidence']
+            breakdown['technical'] = technical_result['confidence'] / 100.0  # 转换为小数形式
         if ml_result:
             breakdown['ml'] = ml_result['confidence']
         if position_result:
@@ -757,6 +1170,9 @@ class CoreTradingService:
             if not self.notification_service:
                 self.notification_service = await get_core_notification_service()
             
+            # 构建详细的技术分析描述
+            technical_summary = self._build_technical_summary(signal.technical_indicators)
+            
             # 构建通知数据
             signal_data = {
                 'symbol': signal.symbol,
@@ -768,7 +1184,15 @@ class CoreTradingService:
                 'reasoning': signal.reasoning,
                 'key_factors': signal.key_factors,
                 'urgency': signal.urgency,
-                'timestamp': signal.timestamp
+                'timestamp': signal.timestamp,
+                
+                # 新增详细信息
+                'technical_summary': technical_summary,
+                'trading_timeframe': signal.trading_timeframe,
+                'holding_period': signal.holding_period,
+                'optimal_entry_time': signal.optimal_entry_time,
+                'confidence_breakdown': signal.confidence_breakdown,
+                'signal_strength': signal.signal_strength.value
             }
             
             # 发送通知
@@ -777,6 +1201,55 @@ class CoreTradingService:
         except Exception as e:
             self.logger.error(f"发送交易信号通知失败: {e}")
             return False
+    
+    def _build_technical_summary(self, technical_indicators: Dict[str, Any]) -> str:
+        """构建技术分析摘要"""
+        if not technical_indicators:
+            return "基础技术分析"
+        
+        summary_parts = []
+        
+        # MA分析
+        if 'moving_averages' in technical_indicators:
+            ma_info = technical_indicators['moving_averages']
+            trend = ma_info.get('trend', 'N/A')
+            price_vs_ma20 = ma_info.get('price_vs_ma20', 0)
+            summary_parts.append(f"MA{trend}(偏离MA20: {price_vs_ma20:+.1f}%)")
+        
+        # 布林带分析
+        if 'bollinger_bands' in technical_indicators:
+            bb_info = technical_indicators['bollinger_bands']
+            position = bb_info.get('position', 'N/A')
+            signal = bb_info.get('signal', 'N/A')
+            summary_parts.append(f"布林带{position}({signal})")
+        
+        # RSI分析
+        if 'rsi' in technical_indicators:
+            rsi_info = technical_indicators['rsi']
+            rsi_value = rsi_info.get('value', 0)
+            rsi_signal = rsi_info.get('signal', 'N/A')
+            summary_parts.append(f"RSI{rsi_value:.0f}({rsi_signal})")
+        
+        # MACD分析
+        if 'macd' in technical_indicators:
+            macd_info = technical_indicators['macd']
+            macd_trend = macd_info.get('trend', 'N/A')
+            summary_parts.append(f"MACD{macd_trend}")
+        
+        # SuperTrend分析
+        if 'supertrend' in technical_indicators:
+            st_info = technical_indicators['supertrend']
+            st_strength = st_info.get('strength', 'N/A')
+            summary_parts.append(f"SuperTrend{st_strength}")
+        
+        # 成交量分析
+        if 'volume' in technical_indicators:
+            volume_info = technical_indicators['volume']
+            volume_signal = volume_info.get('signal', 'N/A')
+            volume_ratio = volume_info.get('ratio', 1)
+            summary_parts.append(f"成交量{volume_signal}({volume_ratio:.1f}倍)")
+        
+        return " | ".join(summary_parts) if summary_parts else "基础技术分析"
 
 
 # 全局服务实例

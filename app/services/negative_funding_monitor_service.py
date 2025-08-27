@@ -9,9 +9,12 @@ import asyncio
 import sys
 import os
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import json
 from decimal import Decimal
+from enum import Enum
+from dataclasses import dataclass
+import numpy as np
 
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -23,6 +26,58 @@ from app.core.config import get_settings
 
 logger = get_logger(__name__)
 settings = get_settings()
+
+
+class PriceDirection(Enum):
+    """价格方向预测"""
+    STRONG_UP = "强烈看涨"
+    UP = "看涨"
+    NEUTRAL = "中性"
+    DOWN = "看跌"
+    STRONG_DOWN = "强烈看跌"
+
+
+class RiskLevel(Enum):
+    """风险等级"""
+    VERY_LOW = "极低风险"
+    LOW = "低风险"
+    MEDIUM = "中等风险"
+    HIGH = "高风险"
+    VERY_HIGH = "极高风险"
+
+
+@dataclass
+class PricePrediction:
+    """价格预测结果"""
+    symbol: str
+    current_price: float
+    direction: PriceDirection
+    confidence: float  # 0-1
+    target_price_24h: float
+    support_level: float
+    resistance_level: float
+    volatility_score: float  # 0-100
+    trend_strength: float  # 0-1
+    reasoning: List[str]
+
+
+@dataclass
+class PositionRecommendation:
+    """仓位建议"""
+    symbol: str
+    recommended_action: str  # "开多", "开空", "观望", "减仓"
+    position_size_usdt: float
+    leverage: float
+    entry_price: float
+    stop_loss_price: float
+    take_profit_price: float
+    risk_reward_ratio: float
+    max_loss_usdt: float
+    expected_daily_income: float
+    holding_period_days: int
+    risk_level: RiskLevel
+    confidence: float
+    reasoning: str
 
 
 class NegativeFundingMonitorService:
@@ -54,6 +109,16 @@ class NegativeFundingMonitorService:
         
         self.funding_intervals_cache = {}  # 缓存费率间隔信息
         self.target_symbols = []
+        
+        # 仓位管理参数
+        self.position_config = {
+            'max_position_per_symbol': 5000,    # 单币种最大仓位(USDT)
+            'max_total_position': 20000,        # 总仓位上限(USDT)
+            'base_leverage': 2.0,               # 基础杠杆
+            'max_leverage': 5.0,                # 最大杠杆
+            'risk_per_trade': 0.02,             # 单笔交易风险比例
+            'min_risk_reward_ratio': 2.0        # 最小风险收益比
+        }
     
     async def get_all_funding_rates_optimized(self) -> List[Dict[str, Any]]:
         """优化版：直接从OKX获取所有SWAP交易对，然后批量获取费率"""
@@ -488,8 +553,13 @@ class NegativeFundingMonitorService:
         
         return opportunities
     
-    def format_notification_message(self, opportunities: List[Dict[str, Any]]) -> str:
-        """格式化通知消息 - 优化版本，更清晰的信息展示"""
+    def format_notification_message(self, opportunities: List[Dict[str, Any]], enhanced: bool = False) -> str:
+        """格式化通知消息 - 支持增强模式
+        
+        Args:
+            opportunities: 机会列表
+            enhanced: 是否为增强模式（包含价格预测和仓位建议）
+        """
         if not opportunities:
             negative_threshold_pct = abs(settings.strategy_config['funding_rate']['negative_threshold'] * 100)
             return f"📊 当前无显著负费率机会（阈值: -{negative_threshold_pct:.1f}%）\n⏰ 下次检查: 1小时后"
@@ -546,6 +616,29 @@ class NegativeFundingMonitorService:
                 if opp['risk_factors']:
                     message += f"   ⚠️ {opp['risk_factors'][0]}\n"
                 
+                # 增强模式：显示价格预测和仓位建议
+                if enhanced:
+                    # 价格预测
+                    if opp.get('price_prediction'):
+                        pred = opp['price_prediction']
+                        message += f"   📈 价格预测: {pred['direction']} (置信度: {pred['confidence']:.1%})\n"
+                        if pred['target_price_24h'] != pred['current_price']:
+                            change_pct = (pred['target_price_24h'] - pred['current_price']) / pred['current_price'] * 100
+                            message += f"   🎯 24h目标: ${pred['target_price_24h']:.2f} ({change_pct:+.1f}%)\n"
+                    
+                    # 仓位建议
+                    if opp.get('position_recommendation'):
+                        pos = opp['position_recommendation']
+                        message += f"   💼 建议操作: {pos['recommended_action']}\n"
+                        if pos['recommended_action'] == "开多":
+                            message += f"   💵 建议仓位: ${pos['position_size_usdt']:.0f} ({pos['leverage']:.1f}x)\n"
+                            message += f"   📊 预期日收益: ${pos['expected_daily_income']:.2f}\n"
+                            message += f"   🛡️ 风险等级: {pos['risk_level']}\n"
+                    
+                    # 机会类型和紧急程度
+                    if opp.get('opportunity_type'):
+                        message += f"   ⚡ 类型: {opp['opportunity_type']} | 紧急度: {opp.get('urgency', '正常')}\n"
+                
                 message += "\n"
         
         # 如果有更多机会，显示统计信息
@@ -555,10 +648,19 @@ class NegativeFundingMonitorService:
         
         # 添加操作建议
         message += "💡 操作建议:\n"
-        message += "• 优先选择主流币种和高流动性标的\n"
-        message += "• 关注价格稳定性，避免高波动币种\n"
-        message += "• 建议分散投资，单币种不超过总资金20%\n"
-        message += "• 密切监控费率变化，及时调整仓位\n\n"
+        if enhanced:
+            # 增强模式建议
+            message += "• 优先选择「趋势套利」机会，双重收益\n"
+            message += "• 严格按照建议仓位和杠杆操作\n"
+            message += "• 设置止损止盈，控制风险\n"
+            message += "• 关注价格预测置信度，高置信度优先\n"
+            message += "• 「立即」和「尽快」机会及时把握\n\n"
+        else:
+            # 普通模式建议
+            message += "• 优先选择主流币种和高流动性标的\n"
+            message += "• 关注价格稳定性，避免高波动币种\n"
+            message += "• 建议分散投资，单币种不超过总资金20%\n"
+            message += "• 密切监控费率变化，及时调整仓位\n\n"
         
         message += "⏰ 下次检查: 1小时后"
         
@@ -622,8 +724,12 @@ class NegativeFundingMonitorService:
         
         return recommendation
     
-    async def run_monitoring_cycle(self) -> Dict[str, Any]:
-        """运行一次监控周期"""
+    async def run_monitoring_cycle(self, enable_enhanced_analysis: bool = False) -> Dict[str, Any]:
+        """运行一次监控周期
+        
+        Args:
+            enable_enhanced_analysis: 是否启用增强分析（价格预测和仓位建议）
+        """
         try:
             logger.info("🔍 开始负费率监控周期...")
             start_time = datetime.now()
@@ -654,10 +760,16 @@ class NegativeFundingMonitorService:
             # 4. 分析负费率机会
             opportunities = await self.analyze_negative_funding_opportunities(funding_rates, basic_info)
             
-            # 5. 生成通知消息
-            notification_message = self.format_notification_message(opportunities)
+            # 5. 增强分析（可选）
+            if enable_enhanced_analysis and opportunities:
+                logger.info("🚀 开始增强分析（价格预测 + 仓位建议）...")
+                opportunities = await self.analyze_enhanced_opportunities(opportunities)
+                logger.info(f"✅ 增强分析完成，共 {len(opportunities)} 个机会")
             
-            # 6. 发送通知（只有发现机会时才发送）
+            # 6. 生成通知消息
+            notification_message = self.format_notification_message(opportunities, enhanced=enable_enhanced_analysis)
+            
+            # 7. 发送通知（只有发现机会时才发送）
             if opportunities:
                 try:
                     # 直接发送详细的负费率机会分析消息
@@ -693,6 +805,506 @@ class NegativeFundingMonitorService:
         except Exception as e:
             logger.error(f"监控周期执行失败: {e}")
             return {'success': False, 'error': str(e)}
+    
+    async def run_enhanced_monitoring_cycle(self) -> Dict[str, Any]:
+        """运行增强版监控周期（包含价格预测和仓位建议）"""
+        logger.info("🚀 开始增强版负费率监控周期...")
+        return await self.run_monitoring_cycle(enable_enhanced_analysis=True)
+    
+    # ========== 新增：价格预测和仓位建议功能 ==========
+    
+    async def get_market_data(self, symbol: str, timeframe: str = '1H', limit: int = 100) -> List[Dict[str, Any]]:
+        """获取市场数据"""
+        try:
+            async with self.okx_service as exchange:
+                klines = await exchange.get_kline_data(symbol, timeframe, limit)
+                return klines
+        except Exception as e:
+            logger.error(f"获取 {symbol} 市场数据失败: {e}")
+            return []
+    
+    def calculate_rsi(self, prices: List[float], period: int = 14) -> Optional[float]:
+        """计算RSI指标"""
+        try:
+            if len(prices) < period + 1:
+                return None
+            
+            deltas = [prices[i] - prices[i-1] for i in range(1, len(prices))]
+            gains = [d if d > 0 else 0 for d in deltas]
+            losses = [-d if d < 0 else 0 for d in deltas]
+            
+            avg_gain = sum(gains[-period:]) / period
+            avg_loss = sum(losses[-period:]) / period
+            
+            if avg_loss == 0:
+                return 100
+            
+            rs = avg_gain / avg_loss
+            rsi = 100 - (100 / (1 + rs))
+            return rsi
+            
+        except Exception as e:
+            logger.error(f"RSI计算失败: {e}")
+            return None
+    
+    def calculate_moving_average(self, prices: List[float], period: int) -> Optional[float]:
+        """计算移动平均线"""
+        try:
+            if len(prices) < period:
+                return None
+            return sum(prices[-period:]) / period
+        except Exception as e:
+            logger.error(f"移动平均线计算失败: {e}")
+            return None
+    
+    async def analyze_price_prediction(self, symbol: str) -> Optional[PricePrediction]:
+        """分析价格预测"""
+        try:
+            # 获取K线数据
+            klines_1h = await self.get_market_data(symbol, '1H', 168)  # 7天1小时数据
+            
+            if not klines_1h or len(klines_1h) < 50:
+                return None
+            
+            # 提取价格数据
+            closes = [float(k['close']) for k in klines_1h]
+            highs = [float(k['high']) for k in klines_1h]
+            lows = [float(k['low']) for k in klines_1h]
+            volumes = [float(k['volume']) for k in klines_1h]
+            
+            current_price = closes[-1]
+            
+            # 技术指标分析
+            rsi = self.calculate_rsi(closes)
+            ma20 = self.calculate_moving_average(closes, 20)
+            ma50 = self.calculate_moving_average(closes, 50)
+            
+            # 支撑阻力位计算
+            recent_highs = sorted(highs[-50:], reverse=True)[:5]
+            recent_lows = sorted(lows[-50:])[:5]
+            resistance_level = sum(recent_highs) / len(recent_highs)
+            support_level = sum(recent_lows) / len(recent_lows)
+            
+            # 趋势分析
+            trend_strength = 0.5
+            if ma20 and ma50:
+                if ma20 > ma50 and current_price > ma20:
+                    trend_strength = 0.8
+                elif ma20 < ma50 and current_price < ma20:
+                    trend_strength = 0.2
+            
+            # 波动率计算
+            returns = [(closes[i] - closes[i-1]) / closes[i-1] for i in range(1, len(closes))]
+            volatility = np.std(returns[-20:]) if len(returns) >= 20 else 0.02
+            volatility_score = min(volatility * 100 / 0.05 * 100, 100)
+            
+            # 综合预测
+            direction, confidence = self._generate_prediction(rsi, ma20, ma50, current_price, trend_strength)
+            
+            # 目标价格
+            price_change_pct = confidence * 0.03  # 最大3%变动
+            if direction in [PriceDirection.STRONG_UP, PriceDirection.UP]:
+                target_price_24h = current_price * (1 + price_change_pct)
+            elif direction in [PriceDirection.STRONG_DOWN, PriceDirection.DOWN]:
+                target_price_24h = current_price * (1 - price_change_pct)
+            else:
+                target_price_24h = current_price
+            
+            # 生成推理
+            reasoning = self._generate_reasoning(rsi, ma20, ma50, current_price, direction)
+            
+            return PricePrediction(
+                symbol=symbol,
+                current_price=current_price,
+                direction=direction,
+                confidence=confidence,
+                target_price_24h=target_price_24h,
+                support_level=support_level,
+                resistance_level=resistance_level,
+                volatility_score=volatility_score,
+                trend_strength=trend_strength,
+                reasoning=reasoning
+            )
+            
+        except Exception as e:
+            logger.error(f"价格预测分析失败 {symbol}: {e}")
+            return None
+    
+    def _generate_prediction(self, rsi: Optional[float], ma20: Optional[float], 
+                           ma50: Optional[float], current_price: float, 
+                           trend_strength: float) -> Tuple[PriceDirection, float]:
+        """生成价格方向预测"""
+        try:
+            bullish_score = 0
+            bearish_score = 0
+            
+            # RSI分析
+            if rsi:
+                if rsi < 30:
+                    bullish_score += 0.8
+                elif rsi > 70:
+                    bearish_score += 0.8
+                elif rsi > 50:
+                    bullish_score += 0.3
+                else:
+                    bearish_score += 0.3
+            
+            # 移动平均线分析
+            if ma20 and ma50:
+                if ma20 > ma50 and current_price > ma20:
+                    bullish_score += 0.7
+                elif ma20 < ma50 and current_price < ma20:
+                    bearish_score += 0.7
+                elif current_price > ma20:
+                    bullish_score += 0.4
+                else:
+                    bearish_score += 0.4
+            
+            # 趋势强度
+            if trend_strength > 0.6:
+                bullish_score += 0.5
+            elif trend_strength < 0.4:
+                bearish_score += 0.5
+            
+            # 计算最终方向
+            net_score = bullish_score - bearish_score
+            confidence = min(abs(net_score) / 2, 0.9)
+            
+            if net_score > 1.0:
+                direction = PriceDirection.STRONG_UP
+            elif net_score > 0.3:
+                direction = PriceDirection.UP
+            elif net_score > -0.3:
+                direction = PriceDirection.NEUTRAL
+            elif net_score > -1.0:
+                direction = PriceDirection.DOWN
+            else:
+                direction = PriceDirection.STRONG_DOWN
+            
+            return direction, confidence
+            
+        except Exception as e:
+            logger.error(f"生成预测失败: {e}")
+            return PriceDirection.NEUTRAL, 0.5
+    
+    def _generate_reasoning(self, rsi: Optional[float], ma20: Optional[float], 
+                          ma50: Optional[float], current_price: float, 
+                          direction: PriceDirection) -> List[str]:
+        """生成预测推理"""
+        reasoning = []
+        
+        try:
+            if rsi:
+                if rsi < 30:
+                    reasoning.append(f"RSI({rsi:.1f})超卖，支持反弹")
+                elif rsi > 70:
+                    reasoning.append(f"RSI({rsi:.1f})超买，存在回调压力")
+                else:
+                    reasoning.append(f"RSI({rsi:.1f})中性区域")
+            
+            if ma20 and ma50:
+                if ma20 > ma50:
+                    reasoning.append("短期均线上穿长期均线，趋势向好")
+                else:
+                    reasoning.append("短期均线下穿长期均线，趋势偏弱")
+                
+                if current_price > ma20:
+                    reasoning.append("价格位于短期均线上方")
+                else:
+                    reasoning.append("价格位于短期均线下方")
+            
+            direction_desc = {
+                PriceDirection.STRONG_UP: "技术面强烈看涨",
+                PriceDirection.UP: "技术面偏向看涨",
+                PriceDirection.NEUTRAL: "技术面中性",
+                PriceDirection.DOWN: "技术面偏向看跌",
+                PriceDirection.STRONG_DOWN: "技术面强烈看跌"
+            }
+            reasoning.append(direction_desc.get(direction, "技术面不明确"))
+            
+        except Exception as e:
+            logger.error(f"生成推理失败: {e}")
+            reasoning.append("技术分析异常")
+        
+        return reasoning
+    
+    async def generate_position_recommendation(self, symbol: str, funding_rate: float, 
+                                             price_prediction: PricePrediction) -> Optional[PositionRecommendation]:
+        """生成仓位建议"""
+        try:
+            current_price = price_prediction.current_price
+            direction = price_prediction.direction
+            confidence = price_prediction.confidence
+            volatility = price_prediction.volatility_score
+            
+            # 基础仓位计算
+            base_position = self.position_config['max_position_per_symbol']
+            
+            # 根据置信度和波动率调整仓位
+            confidence_multiplier = confidence
+            volatility_multiplier = max(0.3, 1 - volatility / 200)
+            funding_multiplier = min(1.5, 1 + abs(funding_rate) * 10)
+            
+            recommended_position = base_position * confidence_multiplier * volatility_multiplier * funding_multiplier
+            recommended_position = min(recommended_position, self.position_config['max_position_per_symbol'])
+            
+            # 确定操作方向
+            if funding_rate < 0:  # 负费率，开多收费率
+                if direction in [PriceDirection.STRONG_UP, PriceDirection.UP]:
+                    action = "开多"
+                    leverage = min(self.position_config['max_leverage'], 
+                                 self.position_config['base_leverage'] * (1 + confidence))
+                elif direction in [PriceDirection.STRONG_DOWN, PriceDirection.DOWN]:
+                    action = "观望"
+                    leverage = 1.0
+                    recommended_position *= 0.3
+                else:
+                    action = "开多"
+                    leverage = self.position_config['base_leverage']
+            else:
+                action = "观望"
+                leverage = 1.0
+                recommended_position = 0
+            
+            # 计算价格
+            entry_price = current_price * 1.001 if action == "开多" else current_price
+            stop_loss_price = min(price_prediction.support_level * 0.98, current_price * 0.97) if action == "开多" else current_price
+            take_profit_price = max(price_prediction.resistance_level * 0.98, price_prediction.target_price_24h) if action == "开多" else current_price
+            
+            # 风险收益比
+            if action == "开多" and stop_loss_price < entry_price:
+                risk_per_unit = entry_price - stop_loss_price
+                reward_per_unit = take_profit_price - entry_price
+                risk_reward_ratio = reward_per_unit / risk_per_unit if risk_per_unit > 0 else 0
+            else:
+                risk_reward_ratio = 0
+            
+            # 最大损失
+            max_loss_usdt = (entry_price - stop_loss_price) / entry_price * recommended_position * leverage if action == "开多" else 0
+            
+            # 预期收益
+            expected_daily_income = abs(funding_rate * 3) * recommended_position * leverage
+            if action == "开多" and direction in [PriceDirection.STRONG_UP, PriceDirection.UP]:
+                price_gain = (price_prediction.target_price_24h - current_price) / current_price
+                expected_daily_income += price_gain * recommended_position * leverage * confidence
+            
+            # 风险等级
+            risk_level = self._assess_risk_level(volatility, confidence, leverage, max_loss_usdt)
+            
+            # 持仓周期
+            holding_period = 1 if abs(funding_rate) > 0.01 else 3 if abs(funding_rate) > 0.005 else 7
+            
+            # 推理
+            reasoning = f"负费率{funding_rate*100:.2f}%，{direction.value}，置信度{confidence:.1%}"
+            
+            return PositionRecommendation(
+                symbol=symbol,
+                recommended_action=action,
+                position_size_usdt=recommended_position,
+                leverage=leverage,
+                entry_price=entry_price,
+                stop_loss_price=stop_loss_price,
+                take_profit_price=take_profit_price,
+                risk_reward_ratio=risk_reward_ratio,
+                max_loss_usdt=max_loss_usdt,
+                expected_daily_income=expected_daily_income,
+                holding_period_days=holding_period,
+                risk_level=risk_level,
+                confidence=confidence,
+                reasoning=reasoning
+            )
+            
+        except Exception as e:
+            logger.error(f"生成仓位建议失败 {symbol}: {e}")
+            return None
+    
+    def _assess_risk_level(self, volatility: float, confidence: float, 
+                          leverage: float, max_loss_usdt: float) -> RiskLevel:
+        """评估风险等级"""
+        risk_score = 0
+        
+        # 波动率风险
+        if volatility > 80:
+            risk_score += 40
+        elif volatility > 60:
+            risk_score += 30
+        elif volatility > 40:
+            risk_score += 20
+        else:
+            risk_score += 10
+        
+        # 置信度风险
+        risk_score += (1 - confidence) * 30
+        
+        # 杠杆风险
+        if leverage > 4:
+            risk_score += 30
+        elif leverage > 2:
+            risk_score += 20
+        else:
+            risk_score += 10
+        
+        # 最大损失风险
+        if max_loss_usdt > 1000:
+            risk_score += 20
+        elif max_loss_usdt > 500:
+            risk_score += 15
+        else:
+            risk_score += 5
+        
+        if risk_score >= 80:
+            return RiskLevel.VERY_HIGH
+        elif risk_score >= 65:
+            return RiskLevel.HIGH
+        elif risk_score >= 45:
+            return RiskLevel.MEDIUM
+        elif risk_score >= 25:
+            return RiskLevel.LOW
+        else:
+            return RiskLevel.VERY_LOW
+    
+    async def analyze_enhanced_opportunities(self, opportunities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """分析增强版机会（添加价格预测和仓位建议）"""
+        enhanced_opportunities = []
+        
+        for opp in opportunities:
+            try:
+                symbol = opp['symbol']
+                funding_rate = opp['funding_rate']
+                
+                logger.info(f"📊 增强分析 {symbol}...")
+                
+                # 价格预测
+                price_prediction = await self.analyze_price_prediction(symbol)
+                if not price_prediction:
+                    logger.warning(f"无法获取 {symbol} 价格预测，跳过增强分析")
+                    # 保留原始机会数据
+                    enhanced_opp = opp.copy()
+                    enhanced_opp.update({
+                        'price_prediction': None,
+                        'position_recommendation': None,
+                        'enhanced_score': opp.get('score', 0),
+                        'opportunity_type': '纯套利',
+                        'urgency': '正常'
+                    })
+                    enhanced_opportunities.append(enhanced_opp)
+                    continue
+                
+                # 仓位建议
+                position_recommendation = await self.generate_position_recommendation(
+                    symbol, funding_rate, price_prediction
+                )
+                
+                # 计算增强评分
+                enhanced_score = self._calculate_enhanced_score(opp, price_prediction, position_recommendation)
+                
+                # 确定机会类型
+                if price_prediction.direction in [PriceDirection.STRONG_UP, PriceDirection.UP]:
+                    opportunity_type = "趋势套利"
+                elif price_prediction.direction in [PriceDirection.STRONG_DOWN, PriceDirection.DOWN]:
+                    opportunity_type = "反转套利"
+                else:
+                    opportunity_type = "纯套利"
+                
+                # 确定紧急程度
+                if enhanced_score > 85 and abs(funding_rate) > 0.01:
+                    urgency = "立即"
+                elif enhanced_score > 70:
+                    urgency = "尽快"
+                elif enhanced_score > 50:
+                    urgency = "正常"
+                else:
+                    urgency = "观望"
+                
+                # 构建增强机会数据
+                enhanced_opp = opp.copy()
+                enhanced_opp.update({
+                    'price_prediction': {
+                        'direction': price_prediction.direction.value,
+                        'confidence': price_prediction.confidence,
+                        'target_price_24h': price_prediction.target_price_24h,
+                        'current_price': price_prediction.current_price,
+                        'support_level': price_prediction.support_level,
+                        'resistance_level': price_prediction.resistance_level,
+                        'volatility_score': price_prediction.volatility_score,
+                        'reasoning': price_prediction.reasoning
+                    } if price_prediction else None,
+                    'position_recommendation': {
+                        'recommended_action': position_recommendation.recommended_action,
+                        'position_size_usdt': position_recommendation.position_size_usdt,
+                        'leverage': position_recommendation.leverage,
+                        'entry_price': position_recommendation.entry_price,
+                        'stop_loss_price': position_recommendation.stop_loss_price,
+                        'take_profit_price': position_recommendation.take_profit_price,
+                        'risk_reward_ratio': position_recommendation.risk_reward_ratio,
+                        'max_loss_usdt': position_recommendation.max_loss_usdt,
+                        'expected_daily_income': position_recommendation.expected_daily_income,
+                        'holding_period_days': position_recommendation.holding_period_days,
+                        'risk_level': position_recommendation.risk_level.value,
+                        'reasoning': position_recommendation.reasoning
+                    } if position_recommendation else None,
+                    'enhanced_score': enhanced_score,
+                    'opportunity_type': opportunity_type,
+                    'urgency': urgency
+                })
+                
+                enhanced_opportunities.append(enhanced_opp)
+                
+            except Exception as e:
+                logger.error(f"增强分析 {symbol} 失败: {e}")
+                # 保留原始数据
+                enhanced_opp = opp.copy()
+                enhanced_opp.update({
+                    'price_prediction': None,
+                    'position_recommendation': None,
+                    'enhanced_score': opp.get('score', 0),
+                    'opportunity_type': '纯套利',
+                    'urgency': '正常'
+                })
+                enhanced_opportunities.append(enhanced_opp)
+        
+        # 按增强评分重新排序
+        enhanced_opportunities.sort(key=lambda x: x['enhanced_score'], reverse=True)
+        
+        return enhanced_opportunities
+    
+    def _calculate_enhanced_score(self, funding_opp: Dict[str, Any], 
+                                price_prediction: Optional[PricePrediction], 
+                                position_rec: Optional[PositionRecommendation]) -> float:
+        """计算增强评分"""
+        try:
+            # 基础费率评分 (50%)
+            base_score = funding_opp.get('score', 0) * 0.5
+            
+            # 价格预测评分 (30%)
+            prediction_score = 0
+            if price_prediction:
+                prediction_score = price_prediction.confidence * 100
+                if price_prediction.direction in [PriceDirection.STRONG_UP, PriceDirection.UP]:
+                    prediction_score *= 1.2  # 看涨加分
+                elif price_prediction.direction in [PriceDirection.STRONG_DOWN, PriceDirection.DOWN]:
+                    prediction_score *= 0.6  # 看跌减分
+                prediction_score = min(prediction_score, 100) * 0.3
+            
+            # 仓位建议评分 (20%)
+            position_score = 0
+            if position_rec:
+                if position_rec.recommended_action == "开多":
+                    position_score = 80
+                    if position_rec.risk_reward_ratio > 3:
+                        position_score += 20
+                    elif position_rec.risk_reward_ratio > 2:
+                        position_score += 10
+                else:
+                    position_score = 20
+                position_score = position_score * 0.2
+            
+            total_score = base_score + prediction_score + position_score
+            return min(total_score, 100)
+            
+        except Exception as e:
+            logger.error(f"计算增强评分失败: {e}")
+            return funding_opp.get('score', 0)
     
     def print_opportunities_summary(self, opportunities: List[Dict[str, Any]]):
         """打印机会摘要"""

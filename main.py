@@ -18,22 +18,22 @@ from app.utils.db_monitor import get_db_monitor
 
 # 导入所有模型以确保表定义被注册
 import app.models  # 这会导入所有模型定义
+
+# 导入核心整合API路由 - 优先级最高
+from app.api.core_trading import router as core_trading_router
+
+# 导入原有API路由 - 保持兼容性
 from app.api import (
     trend_router, monitor_router, notification_router,
     tradingview_router, strategy_router, ml_enhanced_router,
-    trading_decision_router, comprehensive_trading_router,
-    trading_advice_router, strategy_trading_router,
-    enhanced_trading_advice_router, ml_strategy_optimization_router,
-    backtest_router, unified_trading_router
+    backtest_router
 )
 from app.api.kronos import router as kronos_router
 from app.api.kronos_integrated import router as kronos_integrated_router
-from app.api.enhanced_trading import router as enhanced_trading_router
 from app.api.funding_monitor import router as funding_monitor_router
 from app.api.kronos_market_opportunities import router as kronos_market_opportunities_router
 from app.api.kronos_advanced_opportunities import router as kronos_advanced_opportunities_router
 from app.api.notification_stats import router as notification_stats_router
-from app.api.profit_opportunities import router as profit_opportunities_router
 from app.api.database import router as database_router
 from app.api.http_pool import router as http_pool_router
 from app.api.trading_pairs import router as trading_pairs_router
@@ -47,60 +47,85 @@ from app.services.negative_funding_monitor_service import NegativeFundingMonitor
 settings = get_settings()
 logger = get_logger(__name__)
 
-
 async def perform_startup_trading_analysis():
-    """启动时执行交易分析和推送 - 集成Kronos前置分析"""
+    """启动时执行交易分析和推送 - 使用核心交易服务"""
     try:
-        logger.info("🎯 开始启动交易决策分析 (集成Kronos)...")
+        logger.info("🎯 开始启动交易决策分析 (核心服务)...")
         
-        # 导入启动交易服务
-        from app.services.startup_trading_service import StartupTradingService
-        startup_service = StartupTradingService()
+        # 导入核心交易服务
+        from app.services.core_trading_service import get_core_trading_service, AnalysisType, SignalStrength
         
-        # 执行启动分析
-        analysis_results = await startup_service.perform_startup_analysis()
+        core_trading_service = await get_core_trading_service()
+        
+        # 主要分析的交易对
+        major_symbols = ["ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+        
+        # 执行批量分析
+        analysis_results = await core_trading_service.batch_analyze_symbols(
+            symbols=major_symbols,
+            analysis_type=AnalysisType.INTEGRATED,
+            max_concurrent=3
+        )
+        
+        # 处理分析结果
+        successful_analyses = sum(1 for result in analysis_results.values() if result is not None)
+        strong_signals = []
+        notifications_sent = 0
+        
+        for symbol, signal in analysis_results.items():
+            if signal and signal.signal_strength in [SignalStrength.STRONG, SignalStrength.VERY_STRONG]:
+                strong_signals.append({
+                    "symbol": symbol,
+                    "action": signal.final_action,
+                    "confidence": signal.final_confidence,
+                    "strength": signal.signal_strength.value,
+                    "source": "core_integrated",
+                    "kronos_confidence": signal.kronos_result.kronos_confidence if signal.kronos_result else 0,
+                    "kronos_signal_strength": signal.kronos_result.kronos_signal_strength.value if signal.kronos_result else "未知"
+                })
+                
+                # 发送强信号通知
+                try:
+                    success = await core_trading_service.send_trading_signal_notification(signal)
+                    if success:
+                        notifications_sent += 1
+                except Exception as e:
+                    logger.warning(f"发送 {symbol} 信号通知失败: {e}")
+        
+        # 构建返回结果
+        startup_results = {
+            "status": "success",
+            "total_analyzed": len(major_symbols),
+            "successful_analyses": successful_analyses,
+            "notifications_sent": notifications_sent,
+            "strong_signals": strong_signals,
+            "analysis_method": "core_integrated_service"
+        }
         
         # 记录分析结果
-        if analysis_results.get("status") == "disabled":
-            logger.info("📴 启动交易推送已禁用")
-        elif analysis_results.get("status") == "error":
-            logger.error(f"❌ 启动交易分析失败: {analysis_results.get('error')}")
-        else:
-            successful = analysis_results.get("successful_analyses", 0)
-            total = analysis_results.get("total_analyzed", 0)
-            notifications = analysis_results.get("notifications_sent", 0)
-            strong_signals = len(analysis_results.get("strong_signals", []))
-            
-            logger.info(f"✅ 启动交易分析完成:")
-            logger.info(f"   📊 分析成功: {successful}/{total}")
-            logger.info(f"   📢 通知发送: {notifications} 条")
-            logger.info(f"   🔥 强信号: {strong_signals} 个")
-            
-            # 统计Kronos信号
-            kronos_signals = [s for s in analysis_results.get("strong_signals", []) if s.get("source") == "kronos_integrated"]
-            if kronos_signals:
-                logger.info(f"   🤖 Kronos强信号: {len(kronos_signals)} 个")
-            
-            # 如果有强信号，记录详情
-            for signal in analysis_results.get("strong_signals", [])[:3]:
-                symbol = signal.get("symbol", "unknown")
-                action = signal.get("action", "unknown")
-                confidence = signal.get("confidence", 0)
-                source = signal.get("source", "traditional")
-                
-                if source == "kronos_integrated":
-                    kronos_conf = signal.get("kronos_confidence", 0)
-                    strength = signal.get("kronos_signal_strength", "未知")
-                    logger.info(f"   🤖 {symbol}: {action} (Kronos: {kronos_conf:.2f}, 强度: {strength})")
-                else:
-                    logger.info(f"   🚀 {symbol}: {action} ({confidence:.1f}%)")
+        logger.info(f"✅ 启动交易分析完成 (核心服务):")
+        logger.info(f"   📊 分析成功: {successful_analyses}/{len(major_symbols)}")
+        logger.info(f"   📢 通知发送: {notifications_sent} 条")
+        logger.info(f"   🔥 强信号: {len(strong_signals)} 个")
         
-        return analysis_results
+        # 记录强信号详情
+        for signal in strong_signals[:3]:
+            symbol = signal["symbol"]
+            action = signal["action"]
+            confidence = signal["confidence"]
+            strength = signal["strength"]
+            kronos_conf = signal.get("kronos_confidence", 0)
+            
+            if kronos_conf > 0:
+                logger.info(f"   🤖 {symbol}: {action} (综合: {confidence:.2f}, Kronos: {kronos_conf:.2f}, 强度: {strength})")
+            else:
+                logger.info(f"   🚀 {symbol}: {action} (置信度: {confidence:.2f}, 强度: {strength})")
+        
+        return startup_results
         
     except Exception as e:
-        logger.error(f"❌ 启动交易分析失败: {e}")
+        logger.error(f"❌ 启动交易分析失败 (核心服务): {e}")
         return {"status": "error", "error": str(e)}
-
 
 async def perform_startup_kronos_analysis():
     """启动时执行专门的Kronos集成分析"""
@@ -159,7 +184,6 @@ async def perform_startup_kronos_analysis():
         logger.error(f"❌ Kronos专门分析失败: {e}")
         return {"status": "error", "error": str(e)}
 
-
 async def perform_startup_funding_analysis():
     """启动时执行负费率分析和推送"""
     try:
@@ -211,7 +235,6 @@ async def perform_startup_funding_analysis():
     except Exception as e:
         logger.error(f"❌ 负费率分析异常: {e}")
         return {"status": "error", "error": str(e)}
-
 
 async def perform_startup_ml_analysis(ml_service: MLEnhancedService):
     """启动时执行ML分析和推送（可选）"""
@@ -287,7 +310,6 @@ async def perform_startup_ml_analysis(ml_service: MLEnhancedService):
         
     except Exception as e:
         logger.error(f"❌ ML增强分析失败: {e}")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -398,7 +420,6 @@ async def lifespan(app: FastAPI):
                 name='Kronos网格交易机会扫描'
             )
             logger.info("✅ Kronos网格交易机会扫描已启动（2小时间隔）")
-            
 
             # 添加Kronos动量扫描任务（每10分钟）
             from app.services.kronos_momentum_scanner_service import get_kronos_momentum_scanner
@@ -428,7 +449,6 @@ async def lifespan(app: FastAPI):
                 name='Kronos动量机会扫描'
             )
             logger.info("✅ Kronos动量机会扫描已启动（10分钟间隔）")
-            
 
         else:
             logger.info("📴 Kronos预测已禁用，跳过所有Kronos扫描任务")
@@ -492,15 +512,13 @@ async def lifespan(app: FastAPI):
             # 将服务存储到应用状态
             app.state.kronos_position_service = kronos_position_service
         
-        # 启动时交易决策分析 - 已停用避免重复推送
-        # try:
-        #     startup_results = await perform_startup_trading_analysis()
-        #     app.state.startup_analysis_results = startup_results
-        # except Exception as e:
-        #     logger.warning(f"⚠️ 启动交易分析失败: {e}")
-        #     app.state.startup_analysis_results = {"status": "error", "error": str(e)}
-        logger.info("⚠️ 启动时普通交易分析已停用避免重复推送")
-        app.state.startup_analysis_results = {"status": "disabled", "message": "已停用避免重复推送"}
+        # 启动时交易决策分析 - 使用新的核心服务
+        try:
+            startup_results = await perform_startup_trading_analysis()
+            app.state.startup_analysis_results = startup_results
+        except Exception as e:
+            logger.warning(f"⚠️ 启动交易分析失败: {e}")
+            app.state.startup_analysis_results = {"status": "error", "error": str(e)}
         
         # 启动时执行负费率分析和推送
         try:
@@ -644,16 +662,23 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"⚠️ Error stopping scheduler: {e}")
         
-        # 2. 清理 OKX 服务连接
+        # 2. 清理核心HTTP客户端
+        try:
+            from app.core.http_client import cleanup_http_resources
+            await cleanup_http_resources()
+            logger.info("✅ Core HTTP client cleaned up")
+        except Exception as e:
+            logger.warning(f"⚠️ Error cleaning up core HTTP client: {e}")
+        
+        # 3. 清理 OKX 服务连接
         try:
             from app.services.okx_service import cleanup_all_sessions
             await cleanup_all_sessions()
             logger.info("✅ OKX HTTP connections cleaned up")
-            
         except Exception as e:
             logger.warning(f"⚠️ Error cleaning up OKX connections: {e}")
         
-        # 3. 通用 HTTP 连接清理
+        # 4. 通用 HTTP 连接清理（兼容性）
         try:
             import gc
             import aiohttp
@@ -736,7 +761,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ Application shutdown error: {e}")
 
-
 def create_app() -> FastAPI:
     """创建FastAPI应用"""
     
@@ -758,29 +782,23 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     
-    # 注册路由
+    # 注册路由 - 核心整合API优先
+    app.include_router(core_trading_router, tags=["核心交易"])
+    
+    # 原有路由 - 保持兼容性
     app.include_router(trend_router, prefix="/api/trend", tags=["趋势分析"])
     app.include_router(monitor_router, prefix="/api/monitor", tags=["监控服务"])
     app.include_router(notification_router, prefix="/api/notification", tags=["通知服务"])
     app.include_router(tradingview_router, prefix="/api/tradingview", tags=["TradingView功能"])
     app.include_router(strategy_router, prefix="/api/strategy", tags=["策略分析"])
     app.include_router(ml_enhanced_router, prefix="/api/ml", tags=["机器学习增强"])
-    app.include_router(trading_decision_router, prefix="/api/trading", tags=["交易决策"])
-    app.include_router(comprehensive_trading_router, prefix="/api/comprehensive", tags=["综合交易策略"])
-    app.include_router(trading_advice_router, prefix="/api/advice", tags=["实盘交易建议"])
-    app.include_router(strategy_trading_router, prefix="/api/strategy", tags=["策略交易"])
-    app.include_router(enhanced_trading_advice_router, prefix="/api/enhanced", tags=["增强交易建议"])
-    app.include_router(ml_strategy_optimization_router, prefix="/api/ml-optimization", tags=["ML策略优化"])
     app.include_router(backtest_router, prefix="/api", tags=["回测分析"])
-    app.include_router(unified_trading_router, prefix="/api/unified", tags=["统一交易决策"])
     app.include_router(funding_monitor_router, prefix="/api/funding", tags=["负费率监控"])
     app.include_router(kronos_router, prefix="/api/kronos", tags=["Kronos AI预测"])
     app.include_router(kronos_integrated_router, prefix="/api/kronos-integrated", tags=["Kronos集成决策"])
-    app.include_router(enhanced_trading_router, prefix="/api/enhanced-trading", tags=["增强交易决策"])
     app.include_router(kronos_market_opportunities_router, prefix="/api/kronos-opportunities", tags=["Kronos市场机会"])
     app.include_router(kronos_advanced_opportunities_router, prefix="/api/kronos-advanced", tags=["Kronos高级机会"])
     app.include_router(notification_stats_router)
-    app.include_router(profit_opportunities_router)
     app.include_router(database_router, prefix="/api/database", tags=["数据库管理"])
     app.include_router(http_pool_router, prefix="/api/http-pool", tags=["HTTP连接池管理"])
     app.include_router(trading_pairs_router, prefix="/api/trading-pairs", tags=["交易对管理"])
@@ -1029,7 +1047,6 @@ def create_app() -> FastAPI:
     
     return app
 
-
 def main():
     """主函数"""
     try:
@@ -1067,7 +1084,6 @@ def main():
     except Exception as e:
         logger.error(f"❌ Server startup failed: {e}")
         raise
-
 
 if __name__ == "__main__":
     main()
