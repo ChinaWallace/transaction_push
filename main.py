@@ -294,6 +294,9 @@ async def lifespan(app: FastAPI):
     # 启动时执行
     logger.info("🚀 Starting Python Trading Analysis Tool...")
     
+    # 存储需要清理的资源
+    cleanup_tasks = []
+    
     try:
         # 尝试创建数据库表 - 允许失败
         try:
@@ -486,11 +489,11 @@ async def lifespan(app: FastAPI):
         # 添加负费率监控定时任务
         funding_monitor = NegativeFundingMonitorService()
         
-        # 每小时检查一次负费率机会
+        # 每30分钟检查一次负费率机会
         scheduler.add_job(
             funding_monitor.run_monitoring_cycle,
             'interval',
-            hours=1,
+            minutes=30,
             id='negative_funding_monitor',
             name='负费率吃利息机会监控'
         )
@@ -682,6 +685,75 @@ async def lifespan(app: FastAPI):
         logger.info("🎉 Application startup completed!")
         
         yield
+        
+        # 应用关闭时的清理工作
+        logger.info("🛑 Shutting down application...")
+        
+        # 1. 停止调度器
+        try:
+            if hasattr(app.state, 'scheduler') and app.state.scheduler:
+                await app.state.scheduler.shutdown()
+                logger.info("✅ Scheduler stopped")
+        except Exception as e:
+            logger.warning(f"⚠️ Error stopping scheduler: {e}")
+        
+        # 2. 清理 OKX 服务连接
+        try:
+            from app.services.okx_service import cleanup_all_sessions
+            await cleanup_all_sessions()
+            logger.info("✅ OKX HTTP connections cleaned up")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Error cleaning up OKX connections: {e}")
+        
+        # 3. 通用 HTTP 连接清理
+        try:
+            import gc
+            import aiohttp
+            
+            # 收集所有剩余的 aiohttp.ClientSession 对象并关闭
+            cleaned_count = 0
+            for obj in gc.get_objects():
+                if isinstance(obj, aiohttp.ClientSession) and not obj.closed:
+                    try:
+                        await obj.close()
+                        cleaned_count += 1
+                    except Exception as e:
+                        logger.debug(f"⚠️ Error closing remaining session: {e}")
+            
+            if cleaned_count > 0:
+                await asyncio.sleep(0.2)
+                logger.info(f"✅ Cleaned up {cleaned_count} remaining HTTP sessions")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Error in general HTTP cleanup: {e}")
+        
+        # 4. 清理数据库连接
+        try:
+            if hasattr(app.state, 'database_available') and app.state.database_available:
+                from app.core.database import db_manager
+                await db_manager.close_all_connections()
+                logger.info("✅ Database connections closed")
+        except Exception as e:
+            logger.warning(f"⚠️ Error closing database connections: {e}")
+        
+        # 5. 清理其他服务
+        try:
+            # 清理 Kronos 服务
+            if hasattr(app.state, 'kronos_service') and app.state.kronos_service:
+                # Kronos 服务通常不需要特殊清理
+                pass
+            
+            # 清理 ML 服务
+            if hasattr(app.state, 'ml_service') and app.state.ml_service:
+                # ML 服务通常不需要特殊清理
+                pass
+                
+            logger.info("✅ Services cleaned up")
+        except Exception as e:
+            logger.warning(f"⚠️ Error cleaning up services: {e}")
+        
+        logger.info("🎯 Application shutdown completed")
         
     except Exception as e:
         logger.error(f"❌ Application startup failed: {e}")

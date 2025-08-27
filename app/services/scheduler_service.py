@@ -762,7 +762,7 @@ class SchedulerService:
                 risk_level = analysis_result.get("risk_assessment", {}).get("overall_risk")
                 
                 # 只有在评分较低或风险较高时才发送通知
-                if overall_score < 70 or (risk_level and hasattr(risk_level, 'value') and risk_level.value in ['high', 'critical']):
+                if overall_score < 70 or (risk_level and hasattr(risk_level, 'value') and risk_level.value in ['高风险', '极高风险']):
                     await position_service.send_position_analysis_notification(analysis_result)
                     monitor_logger.info(f"Position analysis notification sent (score: {overall_score}/100)")
                 else:
@@ -791,8 +791,49 @@ class SchedulerService:
                 monitor_logger.warning("策略交易服务不可用，跳过网格分析")
                 return
             
-            # 分析主要监控币种的网格机会（只分析ETH和SOL）
-            symbols = settings.monitored_symbols
+            # 获取交易量大或涨幅大的币种进行网格分析
+            from app.services.negative_funding_monitor_service import NegativeFundingMonitorService
+            funding_monitor = NegativeFundingMonitorService()
+            
+            # 获取热门币种（交易量大或涨幅大）
+            hot_symbols = await funding_monitor.get_top_volume_symbols(limit=30)
+            
+            # 进一步筛选：只要涨幅超过50%或交易量前10的币种
+            filtered_symbols = []
+            try:
+                async with funding_monitor.okx_service as okx:
+                    result = await okx._make_request('GET', '/api/v5/market/tickers', 
+                                                   params={'instType': 'SWAP'})
+                    
+                    if result:
+                        for ticker in result:
+                            symbol = ticker.get('instId', '')
+                            if symbol in hot_symbols:
+                                volume_24h = float(ticker.get('volCcy24h', '0') or '0')
+                                change_24h = abs(float(ticker.get('chg', '0') or '0'))
+                                
+                                # 筛选条件：涨幅超过50% 或 交易量前10
+                                if (change_24h > 0.10 or  # 涨幅超过10%
+                                    symbol in hot_symbols[:10]):  # 或者是交易量前10
+                                    filtered_symbols.append({
+                                        'symbol': symbol,
+                                        'volume_24h': volume_24h,
+                                        'change_24h': change_24h
+                                    })
+                        
+                        # 按涨幅和交易量排序，优先分析
+                        filtered_symbols.sort(key=lambda x: x['change_24h'] + x['volume_24h']/10000000, reverse=True)
+                        symbols = [s['symbol'] for s in filtered_symbols[:15]]  # 最多分析15个币种
+                        
+                        monitor_logger.info(f"📊 筛选出 {len(symbols)} 个高潜力币种进行网格分析")
+                        for s in filtered_symbols[:5]:  # 显示前5个
+                            monitor_logger.info(f"   {s['symbol']}: 涨幅 {s['change_24h']:.1%}, 交易量 {s['volume_24h']/1000000:.1f}M")
+                    else:
+                        symbols = settings.monitored_symbols  # 备用方案
+            except Exception as e:
+                logger.warning(f"获取热门币种失败，使用默认币种: {e}")
+                symbols = settings.monitored_symbols
+            
             kronos_grid_opportunities = []
             
             for symbol in symbols:
@@ -800,10 +841,12 @@ class SchedulerService:
                     # 使用集成Kronos的网格分析
                     grid_recommendation = await strategy_service.analyze_grid_opportunity(symbol, investment=1000)
                     
-                    # 只推送Kronos推荐的高置信度网格机会
+                    # 推送有潜力的网格机会 - 平衡收益和风险
                     if (grid_recommendation.recommended and 
-                        grid_recommendation.confidence > 60 and
-                        grid_recommendation.parameters.get('kronos_confidence', 0) > 0.5):
+                        grid_recommendation.confidence > 65 and  # 适中的置信度要求
+                        grid_recommendation.parameters.get('kronos_confidence', 0) > 0.5 and  # Kronos置信度要求
+                        grid_recommendation.parameters.get('grid_suitability_score', 0) >= 60 and  # 网格机会评分要求
+                        grid_recommendation.expected_daily_return > 0.005):  # 日收益至少0.5%
                         
                         kronos_grid_opportunities.append({
                             'symbol': symbol,
@@ -827,16 +870,48 @@ class SchedulerService:
                         rec = opportunity['recommendation']
                         symbol = opportunity['symbol']
                         
+                        # 获取详细参数
+                        grid_score = rec.parameters.get('grid_suitability_score', 0)
+                        trend_strength = rec.parameters.get('trend_strength', 0)
+                        predicted_volatility = rec.parameters.get('predicted_volatility', 0)
+                        predicted_trend = rec.parameters.get('predicted_trend', 'unknown')
+                        funding_rate = rec.parameters.get('funding_rate', 0)
+                        daily_grid_return = rec.parameters.get('daily_grid_return', 0)
+                        daily_funding_return = rec.parameters.get('daily_funding_return', 0)
+                        
+                        # 趋势描述
+                        trend_desc = {
+                            'sideways': '横盘震荡',
+                            'bullish': '上涨趋势', 
+                            'bearish': '下跌趋势'
+                        }.get(predicted_trend, predicted_trend)
+                        
+                        # 资金费率描述
+                        funding_desc = ""
+                        if funding_rate < -0.01:
+                            funding_desc = f" 🎁强负费率({funding_rate:.3%})"
+                        elif funding_rate < 0:
+                            funding_desc = f" 💰负费率({funding_rate:.3%})"
+                        
                         message_parts.append(f"""
 📊 {symbol}
-├ Kronos置信度: {rec.parameters.get('kronos_confidence', 0):.1%}
-├ 预测趋势: {rec.parameters.get('predicted_trend', 'unknown')}
-├ 网格数量: {rec.parameters.get('grid_num', 0)}
-├ 预期年化收益: {rec.expected_annual_return:.1%}
-└ 推荐置信度: {rec.confidence:.0f}%
+├ 机会评分: {grid_score}/100
+├ Kronos预测: {trend_desc} (置信度: {rec.parameters.get('kronos_confidence', 0):.1%})
+├ 波动率: {predicted_volatility:.1%} (趋势强度: {trend_strength:.1%}){funding_desc}
+├ 网格设置: {rec.parameters.get('grid_num', 0)}层网格
+├ 价格区间: {rec.parameters.get('min_price', 0):.2f} - {rec.parameters.get('max_price', 0):.2f}
+├ 日收益预期: {rec.expected_daily_return:.2%} (网格: {daily_grid_return:.2%} + 费率: {daily_funding_return:.2%})
+├ 年化收益: {rec.expected_annual_return:.1%}
+└ 推荐指数: {rec.confidence:.0f}%
 """)
                     
-                    message_parts.append("\n⚠️ 注：此网格机会基于Kronos AI预测分析生成，请谨慎操作")
+                    message_parts.append(f"""
+⚠️ 网格交易策略说明:
+• 高波动率 = 高收益潜力，但风险也相应增加
+• 突破网格区间时需要及时调整或止损
+• 负费率币种可获得额外持仓收益
+• 建议分批建仓，设置合理止损位
+• 此分析基于Kronos AI预测和市场数据，请结合实际情况操作""")
                     
                     full_message = "".join(message_parts)
                     

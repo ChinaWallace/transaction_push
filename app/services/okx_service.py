@@ -29,6 +29,34 @@ _last_request_time = 0
 _request_lock = asyncio.Lock()
 _current_interval = 0.5  # 动态调整的请求间隔
 
+# 全局 session 管理器
+_active_sessions = set()
+
+def _register_session(session):
+    """注册活跃的 session"""
+    _active_sessions.add(session)
+
+def _unregister_session(session):
+    """注销 session"""
+    _active_sessions.discard(session)
+
+async def cleanup_all_sessions():
+    """清理所有活跃的 session"""
+    sessions_to_cleanup = list(_active_sessions)
+    for session in sessions_to_cleanup:
+        try:
+            if not session.closed:
+                await session.close()
+            _unregister_session(session)
+        except Exception as e:
+            logger.warning(f"⚠️ 清理 session 时出错: {e}")
+    
+    # 等待所有连接关闭
+    if sessions_to_cleanup:
+        await asyncio.sleep(0.2)
+        logger.info(f"✅ 已清理 {len(sessions_to_cleanup)} 个 HTTP session")
+
+
 class OKXService:
     """OKX交易所服务类"""
     def __init__(self):
@@ -54,13 +82,28 @@ class OKXService:
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """异步上下文管理器出口"""
+        await self._cleanup_session()
+    
+    async def _cleanup_session(self):
+        """清理 session 连接"""
         try:
-            if self.session and not self.session.closed:
-                await self.session.close()
-                # 等待一小段时间确保连接完全关闭
-                await asyncio.sleep(0.1)
+            if self.session:
+                # 从全局管理器注销
+                _unregister_session(self.session)
+                
+                if not self.session.closed:
+                    # 先关闭连接器
+                    if hasattr(self.session, '_connector') and self.session._connector:
+                        await self.session._connector.close()
+                    
+                    # 再关闭 session
+                    await self.session.close()
+                    
+                    # 等待连接完全关闭
+                    await asyncio.sleep(0.1)
+                    logger.debug("✅ OKX session 已正确关闭")
         except Exception as e:
-            logger.warning(f"关闭session时出现异常: {e}")
+            logger.warning(f"⚠️ 关闭 OKX session 时出现异常: {e}")
         finally:
             self.session = None
     
@@ -80,28 +123,33 @@ class OKXService:
         """确保session可用"""
         try:
             if not self.session or self.session.closed:
-                # 如果有旧的session，先关闭
-                if self.session and not self.session.closed:
-                    await self.session.close()
+                # 如果有旧的session，先清理
+                if self.session:
+                    await self._cleanup_session()
                 
-                # 创建新的连接器 - 平衡性能和稳定性
+                # 创建新的连接器 - 优化连接管理
                 connector = aiohttp.TCPConnector(
-                    limit=30,  # 进一步降低连接数限制
-                    limit_per_host=5,  # 每个主机最多5个连接
-                    keepalive_timeout=30,  # 保持连接30秒
+                    limit=20,  # 降低总连接数
+                    limit_per_host=3,  # 每个主机最多3个连接
                     enable_cleanup_closed=True,
-                    # 不使用force_close，允许连接复用以提高性能
+                    force_close=True,  # 强制关闭连接以避免泄漏
+                    ttl_dns_cache=300,  # DNS缓存5分钟
                 )
                 
                 # 创建新的session
                 self.session = aiohttp.ClientSession(
                     connector=connector,
                     trust_env=True,
-                    timeout=aiohttp.ClientTimeout(total=30)
+                    timeout=aiohttp.ClientTimeout(total=25),
+                    # 添加连接器清理回调
+                    connector_owner=True
                 )
-                logger.debug("创建新的HTTP session")
+                
+                # 注册到全局session管理器
+                _register_session(self.session)
+                logger.debug("✅ 创建新的 OKX HTTP session")
         except Exception as e:
-            logger.error(f"创建session失败: {e}")
+            logger.error(f"❌ 创建 OKX session 失败: {e}")
             self.session = None
             raise TradingToolError(f"无法创建HTTP session: {e}")
     
@@ -229,29 +277,28 @@ class OKXService:
                     
             except aiohttp.ClientError as e:
                 error_str = str(e)
-                if "Connector is closed" in error_str or "closed" in error_str.lower():
-                    # 连接器关闭，重新创建session
-                    logger.warning(f"连接器已关闭，重新创建session: {e}")
-                    self.session = None
-                    await self._ensure_session()
+                if any(keyword in error_str.lower() for keyword in ["connector is closed", "closed", "connection", "timeout"]):
+                    # 连接相关错误，清理并重新创建session
+                    logger.warning(f"连接错误，重新创建session: {e}")
+                    await self._cleanup_session()
                     
                 if attempt < max_retries - 1:
-                    wait_time = (2 ** attempt) * 1.0  # 增加等待时间
+                    wait_time = (2 ** attempt) * 1.0
                     logger.warning(f"网络请求失败，{wait_time}秒后重试: {e}")
                     await asyncio.sleep(wait_time)
                     continue
                 else:
                     logger.error(f"OKX API请求失败: {e}")
-                    # 不抛出异常，返回空结果避免阻塞
+                    # 清理可能有问题的session
+                    await self._cleanup_session()
                     return []
                     
             except Exception as e:
                 error_str = str(e)
-                if "'NoneType' object has no attribute 'request'" in error_str:
-                    # session为None，重新创建
-                    logger.warning(f"Session为None，重新创建: {e}")
-                    self.session = None
-                    await self._ensure_session()
+                if any(keyword in error_str.lower() for keyword in ["nonetype", "session", "request"]):
+                    # session相关错误，重新创建
+                    logger.warning(f"Session错误，重新创建: {e}")
+                    await self._cleanup_session()
                     
                 if attempt < max_retries - 1:
                     wait_time = (2 ** attempt) * 1.0
@@ -260,7 +307,8 @@ class OKXService:
                     continue
                 else:
                     logger.error(f"OKX请求异常: {e}")
-                    # 不抛出异常，返回空结果避免阻塞
+                    # 清理可能有问题的session
+                    await self._cleanup_session()
                     return []
         
         # session会在上下文管理器中自动关闭，这里不需要手动关闭
