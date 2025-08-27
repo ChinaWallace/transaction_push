@@ -394,7 +394,7 @@ class TradingDecisionService:
                     signals['funding_rate_signal'] = 'bullish'
                     signals['confidence'] = min(80.0, signals['confidence'] + 10)
             
-            logger.info(f"获取{symbol}市场信号成功: 趋势={signals['trend']}, 置信度={signals['confidence']:.1f}%")
+            logger.debug(f"获取{symbol}市场信号成功: 趋势={signals['trend']}, 置信度={signals['confidence']:.1f}%")
             
         except Exception as e:
             logger.warning(f"获取{symbol}市场信号失败: {e}")

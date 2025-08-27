@@ -256,9 +256,9 @@ async def update_trading_pairs():
     result = await service.fetch_and_update_trading_pairs()
     
     if result['success']:
-        print(f"✅ 交易对更新成功:")
-        print(f"   总交易对数: {result['total_instruments']}")
-        print(f"   USDT永续合约: {result['usdt_pairs']}")
+        logger.info(f"✅ 交易对更新成功:")
+        logger.info(f"   总交易对数: {result['total_instruments']}")
+        logger.info(f"   USDT永续合约: {result['usdt_pairs']}")
         print(f"   更新数量: {result['updated_count']}")
         print(f"   更新时间: {result['update_time']}")
     else:

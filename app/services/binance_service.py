@@ -55,7 +55,7 @@ class BinanceService:
         }
     
     async def _make_request(self, endpoint: str, params: dict = None, signed: bool = False) -> dict:
-        """发起API请求"""
+        """发起API请求 - 使用统一HTTP连接池"""
         url = f"{self.base_url}{endpoint}"
         headers = self._get_headers()
         
@@ -68,9 +68,26 @@ class BinanceService:
             params['signature'] = self._generate_signature(params)
         
         try:
-            async with self.http_client:
-                response = await self.http_client.get(url, params=params, headers=headers)
-                return response
+            # 使用统一的HTTP管理器
+            if not self.http_manager:
+                self.http_manager = await get_http_manager()
+            
+            async with self.http_manager.get_session() as session:
+                async with session.get(url, params=params, headers=headers) as response:
+                    if response.status == 429:  # 限流处理
+                        logger.warning(f"Binance API rate limit hit for {endpoint}")
+                        await asyncio.sleep(2)
+                        raise RateLimitError("API rate limit exceeded")
+                    
+                    if response.status >= 400:
+                        error_text = await response.text()
+                        logger.error(f"Binance API error {response.status}: {error_text}")
+                        raise BinanceAPIError(f"API error {response.status}: {error_text}")
+                    
+                    return await response.json()
+                    
+        except (RateLimitError, BinanceAPIError):
+            raise
         except Exception as e:
             logger.error(f"Binance API request failed: {e}")
             raise BinanceAPIError(f"API request failed: {e}")

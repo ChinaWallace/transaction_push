@@ -37,6 +37,7 @@ from app.api.profit_opportunities import router as profit_opportunities_router
 from app.api.database import router as database_router
 from app.api.http_pool import router as http_pool_router
 from app.api.trading_pairs import router as trading_pairs_router
+from app.api.unified_data import router as unified_data_router
 from app.services.scheduler_service import SchedulerService
 from app.services.ml_enhanced_service import MLEnhancedService
 from app.services.ml_notification_service import MLNotificationService
@@ -398,34 +399,7 @@ async def lifespan(app: FastAPI):
             )
             logger.info("✅ Kronos网格交易机会扫描已启动（2小时间隔）")
             
-            # 添加Kronos套利机会扫描任务（每15分钟）
-            from app.services.kronos_arbitrage_scanner_service import get_kronos_arbitrage_scanner
-            
-            async def kronos_arbitrage_scan():
-                """Kronos套利机会扫描"""
-                try:
-                    scanner = await get_kronos_arbitrage_scanner()
-                    result = await scanner.scan_arbitrage_opportunities()
-                    
-                    if result.get("status") == "success":
-                        opportunities = result.get("opportunities_found", 0)
-                        logger.info(f"✅ Kronos套利扫描完成: 发现 {opportunities} 个套利机会")
-                    elif result.get("status") == "skipped":
-                        logger.debug("📊 Kronos套利扫描跳过（未到间隔时间）")
-                    else:
-                        logger.warning(f"⚠️ Kronos套利扫描异常: {result.get('error', '未知错误')}")
-                except Exception as e:
-                    logger.error(f"❌ Kronos套利扫描失败: {e}")
-            
-            scheduler.add_job(
-                kronos_arbitrage_scan,
-                'interval',
-                minutes=15,
-                id='kronos_arbitrage_scan',
-                name='Kronos套利机会扫描'
-            )
-            logger.info("✅ Kronos套利机会扫描已启动（15分钟间隔）")
-            
+
             # 添加Kronos动量扫描任务（每10分钟）
             from app.services.kronos_momentum_scanner_service import get_kronos_momentum_scanner
             
@@ -455,34 +429,7 @@ async def lifespan(app: FastAPI):
             )
             logger.info("✅ Kronos动量机会扫描已启动（10分钟间隔）")
             
-            # 添加Kronos巨鲸追踪任务（每5分钟）
-            from app.services.kronos_whale_tracker_service import get_kronos_whale_tracker
-            
-            async def kronos_whale_tracking():
-                """Kronos巨鲸活动追踪"""
-                try:
-                    tracker = await get_kronos_whale_tracker()
-                    result = await tracker.track_whale_activities()
-                    
-                    if result.get("status") == "success":
-                        whale_signals = result.get("whale_signals", 0)
-                        important_signals = result.get("important_signals", 0)
-                        logger.info(f"✅ Kronos巨鲸追踪完成: 发现 {whale_signals} 个信号，{important_signals} 个重要信号")
-                    elif result.get("status") == "skipped":
-                        logger.debug("📊 Kronos巨鲸追踪跳过（未到间隔时间）")
-                    else:
-                        logger.warning(f"⚠️ Kronos巨鲸追踪异常: {result.get('error', '未知错误')}")
-                except Exception as e:
-                    logger.error(f"❌ Kronos巨鲸追踪失败: {e}")
-            
-            scheduler.add_job(
-                kronos_whale_tracking,
-                'interval',
-                minutes=5,
-                id='kronos_whale_tracking',
-                name='Kronos巨鲸活动追踪'
-            )
-            logger.info("✅ Kronos巨鲸活动追踪已启动（5分钟间隔）")
+
         else:
             logger.info("📴 Kronos预测已禁用，跳过所有Kronos扫描任务")
         
@@ -837,6 +784,7 @@ def create_app() -> FastAPI:
     app.include_router(database_router, prefix="/api/database", tags=["数据库管理"])
     app.include_router(http_pool_router, prefix="/api/http-pool", tags=["HTTP连接池管理"])
     app.include_router(trading_pairs_router, prefix="/api/trading-pairs", tags=["交易对管理"])
+    app.include_router(unified_data_router, prefix="/api", tags=["统一数据服务"])
     
     # 根路径
     @app.get("/", summary="根路径")

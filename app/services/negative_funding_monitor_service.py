@@ -58,7 +58,7 @@ class NegativeFundingMonitorService:
     async def get_all_funding_rates_optimized(self) -> List[Dict[str, Any]]:
         """优化版：直接从OKX获取所有SWAP交易对，然后批量获取费率"""
         try:
-            print("📡 正在获取所有SWAP交易对列表...")
+            logger.debug("📡 正在获取所有SWAP交易对列表...")
             
             # 1. 直接从OKX获取所有SWAP交易对
             async with self.okx_service:
@@ -78,13 +78,13 @@ class NegativeFundingMonitorService:
                 logger.warning("未获取到USDT永续合约列表")
                 return []
             
-            print(f"📋 发现 {len(usdt_symbols)} 个USDT永续合约")
+            logger.debug(f"📋 发现 {len(usdt_symbols)} 个USDT永续合约")
             
             # 2. 直接使用OKX服务的优化批处理方法
             async with self.okx_service:
                 funding_rates = await self.okx_service.get_batch_funding_rates(usdt_symbols)
             
-            print(f"✅ 成功获取 {len(funding_rates)} 个USDT合约费率数据")
+            logger.debug(f"✅ 成功获取 {len(funding_rates)} 个USDT合约费率数据")
             return funding_rates
 
         except Exception as e:
@@ -226,7 +226,7 @@ class NegativeFundingMonitorService:
             # 返回前N个币种
             top_symbols = [ticker['symbol'] for ticker in usdt_tickers[:limit]]
             
-            print(f"📊 获取到交易量/涨幅前{len(top_symbols)}的币种")
+            logger.debug(f"📊 获取到交易量/涨幅前{len(top_symbols)}的币种")
             return top_symbols
             
         except Exception as e:
@@ -625,7 +625,7 @@ class NegativeFundingMonitorService:
     async def run_monitoring_cycle(self) -> Dict[str, Any]:
         """运行一次监控周期"""
         try:
-            print("🔍 开始负费率监控周期...")
+            logger.info("🔍 开始负费率监控周期...")
             start_time = datetime.now()
             
             # 1. 直接获取所有USDT永续合约的费率数据（一次性请求，避免频繁调用）
@@ -636,7 +636,7 @@ class NegativeFundingMonitorService:
             
             # 2. 筛选出有负费率的币种进行详细分析
             negative_funding_rates = [r for r in all_funding_rates if r['funding_rate'] < 0]
-            print(f"📊 发现 {len(negative_funding_rates)} 个负费率币种，开始详细分析...")
+            logger.info(f"📊 发现 {len(negative_funding_rates)} 个负费率币种，开始详细分析...")
             
             funding_rates = negative_funding_rates  # 直接使用负费率数据
             
@@ -645,7 +645,7 @@ class NegativeFundingMonitorService:
             basic_info = {}
             
             if negative_symbols:
-                print(f"📊 获取 {len(negative_symbols)} 个负费率币种的基础信息...")
+                logger.debug(f"📊 获取 {len(negative_symbols)} 个负费率币种的基础信息...")
                 for symbol in negative_symbols:
                     info = await self.get_symbol_basic_info(symbol)
                     basic_info[symbol] = info
@@ -666,10 +666,10 @@ class NegativeFundingMonitorService:
                         priority="normal"
                     )
                     if any(results.values()):
-                        print("✅ 负费率机会通知已发送")
-                        logger.info(f"📱 推送消息内容:\n{'-'*80}\n{notification_message}\n{'-'*80}")
+                        logger.info("✅ 负费率机会通知已发送")
+                        logger.debug(f"📱 推送消息内容:\n{'-'*80}\n{notification_message}\n{'-'*80}")
                     else:
-                        print("⚠️ 通知发送失败")
+                        logger.warning("⚠️ 通知发送失败")
                 except Exception as e:
                     logger.error(f"发送通知失败: {e}")
             
@@ -687,7 +687,7 @@ class NegativeFundingMonitorService:
                 'duration_seconds': duration
             }
             
-            print(f"✅ 监控完成: 发现 {len(opportunities)} 个负费率机会 (耗时 {duration:.1f}秒)")
+            logger.info(f"✅ 监控完成: 发现 {len(opportunities)} 个负费率机会 (耗时 {duration:.1f}秒)")
             return result
             
         except Exception as e:

@@ -124,7 +124,7 @@ class OKXRateLimiter:
         
         # 检查突发请求限制
         if self.burst_count[api_type] >= rule.burst_limit:
-            logger.info(f"API {api_type.value} 突发请求限制，等待冷却")
+            logger.debug(f"API {api_type.value} 突发请求限制，等待冷却")
             await asyncio.sleep(rule.cooldown_seconds)
             self.burst_count[api_type] = 0
         

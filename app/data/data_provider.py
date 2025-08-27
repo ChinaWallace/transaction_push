@@ -15,6 +15,7 @@ from app.services.binance_service import BinanceService
 from app.data.data_converter import DataConverter
 from app.data.data_cache import DataCache
 from app.utils.exceptions import DataNotFoundError
+from app.services.unified_data_service import get_unified_data_service, DataRequest, DataSource
 
 logger = get_logger(__name__)
 
@@ -85,6 +86,7 @@ class DataProvider:
         self._use_cache = use_cache
         self._cache = None
         self.converter = DataConverter()
+        self._unified_service = None  # 统一数据服务
     
     @property
     def cache(self):
@@ -93,18 +95,24 @@ class DataProvider:
             self._cache = DataCache()
         return self._cache
     
+    async def _get_unified_service(self):
+        """获取统一数据服务"""
+        if self._unified_service is None:
+            self._unified_service = await get_unified_data_service()
+        return self._unified_service
+    
     async def get_ohlcv(self, symbol: str, timeframe: str,
-                       exchange: str = 'binance',
+                       exchange: str = 'auto',
                        since: Optional[datetime] = None,
                        limit: int = 500,
                        use_cache: bool = True) -> pd.DataFrame:
         """
-        获取OHLCV数据
+        获取OHLCV数据 - 使用统一数据服务
         
         Args:
             symbol: 交易对
             timeframe: 时间周期
-            exchange: 交易所
+            exchange: 交易所 ('auto', 'binance', 'okx')
             since: 开始时间
             limit: 数据条数
             use_cache: 是否使用缓存
@@ -112,6 +120,53 @@ class DataProvider:
         Returns:
             OHLCV DataFrame
         """
+        try:
+            # 使用统一数据服务获取数据
+            unified_service = await self._get_unified_service()
+            
+            # 转换交易所参数
+            if exchange == 'auto':
+                source = DataSource.AUTO
+            elif exchange == 'binance':
+                source = DataSource.BINANCE
+            elif exchange == 'okx':
+                source = DataSource.OKX
+            else:
+                # 回退到传统方式
+                return await self._get_ohlcv_legacy(symbol, timeframe, exchange, since, limit, use_cache)
+            
+            # 创建数据请求
+            request = DataRequest(
+                symbol=symbol,
+                timeframe=timeframe,
+                limit=limit,
+                source=source,
+                use_cache=use_cache
+            )
+            
+            # 获取数据
+            result = await unified_service.get_kline_data(request)
+            
+            logger.info(f"✅ 获取数据: {symbol} {timeframe} from {result.source} "
+                       f"({'缓存' if result.cached else '实时'})")
+            
+            return result.data
+            
+        except Exception as e:
+            logger.error(f"❌ 获取OHLCV数据失败: {e}")
+            # 回退到传统方式
+            try:
+                return await self._get_ohlcv_legacy(symbol, timeframe, exchange, since, limit, use_cache)
+            except Exception as fallback_error:
+                logger.error(f"❌ 回退方式也失败: {fallback_error}")
+                raise DataNotFoundError(f"获取 {symbol} 数据失败: {e}")
+    
+    async def _get_ohlcv_legacy(self, symbol: str, timeframe: str,
+                               exchange: str = 'binance',
+                               since: Optional[datetime] = None,
+                               limit: int = 500,
+                               use_cache: bool = True) -> pd.DataFrame:
+        """传统方式获取OHLCV数据（回退机制）"""
         try:
             # 检查缓存
             if use_cache and self.cache:
@@ -138,19 +193,19 @@ class DataProvider:
                     symbol, timeframe, exchange, df, since, limit
                 )
             
-            logger.info(f"Retrieved {len(df)} rows of {symbol} {timeframe} data")
+            logger.info(f"Retrieved {len(df)} rows of {symbol} {timeframe} data (legacy)")
             return df
             
         except Exception as e:
-            logger.error(f"Failed to get OHLCV data: {e}")
+            logger.error(f"Legacy data fetch failed: {e}")
             raise
     
     async def get_multi_timeframe_data(self, symbol: str,
                                      timeframes: List[str],
-                                     exchange: str = 'binance',
+                                     exchange: str = 'auto',
                                      limit: int = 500) -> Dict[str, pd.DataFrame]:
         """
-        获取多时间周期数据
+        获取多时间周期数据 - 使用统一数据服务批量优化
         
         Args:
             symbol: 交易对
@@ -162,9 +217,59 @@ class DataProvider:
             时间周期数据字典
         """
         try:
+            # 使用统一数据服务的批量获取功能
+            unified_service = await self._get_unified_service()
+            
+            # 转换交易所参数
+            if exchange == 'auto':
+                source = DataSource.AUTO
+            elif exchange == 'binance':
+                source = DataSource.BINANCE
+            elif exchange == 'okx':
+                source = DataSource.OKX
+            else:
+                source = DataSource.AUTO
+            
+            # 创建批量请求
+            requests = []
+            for timeframe in timeframes:
+                request = DataRequest(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    limit=limit,
+                    source=source,
+                    use_cache=True
+                )
+                requests.append(request)
+            
+            # 批量获取数据
+            results = await unified_service.batch_get_kline_data(requests)
+            
+            # 构建结果字典
+            timeframe_data = {}
+            for result in results:
+                timeframe_data[result.timeframe] = result.data
+            
+            # 确保所有时间周期都有数据（即使是空DataFrame）
+            for timeframe in timeframes:
+                if timeframe not in timeframe_data:
+                    timeframe_data[timeframe] = pd.DataFrame()
+            
+            logger.info(f"✅ 多周期数据获取完成: {symbol} {len(timeframe_data)} 个周期")
+            return timeframe_data
+            
+        except Exception as e:
+            logger.error(f"❌ 批量获取多周期数据失败: {e}")
+            # 回退到传统方式
+            return await self._get_multi_timeframe_data_legacy(symbol, timeframes, exchange, limit)
+    
+    async def _get_multi_timeframe_data_legacy(self, symbol: str, timeframes: List[str],
+                                             exchange: str, limit: int) -> Dict[str, pd.DataFrame]:
+        """传统方式获取多周期数据（回退机制）"""
+        try:
             tasks = []
             for timeframe in timeframes:
-                task = self.get_ohlcv(symbol, timeframe, exchange, limit=limit)
+                task = self._get_ohlcv_legacy(symbol, timeframe, exchange, limit=limit)
                 tasks.append(task)
             
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -181,7 +286,7 @@ class DataProvider:
             return timeframe_data
             
         except Exception as e:
-            logger.error(f"Failed to get multi-timeframe data: {e}")
+            logger.error(f"Legacy multi-timeframe fetch failed: {e}")
             raise
     
     async def get_historical_data(self, symbol: str, timeframe: str,

@@ -113,18 +113,18 @@ class Settings(BaseSettings):
         'enable_kronos_prediction': True,
         'model_name': 'NeoQuasar/Kronos-small',  # 默认使用small模型
         'tokenizer_name': 'NeoQuasar/Kronos-Tokenizer-base',
-        'max_context': 512,  # Kronos-small和base的最大上下文长度
-        'lookback_periods': 200,  # 历史数据回看期数
-        'prediction_horizon': 24,  # 预测未来24小时
+        'max_context': 256,  # 降低上下文长度避免张量形状问题
+        'lookback_periods': 100,  # 减少历史数据回看期数，避免张量维度不匹配
+        'prediction_horizon': 12,  # 减少预测时长，避免张量形状问题
         'sampling_params': {
             'temperature': 0.8,
             'top_p': 0.9,
-            'sample_count': 5  # 生成5个预测样本取平均
+            'sample_count': 1  # 减少采样次数，避免内存和张量问题
         },
         'confidence_threshold': 0.35,  # 大幅降低阈值，抓住更多机会
         'update_interval_minutes': 15,  # 缩短更新间隔到15分钟
         'cache_predictions': True,
-        'use_gpu': True,  # 如果有GPU则使用
+        'use_gpu': False,  # 强制使用CPU避免CUDA张量问题
         # 专注ETH和SOL的分析配置
         'target_symbols': ['ETH-USDT-SWAP', 'SOL-USDT-SWAP'],  # 只分析这两个币种
         'enhanced_analysis': True,  # 对目标币种进行增强分析

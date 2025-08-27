@@ -19,6 +19,7 @@ from app.core.logging import get_logger
 from app.core.config import get_settings
 from app.utils.exceptions import TradingToolError, ServiceUnavailableError
 from app.utils.okx_rate_limiter import get_okx_rate_limiter
+from app.utils.http_manager import get_http_manager
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -28,33 +29,6 @@ settings = get_settings()
 _last_request_time = 0
 _request_lock = asyncio.Lock()
 _current_interval = 0.5  # 动态调整的请求间隔
-
-# 全局 session 管理器
-_active_sessions = set()
-
-def _register_session(session):
-    """注册活跃的 session"""
-    _active_sessions.add(session)
-
-def _unregister_session(session):
-    """注销 session"""
-    _active_sessions.discard(session)
-
-async def cleanup_all_sessions():
-    """清理所有活跃的 session"""
-    sessions_to_cleanup = list(_active_sessions)
-    for session in sessions_to_cleanup:
-        try:
-            if not session.closed:
-                await session.close()
-            _unregister_session(session)
-        except Exception as e:
-            logger.warning(f"⚠️ 清理 session 时出错: {e}")
-    
-    # 等待所有连接关闭
-    if sessions_to_cleanup:
-        await asyncio.sleep(0.2)
-        logger.info(f"✅ 已清理 {len(sessions_to_cleanup)} 个 HTTP session")
 
 
 class OKXService:
@@ -72,40 +46,25 @@ class OKXService:
         else:
             self.base_url = self.config["base_url"]
         
-        self.session = None
+        self.http_manager = None  # 使用统一HTTP连接池管理器
         self.rate_limiter = get_okx_rate_limiter()  # 使用专业的频率限制管理器
     
     async def __aenter__(self):
         """异步上下文管理器入口"""
-        await self._ensure_session()
+        await self._ensure_http_manager()
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """异步上下文管理器出口"""
-        await self._cleanup_session()
+        # 不需要清理HTTP管理器，它由全局管理
+        if exc_type:
+            logger.error(f"OKX服务异常: {exc_type.__name__}: {exc_val}")
     
-    async def _cleanup_session(self):
-        """清理 session 连接"""
-        try:
-            if self.session:
-                # 从全局管理器注销
-                _unregister_session(self.session)
-                
-                if not self.session.closed:
-                    # 先关闭连接器
-                    if hasattr(self.session, '_connector') and self.session._connector:
-                        await self.session._connector.close()
-                    
-                    # 再关闭 session
-                    await self.session.close()
-                    
-                    # 等待连接完全关闭
-                    await asyncio.sleep(0.1)
-                    logger.debug("✅ OKX session 已正确关闭")
-        except Exception as e:
-            logger.warning(f"⚠️ 关闭 OKX session 时出现异常: {e}")
-        finally:
-            self.session = None
+    async def _ensure_http_manager(self):
+        """确保HTTP管理器可用"""
+        if not self.http_manager:
+            self.http_manager = await get_http_manager()
+            logger.debug("✅ OKX服务已连接到统一HTTP连接池")
     
     def _generate_signature(self, timestamp: str, method: str, request_path: str, body: str = "") -> str:
         """生成OKX API签名"""
@@ -119,39 +78,7 @@ class OKXService:
         ).decode('utf-8')
         return signature
     
-    async def _ensure_session(self):
-        """确保session可用"""
-        try:
-            if not self.session or self.session.closed:
-                # 如果有旧的session，先清理
-                if self.session:
-                    await self._cleanup_session()
-                
-                # 创建新的连接器 - 优化连接管理
-                connector = aiohttp.TCPConnector(
-                    limit=20,  # 降低总连接数
-                    limit_per_host=3,  # 每个主机最多3个连接
-                    enable_cleanup_closed=True,
-                    force_close=True,  # 强制关闭连接以避免泄漏
-                    ttl_dns_cache=300,  # DNS缓存5分钟
-                )
-                
-                # 创建新的session
-                self.session = aiohttp.ClientSession(
-                    connector=connector,
-                    trust_env=True,
-                    timeout=aiohttp.ClientTimeout(total=25),
-                    # 添加连接器清理回调
-                    connector_owner=True
-                )
-                
-                # 注册到全局session管理器
-                _register_session(self.session)
-                logger.debug("✅ 创建新的 OKX HTTP session")
-        except Exception as e:
-            logger.error(f"❌ 创建 OKX session 失败: {e}")
-            self.session = None
-            raise TradingToolError(f"无法创建HTTP session: {e}")
+
     
     def _get_headers(self, method: str, request_path: str, body: str = "") -> Dict[str, str]:
         """获取请求头"""
@@ -198,8 +125,8 @@ class OKXService:
                 logger.warning(f"OKX API频率限制，跳过请求: {endpoint}")
                 return []  # 返回空结果而不是抛出异常
         
-        # 确保session可用
-        await self._ensure_session()
+        # 确保HTTP管理器可用
+        await self._ensure_http_manager()
         
         url = f"{self.base_url}{endpoint}"
         
@@ -226,24 +153,22 @@ class OKXService:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                # 确保session仍然可用
-                if not self.session or self.session.closed:
-                    await self._ensure_session()
-                
-                # 配置代理
-                proxy = None
-                if settings.proxy_enabled and settings.proxy_url:
-                    proxy = settings.proxy_url
-                
-                async with self.session.request(
-                    method=method,
-                    url=url,
-                    headers=headers,
-                    params=params,
-                    data=body if body else None,
-                    proxy=proxy
-                ) as response:
-                    result = await response.json()
+                # 使用统一HTTP连接池
+                async with self.http_manager.get_session() as session:
+                    # 配置代理
+                    kwargs = {
+                        'headers': headers,
+                        'params': params
+                    }
+                    
+                    if body:
+                        kwargs['data'] = body
+                    
+                    if settings.proxy_enabled and settings.proxy_url:
+                        kwargs['proxy'] = settings.proxy_url
+                    
+                    async with session.request(method, url, **kwargs) as response:
+                        result = await response.json()
                     
                     if result.get('code') != '0':
                         error_msg = result.get('msg', 'Unknown error')
@@ -276,12 +201,6 @@ class OKXService:
                     return result.get('data', [])
                     
             except aiohttp.ClientError as e:
-                error_str = str(e)
-                if any(keyword in error_str.lower() for keyword in ["connector is closed", "closed", "connection", "timeout"]):
-                    # 连接相关错误，清理并重新创建session
-                    logger.warning(f"连接错误，重新创建session: {e}")
-                    await self._cleanup_session()
-                    
                 if attempt < max_retries - 1:
                     wait_time = (2 ** attempt) * 1.0
                     logger.warning(f"网络请求失败，{wait_time}秒后重试: {e}")
@@ -289,17 +208,9 @@ class OKXService:
                     continue
                 else:
                     logger.error(f"OKX API请求失败: {e}")
-                    # 清理可能有问题的session
-                    await self._cleanup_session()
                     return []
                     
             except Exception as e:
-                error_str = str(e)
-                if any(keyword in error_str.lower() for keyword in ["nonetype", "session", "request"]):
-                    # session相关错误，重新创建
-                    logger.warning(f"Session错误，重新创建: {e}")
-                    await self._cleanup_session()
-                    
                 if attempt < max_retries - 1:
                     wait_time = (2 ** attempt) * 1.0
                     logger.warning(f"请求异常，{wait_time}秒后重试: {e}")
@@ -307,11 +218,8 @@ class OKXService:
                     continue
                 else:
                     logger.error(f"OKX请求异常: {e}")
-                    # 清理可能有问题的session
-                    await self._cleanup_session()
                     return []
-        
-        # session会在上下文管理器中自动关闭，这里不需要手动关闭
+
     
     async def get_account_balance(self) -> Dict[str, Any]:
         """获取账户余额"""
@@ -617,7 +525,7 @@ class OKXService:
                     }
             else:
                 # 获取所有永续合约的资金费率 - 先获取所有SWAP交易对
-                logger.info("获取所有SWAP交易对列表...")
+                logger.debug("获取所有SWAP交易对列表...")
                 instruments = await self.get_all_instruments('SWAP')
                 
                 if not instruments:
@@ -626,7 +534,7 @@ class OKXService:
                 
                 # 提取交易对符号
                 symbols = [inst['instId'] for inst in instruments if inst.get('state') == 'live']
-                logger.info(f"找到 {len(symbols)} 个活跃的SWAP交易对")
+                logger.debug(f"找到 {len(symbols)} 个活跃的SWAP交易对")
                 
                 # 批量获取费率（优化批次处理）
                 return await self.get_batch_funding_rates(symbols[:500])  # 增加到500个币种，50个一批处理
@@ -707,7 +615,7 @@ class OKXService:
             max_concurrent = 10
             semaphore = asyncio.Semaphore(max_concurrent)
             
-            logger.info(f"开始批量获取费率，总计 {len(symbols)} 个币种，最大并发数: {max_concurrent}")
+            logger.debug(f"开始批量获取费率，总计 {len(symbols)} 个币种，最大并发数: {max_concurrent}")
             
             async def rate_limited_get_funding_rate(symbol: str) -> Optional[Dict[str, Any]]:
                 """带频率限制的资金费率获取"""
@@ -740,7 +648,7 @@ class OKXService:
                     all_rates.append(result)
                     success_count += 1
             
-            logger.info(f"批量获取费率完成: {success_count}/{len(symbols)} 成功")
+            logger.debug(f"批量获取费率完成: {success_count}/{len(symbols)} 成功")
             return all_rates
             
         except Exception as e:

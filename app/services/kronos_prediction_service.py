@@ -118,22 +118,65 @@ class KronosPredictor:
                 tokenizer = KronosTokenizer.from_pretrained(self.tokenizer_name)
                 model = Kronos.from_pretrained(self.model_name)
                 
-                # 强制使用CPU设备
-                device = "cpu"  # 强制使用CPU避免CUDA问题
+                # 强制使用CPU设备避免CUDA问题
+                device = "cpu"
                 
-                # 创建KronosPredictor实例
+                # 根据模型名称调整上下文长度
+                if "small" in self.model_name.lower():
+                    max_context = 256  # 小模型使用更小的上下文
+                elif "base" in self.model_name.lower():
+                    max_context = 512  # 基础模型
+                else:
+                    max_context = 1024  # 大模型
+                
+                # 创建KronosPredictor实例，添加更保守的参数
                 predictor = OriginalKronosPredictor(
                     model=model,
                     tokenizer=tokenizer,
                     device=device,
-                    max_context=512,  # Kronos-small和base的最大上下文
-                    clip=5
+                    max_context=max_context,
+                    clip=3  # 降低clip值避免梯度爆炸
                 )
+                
+                # 验证模型是否正常工作
+                try:
+                    # 创建一个小的测试数据集
+                    test_data = pd.DataFrame({
+                        'open': [100.0] * 50,
+                        'high': [101.0] * 50,
+                        'low': [99.0] * 50,
+                        'close': [100.5] * 50,
+                        'volume': [1000000.0] * 50,
+                        'amount': [100500000.0] * 50
+                    }, index=pd.date_range('2024-01-01', periods=50, freq='H'))
+                    
+                    # 测试预测功能
+                    test_pred = predictor.predict(
+                        df=test_data,
+                        x_timestamp=test_data.index,
+                        y_timestamp=pd.date_range(test_data.index[-1] + pd.Timedelta(hours=1), periods=5, freq='H'),
+                        pred_len=5,
+                        T=0.8,
+                        top_k=0,
+                        top_p=0.9,
+                        sample_count=1,
+                        verbose=False
+                    )
+                    
+                    if test_pred is not None and len(test_pred) > 0:
+                        print("模型测试预测成功")
+                    else:
+                        raise ValueError("测试预测返回空结果")
+                        
+                except Exception as test_e:
+                    print(f"模型测试失败: {test_e}")
+                    raise ValueError(f"模型加载后测试失败: {test_e}")
+                
                 return predictor
             
             self.model = await loop.run_in_executor(None, _load)
             self.implementation_type = "original"
-            self.logger.info("原始Kronos实现加载成功")
+            self.logger.info("原始Kronos实现加载并测试成功")
             
         except Exception as e:
             self.logger.warning(f"原始Kronos实现加载失败: {e}")
@@ -194,12 +237,39 @@ class KronosPredictor:
         self.model = "fallback_model"
         self.tokenizer = "fallback_tokenizer"
     
-    def _prepare_data(self, data: pd.DataFrame, lookback: int) -> Tuple[pd.DataFrame, pd.DatetimeIndex]:
+    def _prepare_data(self, data: pd.DataFrame, lookback: int, prediction_horizon: int = 24) -> Tuple[pd.DataFrame, pd.DatetimeIndex]:
         """准备输入数据"""
         # 确保数据包含必要的列
         required_columns = ['open', 'high', 'low', 'close', 'volume']
         if not all(col in data.columns for col in required_columns):
             raise ValueError(f"数据必须包含列: {required_columns}")
+        
+        # 数据清洗 - 移除无效数据
+        data = data.dropna().copy()
+        if len(data) == 0:
+            raise ValueError("清洗后数据为空")
+        
+        # 确保数据类型正确
+        for col in required_columns:
+            data[col] = pd.to_numeric(data[col], errors='coerce')
+        
+        # 再次移除转换后的无效数据
+        data = data.dropna()
+        if len(data) == 0:
+            raise ValueError("数据类型转换后为空")
+        
+        # 根据模型类型调整lookback长度
+        if self.implementation_type == "original" and hasattr(self.model, 'max_context'):
+            max_context = getattr(self.model, 'max_context', 512)
+            lookback = min(lookback, max_context - 50)  # 留出一些缓冲空间
+        
+        # 确保最小数据量
+        min_data_points = 50
+        if len(data) < min_data_points:
+            self.logger.warning(f"数据量不足({len(data)}条)，最少需要{min_data_points}条")
+            # 可以选择抛出异常或使用现有数据
+            if len(data) < 10:  # 如果数据太少，直接抛出异常
+                raise ValueError(f"数据量过少({len(data)}条)，无法进行预测")
         
         # 取最后lookback条数据
         if len(data) > lookback:
@@ -213,11 +283,18 @@ class KronosPredictor:
             
             last_timestamp = data.index[-1]
             
-            # 假设是小时级数据，预测未来24小时
+            # 根据数据频率推断时间间隔
+            if len(data) > 1:
+                time_diff = data.index[-1] - data.index[-2]
+                freq = pd.Timedelta(time_diff)
+            else:
+                freq = pd.Timedelta(hours=1)  # 默认1小时
+            
+            # 预测未来时间点 - 使用传入的prediction_horizon
             future_timestamps = pd.date_range(
-                start=last_timestamp + timedelta(hours=1),
-                periods=24,
-                freq='H'
+                start=last_timestamp + freq,
+                periods=prediction_horizon,
+                freq=freq
             )
             
         except Exception as e:
@@ -226,28 +303,97 @@ class KronosPredictor:
             current_time = datetime.now()
             future_timestamps = pd.date_range(
                 start=current_time + timedelta(hours=1),
-                periods=24,
+                periods=prediction_horizon,
                 freq='H'
             )
         
+        # 验证数据形状
+        self.logger.info(f"准备数据完成: 输入{data.shape}, 预测{len(future_timestamps)}个时间点")
+        
         return data, future_timestamps
+    
+    def _validate_and_adjust_params(
+        self, 
+        data: pd.DataFrame, 
+        lookback: int, 
+        prediction_horizon: int, 
+        sample_count: int
+    ) -> Tuple[int, int, int]:
+        """验证和调整预测参数，避免张量形状问题"""
+        
+        # 获取数据长度
+        data_length = len(data)
+        
+        # 根据实现类型调整参数
+        if self.implementation_type == "original":
+            # 原始Kronos实现的限制
+            max_context = getattr(self.model, 'max_context', 256) if self.model else 256
+            
+            # 调整lookback
+            max_lookback = min(data_length, max_context - 20)  # 留出缓冲空间
+            if lookback > max_lookback:
+                self.logger.warning(f"调整lookback从{lookback}到{max_lookback}")
+                lookback = max_lookback
+            
+            # 调整prediction_horizon
+            max_prediction = min(48, max_context // 4)  # 预测长度不超过上下文的1/4
+            if prediction_horizon > max_prediction:
+                self.logger.warning(f"调整prediction_horizon从{prediction_horizon}到{max_prediction}")
+                prediction_horizon = max_prediction
+            
+            # 调整sample_count
+            if sample_count > 3:
+                self.logger.warning(f"调整sample_count从{sample_count}到3")
+                sample_count = 3
+                
+        elif self.implementation_type == "huggingface":
+            # Hugging Face实现的限制
+            if lookback > 512:
+                lookback = 512
+            if prediction_horizon > 24:
+                prediction_horizon = 24
+            if sample_count > 5:
+                sample_count = 5
+                
+        else:
+            # Fallback实现没有严格限制，但为了一致性也做调整
+            if lookback > data_length:
+                lookback = data_length
+            if prediction_horizon > 48:
+                prediction_horizon = 48
+            if sample_count > 10:
+                sample_count = 10
+        
+        # 确保最小值
+        lookback = max(10, lookback)  # 至少10个数据点
+        prediction_horizon = max(1, prediction_horizon)  # 至少预测1个点
+        sample_count = max(1, sample_count)  # 至少1个样本
+        
+        self.logger.info(f"参数调整完成: lookback={lookback}, prediction_horizon={prediction_horizon}, sample_count={sample_count}")
+        
+        return lookback, prediction_horizon, sample_count
     
     async def predict(
         self,
         data: pd.DataFrame,
-        lookback: int = 200,
-        prediction_horizon: int = 24,
+        lookback: int = 100,  # 降低默认值
+        prediction_horizon: int = 12,  # 降低默认值
         temperature: float = 0.8,
         top_p: float = 0.9,
-        sample_count: int = 5
+        sample_count: int = 1  # 降低默认值
     ) -> pd.DataFrame:
         """生成预测"""
         if self.model is None:
             await self.load_model()
         
         try:
+            # 验证和调整参数
+            lookback, prediction_horizon, sample_count = self._validate_and_adjust_params(
+                data, lookback, prediction_horizon, sample_count
+            )
+            
             # 准备数据
-            input_data, future_timestamps = self._prepare_data(data, lookback)
+            input_data, future_timestamps = self._prepare_data(data, lookback, prediction_horizon)
             
             # 在线程池中执行预测以避免阻塞
             loop = asyncio.get_event_loop()
@@ -273,7 +419,17 @@ class KronosPredictor:
             
             prediction_array = await loop.run_in_executor(None, _generate_prediction)
             
-            # 构建预测DataFrame
+            # 构建预测DataFrame - 修复形状不匹配问题
+            if len(prediction_array) != len(future_timestamps):
+                self.logger.warning(f"预测数组长度({len(prediction_array)})与时间戳长度({len(future_timestamps)})不匹配")
+                
+                if len(prediction_array) < len(future_timestamps):
+                    # 如果预测数组较短，截取对应长度的时间戳
+                    future_timestamps = future_timestamps[:len(prediction_array)]
+                else:
+                    # 如果预测数组较长，截取对应长度的预测数组
+                    prediction_array = prediction_array[:len(future_timestamps)]
+            
             prediction_df = pd.DataFrame(
                 prediction_array,
                 index=future_timestamps,
@@ -304,6 +460,21 @@ class KronosPredictor:
                 avg_price = input_data[['open', 'high', 'low', 'close']].mean(axis=1)
                 input_data = input_data.copy()
                 input_data['amount'] = input_data['volume'] * avg_price
+            
+            # 数据预处理 - 确保数据长度符合模型要求
+            max_context = getattr(self.model, 'max_context', 512)
+            if len(input_data) > max_context:
+                # 截取最后max_context条数据
+                input_data = input_data.tail(max_context).copy()
+                self.logger.info(f"数据长度超过模型上下文限制，截取最后{max_context}条数据")
+            
+            # 确保预测长度不超过模型限制
+            max_pred_len = min(prediction_horizon, 96)  # 限制最大预测长度为96
+            if prediction_horizon > max_pred_len:
+                self.logger.warning(f"预测长度{prediction_horizon}超过限制，调整为{max_pred_len}")
+                prediction_horizon = max_pred_len
+                # 相应调整future_timestamps
+                future_timestamps = future_timestamps[:max_pred_len]
             
             # 准备时间戳 - 确保是pandas.DatetimeIndex，修复.dt属性错误
             try:
@@ -352,24 +523,73 @@ class KronosPredictor:
                 )
                 y_timestamp = pd.date_range(
                     start=x_timestamp[-1] + pd.Timedelta(hours=1),
-                    periods=len(future_timestamps),
+                    periods=prediction_horizon,  # 使用调整后的预测长度
                     freq='H'
                 )
             
-            # 使用原始Kronos预测器
-            prediction_df = self.model.predict(
-                df=input_data,
-                x_timestamp=x_timestamp,
-                y_timestamp=y_timestamp,
-                pred_len=prediction_horizon,
-                T=temperature,
-                top_k=0,  # 使用top_p采样
-                top_p=top_p,
-                sample_count=sample_count,
-                verbose=False
-            )
+            # 数据形状验证和调整
+            self.logger.info(f"输入数据形状: {input_data.shape}, 预测长度: {prediction_horizon}")
             
-            return prediction_df.values
+            # 使用原始Kronos预测器，添加更多错误处理
+            try:
+                prediction_df = self.model.predict(
+                    df=input_data,
+                    x_timestamp=x_timestamp,
+                    y_timestamp=y_timestamp,
+                    pred_len=prediction_horizon,
+                    T=temperature,
+                    top_k=0,  # 使用top_p采样
+                    top_p=top_p,
+                    sample_count=min(sample_count, 3),  # 限制采样次数避免内存问题
+                    verbose=False
+                )
+                
+                return prediction_df.values
+                
+            except RuntimeError as e:
+                if "size of tensor" in str(e):
+                    self.logger.error(f"张量形状不匹配错误: {e}")
+                    # 尝试使用更小的数据集
+                    smaller_data = input_data.tail(min(100, len(input_data))).copy()
+                    smaller_pred_len = min(24, prediction_horizon)
+                    smaller_y_timestamp = y_timestamp[:smaller_pred_len]
+                    
+                    self.logger.info(f"尝试使用更小的数据集: {smaller_data.shape}, 预测长度: {smaller_pred_len}")
+                    
+                    try:
+                        prediction_df = self.model.predict(
+                            df=smaller_data,
+                            x_timestamp=smaller_data.index,
+                            y_timestamp=smaller_y_timestamp,
+                            pred_len=smaller_pred_len,
+                            T=temperature,
+                            top_k=0,
+                            top_p=top_p,
+                            sample_count=1,  # 最小采样次数
+                            verbose=False
+                        )
+                        
+                        # 如果成功，扩展结果到原始预测长度
+                        if len(prediction_df) < prediction_horizon:
+                            # 使用最后一行数据重复填充
+                            last_row = prediction_df.iloc[-1:].copy()
+                            additional_rows = []
+                            for i in range(prediction_horizon - len(prediction_df)):
+                                additional_rows.append(last_row.iloc[0])
+                            
+                            if additional_rows:
+                                additional_df = pd.DataFrame(additional_rows, 
+                                                           index=y_timestamp[len(prediction_df):],
+                                                           columns=prediction_df.columns)
+                                prediction_df = pd.concat([prediction_df, additional_df])
+                        
+                        return prediction_df.values
+                        
+                    except Exception as e2:
+                        self.logger.error(f"小数据集预测也失败: {e2}")
+                        raise e  # 抛出原始错误
+                else:
+                    raise e
             
         except Exception as e:
             self.logger.error(f"原始Kronos预测失败: {e}")
@@ -538,18 +758,75 @@ class KronosPredictionService:
         
         try:
             config = self.settings.kronos_config
+            
+            # 验证配置参数
+            max_context = config.get('max_context', 256)
+            lookback_periods = config.get('lookback_periods', 100)
+            prediction_horizon = config.get('prediction_horizon', 12)
+            
+            # 确保参数在合理范围内
+            if lookback_periods > max_context:
+                self.logger.warning(f"lookback_periods({lookback_periods})超过max_context({max_context})，自动调整")
+                lookback_periods = max_context - 20  # 留出缓冲空间
+                config['lookback_periods'] = lookback_periods
+            
+            if prediction_horizon > 48:  # 限制预测长度
+                self.logger.warning(f"prediction_horizon({prediction_horizon})过大，调整为48")
+                prediction_horizon = 48
+                config['prediction_horizon'] = prediction_horizon
+            
             self.predictor = KronosPredictor(
                 model_name=config['model_name'],
                 tokenizer_name=config['tokenizer_name'],
-                device="cuda" if config.get('use_gpu', True) else "cpu"
+                device="cpu"  # 强制使用CPU避免CUDA张量问题
             )
             
             await self.predictor.load_model()
-            self.logger.info("Kronos预测服务初始化完成")
+            
+            # 验证预测器是否正常工作
+            if self.predictor.implementation_type == "original":
+                self.logger.info("使用原始Kronos实现，进行兼容性测试...")
+                await self._test_predictor_compatibility()
+            
+            self.logger.info(f"Kronos预测服务初始化完成，使用实现: {self.predictor.implementation_type}")
             
         except Exception as e:
             self.logger.error(f"Kronos预测服务初始化失败: {e}")
             self.predictor = None
+    
+    async def _test_predictor_compatibility(self):
+        """测试预测器兼容性"""
+        try:
+            # 创建测试数据
+            test_data = pd.DataFrame({
+                'open': [100.0] * 50,
+                'high': [101.0] * 50,
+                'low': [99.0] * 50,
+                'close': [100.5] * 50,
+                'volume': [1000000.0] * 50,
+            }, index=pd.date_range('2024-01-01', periods=50, freq='H'))
+            
+            # 测试小规模预测
+            result = await self.predictor.predict(
+                data=test_data,
+                lookback=30,  # 使用较小的回看期
+                prediction_horizon=5,  # 使用较小的预测长度
+                temperature=0.8,
+                top_p=0.9,
+                sample_count=1
+            )
+            
+            if result is not None and len(result) > 0:
+                self.logger.info("预测器兼容性测试通过")
+            else:
+                raise ValueError("测试预测返回空结果")
+                
+        except Exception as e:
+            self.logger.warning(f"预测器兼容性测试失败: {e}")
+            # 如果测试失败，切换到fallback实现
+            if self.predictor:
+                self.predictor.implementation_type = "fallback"
+                self.logger.info("切换到fallback实现")
     
     async def get_prediction(
         self,

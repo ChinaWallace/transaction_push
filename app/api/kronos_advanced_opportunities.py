@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Kronos高级机会API
-提供套利、动量、巨鲸追踪等高级交易机会接口
+提供动量等高级交易机会接口
 """
 
 from fastapi import APIRouter, HTTPException, Query
@@ -9,30 +9,10 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 
 from app.core.logging import get_logger
-from app.services.kronos_arbitrage_scanner_service import get_kronos_arbitrage_scanner
 from app.services.kronos_momentum_scanner_service import get_kronos_momentum_scanner
-from app.services.kronos_whale_tracker_service import get_kronos_whale_tracker
 
 router = APIRouter()
 logger = get_logger(__name__)
-
-
-@router.get("/arbitrage-scan", summary="Kronos套利机会扫描")
-async def scan_arbitrage_opportunities():
-    """扫描Kronos套利机会"""
-    try:
-        scanner = await get_kronos_arbitrage_scanner()
-        result = await scanner.scan_arbitrage_opportunities()
-        
-        return {
-            "status": "success",
-            "data": result,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        logger.error(f"套利扫描API失败: {e}")
-        raise HTTPException(status_code=500, detail=f"套利扫描失败: {str(e)}")
 
 
 @router.get("/momentum-scan", summary="Kronos动量机会扫描")
@@ -51,24 +31,6 @@ async def scan_momentum_opportunities():
     except Exception as e:
         logger.error(f"动量扫描API失败: {e}")
         raise HTTPException(status_code=500, detail=f"动量扫描失败: {str(e)}")
-
-
-@router.get("/whale-tracking", summary="Kronos巨鲸活动追踪")
-async def track_whale_activities():
-    """追踪巨鲸活动"""
-    try:
-        tracker = await get_kronos_whale_tracker()
-        result = await tracker.track_whale_activities()
-        
-        return {
-            "status": "success",
-            "data": result,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        logger.error(f"巨鲸追踪API失败: {e}")
-        raise HTTPException(status_code=500, detail=f"巨鲸追踪失败: {str(e)}")
 
 
 @router.get("/comprehensive-scan", summary="Kronos综合机会扫描")

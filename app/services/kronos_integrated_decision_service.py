@@ -703,7 +703,7 @@ class KronosIntegratedDecisionService:
             # 设置timestamp为索引（Kronos可能需要）
             df.set_index('timestamp', inplace=True)
             
-            self.logger.info(f"成功转换K线数据为DataFrame: {len(df)}行数据")
+            self.logger.debug(f"成功转换K线数据为DataFrame: {len(df)}行数据")
             return df
             
         except Exception as e:
