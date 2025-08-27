@@ -32,59 +32,45 @@ class NegativeFundingMonitorService:
         self.okx_service = OKXService()
         self.notification_service = NotificationService()
         
-        # 排除的大市值币种（波动太大，不适合吃利息）
-        # 注意：ETH和SOL现在用于Kronos分析，不在排除列表中
-        self.excluded_major_coins = {
-            'BTC-USDT-SWAP', 'BNB-USDT-SWAP', 
-            'XRP-USDT-SWAP', 'ADA-USDT-SWAP',
-            'DOGE-USDT-SWAP', 'AVAX-USDT-SWAP', 'DOT-USDT-SWAP',
-            'LTC-USDT-SWAP', 'BCH-USDT-SWAP',
-            'LINK-USDT-SWAP', 'UNI-USDT-SWAP', 'ATOM-USDT-SWAP',
-            'NEAR-USDT-SWAP', 'FIL-USDT-SWAP', 'SAND-USDT-SWAP',
-            'MANA-USDT-SWAP', 'APE-USDT-SWAP', 'SHIB-USDT-SWAP',
-            # USD合约也排除
-            'BTC-USD-SWAP', 'ETH-USD-SWAP', 'SOL-USD-SWAP',
-            'XRP-USD-SWAP', 'ADA-USD-SWAP', 'DOGE-USD-SWAP',
-            'AVAX-USD-SWAP', 'DOT-USD-SWAP', 'LTC-USD-SWAP'
-        }
-        
-        # 缓存的目标币种列表
+        # 缓存的目标币种列表和费率间隔信息
         self.funding_intervals_cache = {}  # 缓存费率间隔信息
         self.target_symbols = []
     
-    async def get_batch_funding_rates(self, symbols: List[str], batch_size: int = 10) -> List[Dict[str, Any]]:
-        """批量获取费率数据，控制请求频率"""
-        funding_rates = []
-        
-        print(f"📊 开始获取 {len(symbols)} 个币种的费率数据...")
-        
-        # 分批处理，避免API限制
-        for i in range(0, len(symbols), batch_size):
-            batch = symbols[i:i + batch_size]
-            batch_results = []
+    async def get_all_funding_rates_optimized(self) -> List[Dict[str, Any]]:
+        """优化版：直接从OKX获取所有SWAP交易对，然后批量获取费率"""
+        try:
+            print("📡 正在获取所有SWAP交易对列表...")
             
-            for symbol in batch:
-                try:
-                    rate_data = await self.okx_service.get_funding_rate(symbol)
-                    if rate_data:
-                        batch_results.append(rate_data)
-                    
-                    # 每个请求间隔0.2秒
-                    await asyncio.sleep(0.2)
-                    
-                except Exception as e:
-                    logger.warning(f"获取{symbol}费率失败: {e}")
-                    continue
+            # 1. 直接从OKX获取所有SWAP交易对
+            async with self.okx_service:
+                instruments = await self.okx_service.get_all_instruments('SWAP')
+                
+                if not instruments:
+                    logger.warning("未获取到SWAP交易对列表")
+                    return []
+                
+                # 过滤出活跃的USDT永续合约
+                usdt_symbols = [
+                    inst['instId'] for inst in instruments 
+                    if inst.get('state') == 'live' and 'USDT-SWAP' in inst['instId']
+                ]
             
-            funding_rates.extend(batch_results)
+            if not usdt_symbols:
+                logger.warning("未获取到USDT永续合约列表")
+                return []
             
-            # 每批次间隔1秒
-            if i + batch_size < len(symbols):
-                print(f"   已获取 {i + batch_size}/{len(symbols)} 个币种...")
-                await asyncio.sleep(1)
-        
-        print(f"✅ 成功获取 {len(funding_rates)} 个币种的费率数据")
-        return funding_rates
+            print(f"📋 发现 {len(usdt_symbols)} 个USDT永续合约")
+            
+            # 2. 直接使用OKX服务的优化批处理方法
+            async with self.okx_service:
+                funding_rates = await self.okx_service.get_batch_funding_rates(usdt_symbols)
+            
+            print(f"✅ 成功获取 {len(funding_rates)} 个USDT合约费率数据")
+            return funding_rates
+
+        except Exception as e:
+            logger.error(f"批量获取费率失败: {e}")
+            return []  
     
     async def get_symbol_basic_info(self, symbol: str) -> Dict[str, Any]:
         """获取币种基础信息（价格和交易量）"""
@@ -107,54 +93,12 @@ class NegativeFundingMonitorService:
             logger.warning(f"获取{symbol}基础信息失败: {e}")
             return {'symbol': symbol, 'price': 0, 'volume_24h': 0, 'change_24h': 0}
     
-    async def get_top_volume_symbols(self, limit: int = 50) -> List[str]:
-        """获取交易量或涨幅前N的币种（排除大市值币种）"""
-        try:
-            # 获取所有USDT永续合约的24小时统计数据
-            result = await self.okx_service._make_request('GET', '/api/v5/market/tickers', 
-                                                        params={'instType': 'SWAP'})
-            
-            if not result:
-                return []
-            
-            # 筛选USDT合约并排除大市值币种
-            usdt_tickers = []
-            for ticker in result:
-                symbol = ticker.get('instId', '')
-                if (symbol.endswith('-USDT-SWAP') and 
-                    symbol not in self.excluded_major_coins):
-                    
-                    volume_24h = float(ticker.get('volCcy24h', '0') or '0')
-                    change_24h = abs(float(ticker.get('chg', '0') or '0'))
-                    
-                    # 只考虑有一定交易量的币种（大于10万USDT）
-                    if volume_24h > 100000:
-                        usdt_tickers.append({
-                            'symbol': symbol,
-                            'volume_24h': volume_24h,
-                            'change_24h': change_24h,
-                            'score': volume_24h / 1000000 + change_24h * 100  # 综合评分
-                        })
-            
-            # 按综合评分排序（交易量 + 涨跌幅）
-            usdt_tickers.sort(key=lambda x: x['score'], reverse=True)
-            
-            # 返回前N个币种
-            top_symbols = [ticker['symbol'] for ticker in usdt_tickers[:limit]]
-            
-            print(f"📊 获取到交易量/涨幅前{len(top_symbols)}的币种")
-            return top_symbols
-            
-        except Exception as e:
-            logger.error(f"获取热门币种失败: {e}")
-            # 返回备用列表
-            return [
-                'API3-USDT-SWAP', 'AUCTION-USDT-SWAP', 'CORE-USDT-SWAP', 'DGB-USDT-SWAP',
-                'LRC-USDT-SWAP', 'RAY-USDT-SWAP', 'LUNC-USDT-SWAP', 'USTC-USDT-SWAP',
-                'ORDI-USDT-SWAP', 'SATS-USDT-SWAP', 'PEPE-USDT-SWAP', 'WIF-USDT-SWAP',
-                'BONK-USDT-SWAP', 'NEIRO-USDT-SWAP', 'PNUT-USDT-SWAP', 'GOAT-USDT-SWAP'
-            ]
+    # 注意：此方法已被优化掉，现在直接获取所有费率数据
+    # 使用 get_all_funding_rates_optimized() 方法一次性获取所有USDT合约费率
+    # 避免了频繁的API调用和复杂的筛选逻辑
     
+
+
     async def get_funding_interval(self, symbol: str) -> int:
         """获取币种的费率间隔（小时）"""
         # 检查缓存
@@ -436,18 +380,20 @@ class NegativeFundingMonitorService:
             print("🔍 开始负费率监控周期...")
             start_time = datetime.now()
             
-            # 1. 获取热门币种（交易量或涨幅前50）
-            suitable_symbols = await self.get_top_volume_symbols(limit=50)
-            print(f"📋 获取 {len(suitable_symbols)} 个热门币种进行监控")
+            # 1. 直接获取所有USDT永续合约的费率数据（一次性请求，避免频繁调用）
+            all_funding_rates = await self.get_all_funding_rates_optimized()
             
-            # 2. 获取费率数据
-            funding_rates = await self.get_batch_funding_rates(suitable_symbols, batch_size=8)
-            
-            if not funding_rates:
+            if not all_funding_rates:
                 return {'success': False, 'error': '未获取到费率数据'}
             
-            # 3. 获取基础信息（只获取有负费率的币种）
-            negative_symbols = [r['symbol'] for r in funding_rates if r['funding_rate'] < 0]
+            # 2. 筛选出有负费率的币种进行详细分析
+            negative_funding_rates = [r for r in all_funding_rates if r['funding_rate'] < 0]
+            print(f"📊 发现 {len(negative_funding_rates)} 个负费率币种，开始详细分析...")
+            
+            funding_rates = negative_funding_rates  # 直接使用负费率数据
+            
+            # 3. 获取负费率币种的基础信息（价格、交易量等）
+            negative_symbols = [r['symbol'] for r in funding_rates]
             basic_info = {}
             
             if negative_symbols:
@@ -484,7 +430,7 @@ class NegativeFundingMonitorService:
             
             result = {
                 'success': True,
-                'total_symbols_checked': len(suitable_symbols),
+                'total_symbols_checked': len(all_funding_rates),
                 'funding_rates_obtained': len(funding_rates),
                 'negative_funding_count': len(opportunities),
                 'opportunities': opportunities,

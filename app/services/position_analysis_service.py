@@ -769,6 +769,10 @@ class PositionAnalysisService:
                     actual_loss_ratio = pos.get("actual_loss_ratio", 0)
                     position_weight = pos.get("position_weight", 0)
                     
+                    # 获取持仓方向
+                    side = pos.get("side", "")
+                    side_text = "多头" if side == "long" else "空头" if side == "short" else side
+                    
                     recommendation = pos.get('recommendation', '')
                     if hasattr(recommendation, 'value'):
                         recommendation = recommendation.value
@@ -779,7 +783,7 @@ class PositionAnalysisService:
                     urgency = suggested_action.get('urgency', '')
                     
                     message_parts.append(
-                        f"  {rec_emoji} {pos.get('symbol', '')}: {recommendation} "
+                        f"  {rec_emoji} {pos.get('symbol', '')} ({side_text}): {recommendation} "
                         f"(盈亏: {pnl_text}/{abs(actual_loss_ratio)*100:.1f}%权益, 仓位: {position_weight:.1f}%)"
                     )
                     

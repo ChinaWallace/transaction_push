@@ -52,12 +52,13 @@ class KronosPositionAnalysisService:
     async def run_scheduled_analysis(self, force_notification: bool = False) -> Dict[str, Any]:
         """运行定时持仓分析"""
         try:
-            self.logger.info("🤖 开始定时Kronos持仓分析...")
+            self.logger.info(f"🤖 开始定时Kronos持仓分析... (实例ID: {id(self)}, 强制推送: {force_notification})")
             
             # 检查通知冷却（启动时强制推送）
             if not force_notification and not self._should_send_notification():
-                self.logger.info("⏰ 通知冷却期内，跳过推送")
-                return {"status": "skipped", "reason": "cooldown"}
+                cooldown_remaining = self._get_cooldown_remaining_minutes()
+                self.logger.info(f"⏰ 通知冷却期内，跳过推送 (剩余冷却时间: {cooldown_remaining:.1f}分钟)")
+                return {"status": "skipped", "reason": "cooldown", "cooldown_remaining_minutes": cooldown_remaining}
             
             # 获取当前持仓
             positions = await self._get_current_positions()
@@ -214,9 +215,22 @@ class KronosPositionAnalysisService:
                 kronos_confidence = kronos_decision.kronos_confidence
                 predicted_change = kronos_decision.kronos_prediction.price_change_pct if kronos_decision.kronos_prediction else 0
                 
-                # 持仓方向
+                # 正确判断持仓方向
                 pos_size = float(position.get('pos', 0))
-                is_long = pos_size > 0
+                original_data = position.get('original_data', {})
+                pos_side = original_data.get('side', '')
+                
+                if pos_side:
+                    if pos_side == 'long':
+                        is_long = True
+                    elif pos_side == 'short':
+                        is_long = False
+                    elif pos_side == 'net':
+                        is_long = pos_size > 0
+                    else:
+                        is_long = pos_size > 0  # 默认逻辑
+                else:
+                    is_long = pos_size > 0  # 兼容旧数据
                 
                 # 如果Kronos预测与持仓方向相反，增加风险
                 if (is_long and predicted_change < -0.03) or (not is_long and predicted_change > 0.03):
@@ -246,7 +260,22 @@ class KronosPositionAnalysisService:
         try:
             symbol = position.get('instId', '').replace('-USDT-SWAP', '')
             pos_size = float(position.get('pos', 0))
-            is_long = pos_size > 0
+            
+            # 正确判断持仓方向
+            original_data = position.get('original_data', {})
+            pos_side = original_data.get('side', '')
+            
+            if pos_side:
+                if pos_side == 'long':
+                    is_long = True
+                elif pos_side == 'short':
+                    is_long = False
+                elif pos_side == 'net':
+                    is_long = pos_size > 0
+                else:
+                    is_long = pos_size > 0  # 默认逻辑
+            else:
+                is_long = pos_size > 0  # 兼容旧数据
             
             if not kronos_decision:
                 return f"无Kronos预测数据，建议谨慎持有{symbol}仓位"
@@ -577,7 +606,25 @@ class KronosPositionAnalysisService:
             for i, result in enumerate(analysis_results, 1):
                 symbol = result.symbol.replace('-USDT-SWAP', '')
                 pos_size = float(result.current_position.get('pos', 0))
-                direction = "多头" if pos_size > 0 else "空头"
+                
+                # 正确判断持仓方向 - 优先使用posSide字段
+                original_data = result.current_position.get('original_data', {})
+                pos_side = original_data.get('side', '')
+                
+                if pos_side:
+                    # 使用OKX API的posSide字段
+                    if pos_side == 'long':
+                        direction = "多头"
+                    elif pos_side == 'short':
+                        direction = "空头"
+                    elif pos_side == 'net':
+                        # 买卖模式，通过pos值判断
+                        direction = "空头" if pos_size < 0 else "多头"
+                    else:
+                        direction = "未知"
+                else:
+                    # 兼容旧数据，通过pos值判断
+                    direction = "空头" if pos_size < 0 else "多头"
                 # 优先使用原始数据中的position_value_usd，如果没有则使用position_value
                 original_data = result.current_position.get('original_data', {})
                 position_value = original_data.get('position_value_usd', result.current_position.get('position_value', 0))
@@ -648,16 +695,69 @@ class KronosPositionAnalysisService:
     def _should_send_notification(self) -> bool:
         """检查是否应该发送通知"""
         if not self.last_notification_time:
+            self.logger.info("📅 首次运行，允许发送通知")
             return True
         
         cooldown_hours = self.analysis_config['notification_cooldown_hours']
         time_since_last = datetime.now() - self.last_notification_time
+        cooldown_seconds = cooldown_hours * 3600
         
-        return time_since_last.total_seconds() >= cooldown_hours * 3600
+        should_send = time_since_last.total_seconds() >= cooldown_seconds
+        
+        self.logger.info(f"🕐 冷却检查: 上次通知时间 {self.last_notification_time.strftime('%H:%M:%S')}, "
+                        f"已过去 {time_since_last.total_seconds()/60:.1f}分钟, "
+                        f"冷却期 {cooldown_hours}小时, "
+                        f"允许发送: {should_send}")
+        
+        return should_send
+    
+    def _get_cooldown_remaining_minutes(self) -> float:
+        """获取剩余冷却时间（分钟）"""
+        if not self.last_notification_time:
+            return 0.0
+        
+        cooldown_hours = self.analysis_config['notification_cooldown_hours']
+        time_since_last = datetime.now() - self.last_notification_time
+        cooldown_seconds = cooldown_hours * 3600
+        
+        remaining_seconds = cooldown_seconds - time_since_last.total_seconds()
+        return max(0.0, remaining_seconds / 60)
     
     async def get_manual_analysis(self) -> Dict[str, Any]:
-        """手动获取持仓分析"""
-        return await self.run_scheduled_analysis()
+        """手动获取持仓分析 - 不发送通知，仅返回分析结果"""
+        try:
+            self.logger.info(f"🔍 手动获取持仓分析... (实例ID: {id(self)})")
+            
+            # 获取当前持仓
+            positions = await self._get_current_positions()
+            if not positions:
+                self.logger.info("📊 当前无持仓，跳过分析")
+                return {"status": "no_positions"}
+            
+            # 分析每个持仓
+            analysis_results = []
+            for position in positions:
+                result = await self._analyze_position(position)
+                if result:
+                    analysis_results.append(result)
+            
+            # 生成综合报告
+            report = await self._generate_comprehensive_report(analysis_results)
+            
+            # 手动分析不发送通知，只返回结果
+            self.logger.info(f"✅ 手动持仓分析完成，分析了 {len(analysis_results)} 个持仓 (未发送通知)")
+            
+            return {
+                "status": "success",
+                "positions_analyzed": len(analysis_results),
+                "report": report,
+                "analysis_time": datetime.now().isoformat(),
+                "notification_sent": False
+            }
+            
+        except Exception as e:
+            self.logger.error(f"❌ 手动持仓分析失败: {e}")
+            return {"status": "error", "error": str(e)}
     
     async def run_startup_analysis(self) -> Dict[str, Any]:
         """启动时运行持仓分析（强制推送）"""

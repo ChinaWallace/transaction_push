@@ -15,6 +15,7 @@ __all__ = [
     "FundingRate",
     "OpenInterest",
     "VolumeData",
+    "TradingPair",
     "TrendSignal",
     "SignalHistory",
     "SuperTrendData",

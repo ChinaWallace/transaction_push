@@ -37,11 +37,11 @@ class FundingRateMonitorService:
         self.okx_service = OKXService()
         self.notification_service = NotificationService()
         
-        # 费率阈值配置
+        # 费率阈值配置 - 极敏感设置，捕捉任何负费率机会
         self.rate_thresholds = {
-            'high_negative': -0.01,      # -1% 高负费率
-            'extremely_negative': -0.05,  # -5% 极高负费率
-            'positive_high': 0.05,       # +5% 高正费率
+            'high_negative': -0.00001,   # 任何负费率都触发警报（极敏感）
+            'extremely_negative': -0.001, # -0.1% 极高负费率
+            'positive_high': 0.005,      # +0.5% 高正费率
         }
         
         # 通知历史（避免重复推送）
@@ -50,16 +50,35 @@ class FundingRateMonitorService:
     
     async def monitor_funding_rates(self, symbols: List[str] = None) -> Dict[str, Any]:
         """
-        监控费率
+        监控费率 - 优化版本，自动扫描所有永续合约
         
         Args:
-            symbols: 要监控的交易对列表
+            symbols: 要监控的交易对列表，如果为None则扫描所有永续合约
             
         Returns:
             监控结果
         """
         if symbols is None:
-            symbols = settings.funding_rate_only_symbols
+            # 获取所有永续合约交易对
+            logger.info("获取所有永续合约交易对...")
+            instruments = await self.okx_service.get_all_instruments('SWAP')
+            
+            if not instruments:
+                logger.error("获取交易对列表失败")
+                return {
+                    'timestamp': datetime.now(),
+                    'monitored_symbols': 0,
+                    'alerts': [],
+                    'summary': {'error': '获取交易对列表失败'},
+                    'error': '获取交易对列表失败'
+                }
+            
+            # 过滤活跃的交易对
+            symbols = [
+                inst['instId'] for inst in instruments 
+                if inst.get('state') == 'live'
+            ]
+            logger.info(f"找到 {len(symbols)} 个活跃的永续合约")
         
         logger.info(f"开始监控 {len(symbols)} 个币种的费率")
         
@@ -76,27 +95,44 @@ class FundingRateMonitorService:
         }
         
         try:
-            # 并行获取费率数据
-            tasks = [self._check_symbol_funding_rate(symbol) for symbol in symbols]
-            rate_results = await asyncio.gather(*tasks, return_exceptions=True)
+            # 🚀 优化：使用批量获取费率数据（减少API调用次数）
+            logger.info(f"批量获取 {len(symbols)} 个币种的费率数据...")
+            all_funding_rates = await self.okx_service.get_batch_funding_rates(symbols)
             
+            if not all_funding_rates:
+                logger.error("获取费率数据失败")
+                results['error'] = "获取费率数据失败"
+                return results
+            
+            # 转换为字典便于查找
+            funding_rate_dict = {
+                rate_data['symbol']: rate_data 
+                for rate_data in all_funding_rates
+            }
+            
+            logger.info(f"成功获取 {len(funding_rate_dict)}/{len(symbols)} 个币种的费率数据")
+            
+            # 检查目标币种的费率
             alerts = []
-            for i, result in enumerate(rate_results):
-                if isinstance(result, Exception):
-                    logger.warning(f"获取 {symbols[i]} 费率失败: {result}")
-                    continue
-                
-                if result:  # 有警报
-                    alerts.append(result)
+            for symbol in symbols:
+                if symbol in funding_rate_dict:
+                    rate_data = funding_rate_dict[symbol]
+                    alert = self._check_funding_rate_alert(symbol, rate_data)
                     
-                    # 统计
-                    if result.alert_type == 'extremely_negative':
-                        results['summary']['extremely_negative_count'] += 1
-                    elif result.alert_type == 'high_negative':
-                        results['summary']['high_negative_count'] += 1
-                    elif result.alert_type == 'positive_high':
-                        results['summary']['positive_high_count'] += 1
+                    if alert:
+                        alerts.append(alert)
+                        
+                        # 统计
+                        if alert.alert_type == 'extremely_negative':
+                            results['summary']['extremely_negative_count'] += 1
+                        elif alert.alert_type == 'high_negative':
+                            results['summary']['high_negative_count'] += 1
+                        elif alert.alert_type == 'positive_high':
+                            results['summary']['positive_high_count'] += 1
+                    else:
+                        results['summary']['normal_count'] += 1
                 else:
+                    logger.warning(f"未找到 {symbol} 的费率数据")
                     results['summary']['normal_count'] += 1
             
             results['alerts'] = alerts
@@ -105,7 +141,7 @@ class FundingRateMonitorService:
             if alerts:
                 await self._send_funding_rate_alerts(alerts)
             
-            logger.info(f"费率监控完成: {len(alerts)} 个警报")
+            logger.info(f"费率监控完成: {len(alerts)} 个警报，耗时大幅减少")
             return results
             
         except Exception as e:
@@ -113,17 +149,20 @@ class FundingRateMonitorService:
             results['error'] = str(e)
             return results
     
-    async def _check_symbol_funding_rate(self, symbol: str) -> Optional[FundingRateAlert]:
-        """检查单个币种的费率"""
+    def _check_funding_rate_alert(self, symbol: str, rate_data: Dict[str, Any]) -> Optional[FundingRateAlert]:
+        """
+        检查费率是否需要警报 - 优化版本，直接使用已获取的数据
+        
+        Args:
+            symbol: 交易对符号
+            rate_data: 费率数据字典
+            
+        Returns:
+            费率警报对象或None
+        """
         try:
-            # 获取费率数据
-            funding_rate_data = await self.okx_service.get_funding_rate(symbol)
-            
-            if not funding_rate_data:
-                return None
-            
-            current_rate = float(funding_rate_data.get('fundingRate', 0))
-            predicted_rate = float(funding_rate_data.get('nextFundingRate', current_rate))
+            current_rate = rate_data.get('funding_rate', 0)
+            predicted_rate = rate_data.get('predicted_rate', current_rate)  # 如果没有预测费率，使用当前费率
             
             # 检查是否需要警报
             alert_type = None
@@ -162,6 +201,22 @@ class FundingRateMonitorService:
                     return alert
             
             return None
+            
+        except Exception as e:
+            logger.error(f"检查 {symbol} 费率失败: {e}")
+            return None
+    
+    async def _check_symbol_funding_rate(self, symbol: str) -> Optional[FundingRateAlert]:
+        """检查单个币种的费率 - 保留用于单独调用"""
+        try:
+            # 获取费率数据
+            funding_rate_data = await self.okx_service.get_funding_rate(symbol)
+            
+            if not funding_rate_data:
+                return None
+            
+            # 使用新的检查方法
+            return self._check_funding_rate_alert(symbol, funding_rate_data)
             
         except Exception as e:
             logger.error(f"检查 {symbol} 费率失败: {e}")
@@ -278,40 +333,57 @@ class FundingRateMonitorService:
             logger.error(f"发送批量费率警报失败: {e}")
     
     async def get_current_funding_rates(self, symbols: List[str] = None) -> Dict[str, Dict[str, Any]]:
-        """获取当前费率数据"""
+        """获取当前费率数据 - 优化版本，使用批量API"""
         if symbols is None:
             symbols = settings.funding_rate_only_symbols
         
         results = {}
         
         try:
-            tasks = [self._get_symbol_funding_rate(symbol) for symbol in symbols]
-            rate_results = await asyncio.gather(*tasks, return_exceptions=True)
+            # 🚀 优化：使用批量获取费率数据
+            all_funding_rates = await self.okx_service.get_batch_funding_rates(symbols)
             
-            for i, result in enumerate(rate_results):
-                if isinstance(result, Exception):
-                    logger.warning(f"获取 {symbols[i]} 费率失败: {result}")
-                    continue
-                
-                if result:
-                    results[symbols[i]] = result
+            if not all_funding_rates:
+                logger.error("获取费率数据失败")
+                return {}
             
+            # 转换为字典便于查找
+            funding_rate_dict = {
+                rate_data['symbol']: rate_data 
+                for rate_data in all_funding_rates
+            }
+            
+            # 处理目标币种
+            for symbol in symbols:
+                if symbol in funding_rate_dict:
+                    rate_data = funding_rate_dict[symbol]
+                    processed_data = self._process_funding_rate_data(symbol, rate_data)
+                    if processed_data:
+                        results[symbol] = processed_data
+                else:
+                    logger.warning(f"未找到 {symbol} 的费率数据")
+            
+            logger.info(f"批量获取费率数据完成: {len(results)}/{len(symbols)} 个币种")
             return results
             
         except Exception as e:
             logger.error(f"获取费率数据失败: {e}")
             return {}
     
-    async def _get_symbol_funding_rate(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """获取单个币种的费率数据"""
+    def _process_funding_rate_data(self, symbol: str, rate_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        处理费率数据 - 优化版本，直接处理已获取的数据
+        
+        Args:
+            symbol: 交易对符号
+            rate_data: 原始费率数据
+            
+        Returns:
+            处理后的费率数据
+        """
         try:
-            funding_rate_data = await self.okx_service.get_funding_rate(symbol)
-            
-            if not funding_rate_data:
-                return None
-            
-            current_rate = float(funding_rate_data.get('fundingRate', 0))
-            predicted_rate = float(funding_rate_data.get('nextFundingRate', current_rate))
+            current_rate = rate_data.get('funding_rate', 0)
+            predicted_rate = rate_data.get('predicted_rate', current_rate)
             
             # 分类费率
             if current_rate <= -0.05:
@@ -336,9 +408,24 @@ class FundingRateMonitorService:
                 'category': category,
                 'opportunity': opportunity,
                 'annual_rate': current_rate * 365 * 3,  # 年化费率（每天3次）
-                'next_funding_time': funding_rate_data.get('nextFundingTime', ''),
+                'next_funding_time': rate_data.get('next_funding_time', ''),
                 'timestamp': datetime.now()
             }
+            
+        except Exception as e:
+            logger.error(f"处理 {symbol} 费率数据失败: {e}")
+            return None
+    
+    async def _get_symbol_funding_rate(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """获取单个币种的费率数据 - 保留用于单独调用"""
+        try:
+            funding_rate_data = await self.okx_service.get_funding_rate(symbol)
+            
+            if not funding_rate_data:
+                return None
+            
+            # 使用新的处理方法
+            return self._process_funding_rate_data(symbol, funding_rate_data)
             
         except Exception as e:
             logger.error(f"获取 {symbol} 费率数据失败: {e}")

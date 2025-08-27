@@ -36,6 +36,7 @@ from app.api.notification_stats import router as notification_stats_router
 from app.api.profit_opportunities import router as profit_opportunities_router
 from app.api.database import router as database_router
 from app.api.http_pool import router as http_pool_router
+from app.api.trading_pairs import router as trading_pairs_router
 from app.services.scheduler_service import SchedulerService
 from app.services.ml_enhanced_service import MLEnhancedService
 from app.services.ml_notification_service import MLNotificationService
@@ -500,8 +501,10 @@ async def lifespan(app: FastAPI):
         
         # 添加Kronos持仓分析定时任务
         if settings.kronos_config.get('enable_kronos_prediction', False):
-            from app.services.kronos_position_analysis_service import KronosPositionAnalysisService
-            kronos_position_service = KronosPositionAnalysisService()
+            from app.services.kronos_position_analysis_service import get_kronos_position_service
+            
+            # 使用全局单例实例，确保状态一致
+            kronos_position_service = await get_kronos_position_service()
             
             # 启动时立即执行一次Kronos持仓分析
             try:
@@ -520,15 +523,21 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"⚠️ 启动Kronos持仓分析失败: {e}")
                 app.state.startup_position_analysis = {"status": "error", "error": str(e)}
             
-            # 每30分钟执行一次Kronos持仓分析和推送
-            scheduler.add_job(
-                kronos_position_service.run_scheduled_analysis,
-                'interval',
-                minutes=30,
-                id='kronos_position_analysis',
-                name='Kronos持仓分析和风险评估'
-            )
-            logger.info("✅ Kronos持仓分析定时任务已启动 (每30分钟)")
+            # 检查是否已经存在相同的定时任务，避免重复添加
+            existing_job = scheduler.get_job('kronos_position_analysis')
+            if existing_job:
+                logger.warning("⚠️ Kronos持仓分析任务已存在，跳过重复添加")
+            else:
+                # 每30分钟执行一次Kronos持仓分析和推送
+                scheduler.add_job(
+                    kronos_position_service.run_scheduled_analysis,
+                    'interval',
+                    minutes=30,
+                    id='kronos_position_analysis',
+                    name='Kronos持仓分析和风险评估',
+                    max_instances=1  # 确保同时只有一个实例运行
+                )
+                logger.info("✅ Kronos持仓分析定时任务已启动 (每30分钟)")
             
             # 将服务存储到应用状态
             app.state.kronos_position_service = kronos_position_service
@@ -755,6 +764,7 @@ def create_app() -> FastAPI:
     app.include_router(profit_opportunities_router)
     app.include_router(database_router, prefix="/api/database", tags=["数据库管理"])
     app.include_router(http_pool_router, prefix="/api/http-pool", tags=["HTTP连接池管理"])
+    app.include_router(trading_pairs_router, prefix="/api/trading-pairs", tags=["交易对管理"])
     
     # 根路径
     @app.get("/", summary="根路径")

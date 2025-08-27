@@ -31,7 +31,6 @@ _current_interval = 0.5  # 动态调整的请求间隔
 
 class OKXService:
     """OKX交易所服务类"""
-    
     def __init__(self):
         self.config = settings.okx_config
         self.api_key = self.config["api_key"]
@@ -158,8 +157,13 @@ class OKXService:
         
         # 处理查询参数
         if params:
-            query_string = "&".join([f"{k}={v}" for k, v in params.items()])
-            request_path = f"{endpoint}?{query_string}"
+            # 过滤掉空值参数
+            filtered_params = {k: v for k, v in params.items() if v is not None and v != ''}
+            if filtered_params:
+                query_string = "&".join([f"{k}={v}" for k, v in filtered_params.items()])
+                request_path = f"{endpoint}?{query_string}"
+            else:
+                request_path = endpoint
         else:
             request_path = endpoint
         
@@ -518,6 +522,33 @@ class OKXService:
             logger.error(f"获取{symbol} K线数据失败: {e}")
             return []
     
+    async def get_recent_trades(self, symbol: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """获取最近交易数据"""
+        try:
+            params = {
+                'instId': symbol,
+                'limit': str(min(limit, 500))  # OKX API限制最多500条
+            }
+            
+            result = await self._make_request('GET', '/api/v5/market/trades', params=params)
+            
+            trades = []
+            for trade in result:
+                trades.append({
+                    'instId': trade.get('instId', ''),
+                    'side': trade.get('side', ''),
+                    'sz': trade.get('sz', '0'),
+                    'px': trade.get('px', '0'),
+                    'tradeId': trade.get('tradeId', ''),
+                    'ts': trade.get('ts', '0')
+                })
+            
+            return trades
+            
+        except Exception as e:
+            logger.error(f"获取{symbol}最近交易数据失败: {e}")
+            return []
+
     async def get_funding_rate(self, symbol: str = None) -> Optional[Dict[str, Any]]:
         """获取资金费率"""
         try:
@@ -537,21 +568,20 @@ class OKXService:
                         'update_time': datetime.now()
                     }
             else:
-                # 获取所有永续合约的资金费率
-                params = {'instType': 'SWAP'}
-                result = await self._make_request('GET', '/api/v5/public/funding-rate', params=params)
+                # 获取所有永续合约的资金费率 - 先获取所有SWAP交易对
+                logger.info("获取所有SWAP交易对列表...")
+                instruments = await self.get_all_instruments('SWAP')
                 
-                funding_rates = []
-                for data in result:
-                    next_funding_time = int(data.get('nextFundingTime', '0'))
-                    
-                    funding_rates.append({
-                        'symbol': data.get('instId', ''),
-                        'funding_rate': float(data.get('fundingRate', '0')),
-                        'next_funding_time': next_funding_time,
-                        'update_time': datetime.now()
-                    })
-                return funding_rates
+                if not instruments:
+                    logger.error("获取交易对列表失败")
+                    return []
+                
+                # 提取交易对符号
+                symbols = [inst['instId'] for inst in instruments if inst.get('state') == 'live']
+                logger.info(f"找到 {len(symbols)} 个活跃的SWAP交易对")
+                
+                # 批量获取费率（优化批次处理）
+                return await self.get_batch_funding_rates(symbols[:500])  # 增加到500个币种，50个一批处理
             
             return None
             
@@ -585,6 +615,88 @@ class OKXService:
             
         except Exception as e:
             logger.error(f"获取{symbol}资金费率历史失败: {e}")
+            return []
+
+    async def get_all_instruments(self, inst_type: str = 'SWAP') -> List[Dict[str, Any]]:
+        """获取所有交易对列表"""
+        try:
+            params = {'instType': inst_type}
+            result = await self._make_request('GET', '/api/v5/public/instruments', params=params)
+            
+            instruments = []
+            for item in result:
+                instruments.append({
+                    'instId': item.get('instId', ''),
+                    'instType': item.get('instType', ''),
+                    'baseCcy': item.get('baseCcy', ''),
+                    'quoteCcy': item.get('quoteCcy', ''),
+                    'settleCcy': item.get('settleCcy', ''),
+                    'ctVal': item.get('ctVal', ''),
+                    'ctMult': item.get('ctMult', ''),
+                    'ctValCcy': item.get('ctValCcy', ''),
+                    'minSz': item.get('minSz', ''),
+                    'lotSz': item.get('lotSz', ''),
+                    'tickSz': item.get('tickSz', ''),
+                    'state': item.get('state', ''),
+                    'listTime': item.get('listTime', ''),
+                    'expTime': item.get('expTime', '')
+                })
+            
+            return instruments
+            
+        except Exception as e:
+            logger.error(f"获取{inst_type}交易对列表失败: {e}")
+            return []
+
+    async def get_batch_funding_rates(self, symbols: List[str]) -> List[Dict[str, Any]]:
+        """
+        批量获取资金费率 - 智能频率控制版本
+        使用信号量严格控制并发数量，遵守OKX API限制
+        """
+        try:
+            # OKX PUBLIC API限制: 20 req/s, 1200 req/min
+            # 使用信号量控制最大并发数为10，确保不超过频率限制
+            max_concurrent = 10
+            semaphore = asyncio.Semaphore(max_concurrent)
+            
+            logger.info(f"开始批量获取费率，总计 {len(symbols)} 个币种，最大并发数: {max_concurrent}")
+            
+            async def rate_limited_get_funding_rate(symbol: str) -> Optional[Dict[str, Any]]:
+                """带频率限制的资金费率获取"""
+                async with semaphore:
+                    try:
+                        # 每个请求间隔至少50ms，确保不超过20 req/s
+                        await asyncio.sleep(0.05)
+                        result = await self.get_funding_rate(symbol)
+                        return result
+                    except Exception as e:
+                        logger.warning(f"获取 {symbol} 费率失败: {e}")
+                        return None
+            
+            # 创建所有任务
+            tasks = [rate_limited_get_funding_rate(symbol) for symbol in symbols]
+            
+            # 执行所有任务，使用信号量自动控制并发
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # 处理结果
+            all_rates = []
+            success_count = 0
+            
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.warning(f"获取 {symbols[i]} 费率异常: {result}")
+                    continue
+                
+                if result and isinstance(result, dict) and 'funding_rate' in result:
+                    all_rates.append(result)
+                    success_count += 1
+            
+            logger.info(f"批量获取费率完成: {success_count}/{len(symbols)} 成功")
+            return all_rates
+            
+        except Exception as e:
+            logger.error(f"批量获取费率失败: {e}")
             return []
 
     def calculate_funding_interval(self, funding_history: List[Dict[str, Any]]) -> int:
@@ -1011,6 +1123,10 @@ class OKXService:
                 'DOGE-USDT-SWAP', 'DOT-USDT-SWAP', 'AVAX-USDT-SWAP',
                 'LINK-USDT-SWAP'
             ]
+    
+    async def get_all_tickers(self, inst_type: str = 'SWAP') -> List[Dict[str, Any]]:
+        """获取所有ticker数据 - 兼容方法名"""
+        return await self.get_tickers(inst_type)
     
     async def get_multi_timeframe_klines(self, symbol: str, timeframes: List[str], limit: int = 100) -> Dict[str, List[dict]]:
         """

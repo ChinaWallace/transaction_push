@@ -76,6 +76,9 @@ class SchedulerService:
             # 添加定时任务
             await self._setup_scheduled_jobs()
             
+            # 启动时更新一次交易对列表
+            await self._update_trading_pairs_on_startup()
+            
             logger.info("Scheduler service started successfully")
             
         except Exception as e:
@@ -208,6 +211,15 @@ class SchedulerService:
                 trigger=CronTrigger(hour=2, minute=0),
                 id="ml_model_retrain",
                 name="ML模型重训练",
+                max_instances=1
+            )
+            
+            # 交易对列表更新 - 每天凌晨1点执行
+            self.scheduler.add_job(
+                self._update_trading_pairs_job,
+                trigger=CronTrigger(hour=1, minute=0),
+                id="update_trading_pairs",
+                name="更新交易对列表",
                 max_instances=1
             )
             
@@ -456,6 +468,10 @@ class SchedulerService:
         """添加任务的包装方法"""
         return self.scheduler.add_job(func, trigger, **kwargs)
     
+    def get_job(self, job_id: str):
+        """获取指定任务的包装方法"""
+        return self.scheduler.get_job(job_id)
+    
     def get_job_status(self) -> Dict[str, Any]:
         """获取任务状态"""
         try:
@@ -564,8 +580,63 @@ class SchedulerService:
         except Exception as e:
             logger.error(f"ML anomaly detection job failed: {e}")
     
+    async def _update_trading_pairs_on_startup(self):
+        """启动时更新交易对列表"""
+        try:
+            monitor_logger.info("Updating trading pairs on startup")
+            from app.services.trading_pair_service import TradingPairService
+            
+            trading_pair_service = TradingPairService()
+            result = await trading_pair_service.fetch_and_update_trading_pairs()
+            
+            if result['success']:
+                monitor_logger.info(
+                    f"Trading pairs updated on startup: {result['updated_count']} pairs"
+                )
+            else:
+                logger.warning(f"Failed to update trading pairs on startup: {result['error']}")
+                
+        except Exception as e:
+            logger.error(f"Trading pairs startup update failed: {e}")
+    
+    async def _update_trading_pairs_job(self):
+        """交易对列表更新任务"""
+        try:
+            monitor_logger.info("Executing scheduled trading pairs update")
+            from app.services.trading_pair_service import TradingPairService
+            
+            trading_pair_service = TradingPairService()
+            result = await trading_pair_service.fetch_and_update_trading_pairs()
+            
+            if result['success']:
+                monitor_logger.info(
+                    f"Trading pairs updated: {result['updated_count']} pairs, "
+                    f"total USDT pairs: {result['usdt_pairs']}"
+                )
+                
+                # 发送更新通知（仅在有显著变化时）
+                if result['updated_count'] > 10:  # 如果更新超过10个交易对
+                    from app.services.notification_service import NotificationService
+                    notification_service = NotificationService()
+                    
+                    message = f"""📋 交易对列表更新完成
+
+⏰ 更新时间：{result['update_time'].strftime('%Y-%m-%d %H:%M:%S')}
+📊 总交易对：{result['total_instruments']}
+💰 USDT永续：{result['usdt_pairs']}
+✅ 更新数量：{result['updated_count']}"""
+                    
+                    await notification_service.send_notification(
+                        title="📋 交易对列表更新",
+                        message=message,
+                        notification_type="trading_pairs_update",
+                        priority="low"
+                    )
+                    
+        except Exception as e:
+            logger.error(f"Trading pairs update job failed: {e}")
+    
     async def _ml_model_retrain_job(self):
-        """ML模型重训练任务"""
         try:
             monitor_logger.info("Executing scheduled ML model retraining")
             ml_service = self._get_ml_service()
@@ -618,6 +689,64 @@ class SchedulerService:
             
         except Exception as e:
             logger.error(f"ML model retraining job failed: {e}")
+    
+    async def _update_trading_pairs_on_startup(self):
+        """启动时更新交易对列表"""
+        try:
+            monitor_logger.info("Updating trading pairs on startup")
+            from app.services.trading_pair_service import TradingPairService
+            
+            trading_pair_service = TradingPairService()
+            result = await trading_pair_service.fetch_and_update_trading_pairs()
+            
+            if result['success']:
+                monitor_logger.info(
+                    f"Trading pairs updated on startup: {result['updated_count']} pairs"
+                )
+            else:
+                logger.warning(f"Failed to update trading pairs on startup: {result['error']}")
+                
+        except Exception as e:
+            logger.error(f"Trading pairs startup update failed: {e}")
+    
+    async def _update_trading_pairs_job(self):
+        """交易对列表更新任务"""
+        try:
+            monitor_logger.info("Executing scheduled trading pairs update")
+            from app.services.trading_pair_service import TradingPairService
+            
+            trading_pair_service = TradingPairService()
+            result = await trading_pair_service.fetch_and_update_trading_pairs()
+            
+            if result['success']:
+                monitor_logger.info(
+                    f"Trading pairs updated: {result['updated_count']} pairs, "
+                    f"total USDT pairs: {result['usdt_pairs']}"
+                )
+                
+                # 发送更新通知（仅在有显著变化时）
+                if result['updated_count'] > 10:  # 如果更新超过10个交易对
+                    from app.services.notification_service import NotificationService
+                    notification_service = NotificationService()
+                    
+                    message = f"""📋 交易对列表更新完成
+
+⏰ 更新时间：{result['update_time'].strftime('%Y-%m-%d %H:%M:%S')}
+📊 总交易对：{result['total_instruments']}
+💰 USDT永续：{result['usdt_pairs']}
+✅ 更新数量：{result['updated_count']}
+
+💡 新的交易对已加入负费率监控范围"""
+                    
+                    await notification_service.send_notification(
+                        message,
+                        priority="low"
+                    )
+            else:
+                logger.error(f"Trading pairs update failed: {result['error']}")
+                
+        except Exception as e:
+            logger.error(f"Trading pairs update job failed: {e}")
     
     async def _position_analysis_job(self):
         """持仓分析任务"""

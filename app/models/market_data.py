@@ -168,3 +168,41 @@ class VolumeData(BaseModel):
     __table_args__ = (
         Index('idx_symbol_interval_timestamp', 'symbol', 'interval', 'timestamp'),
     )
+
+
+class TradingPair(BaseModel):
+    """交易对信息模型"""
+    
+    __tablename__ = "trading_pairs"
+    
+    inst_id = Column(String(30), nullable=False, unique=True, index=True, comment="交易对ID")
+    inst_type = Column(String(10), nullable=False, comment="产品类型(SPOT/SWAP/FUTURES)")
+    base_ccy = Column(String(10), nullable=False, comment="基础货币")
+    quote_ccy = Column(String(10), nullable=False, comment="计价货币")
+    settle_ccy = Column(String(10), comment="结算货币")
+    
+    # 合约信息
+    ct_val = Column(String(20), comment="合约面值")
+    ct_mult = Column(String(20), comment="合约乘数")
+    ct_val_ccy = Column(String(10), comment="合约面值单位")
+    
+    # 交易规则
+    min_sz = Column(String(20), comment="最小下单数量")
+    lot_sz = Column(String(20), comment="下单数量精度")
+    tick_sz = Column(String(20), comment="下单价格精度")
+    
+    # 状态信息
+    state = Column(String(20), comment="产品状态")
+    list_time = Column(BigInteger, comment="上线时间")
+    exp_time = Column(BigInteger, comment="到期时间")
+    
+    # 是否启用监控
+    is_active = Column(String(5), default="true", comment="是否启用监控")
+    last_updated = Column(DateTime, default=datetime.utcnow, comment="最后更新时间")
+    
+    # 创建索引
+    __table_args__ = (
+        Index('idx_inst_type_quote', 'inst_type', 'quote_ccy'),
+        Index('idx_base_quote', 'base_ccy', 'quote_ccy'),
+        Index('idx_state_active', 'state', 'is_active'),
+    )

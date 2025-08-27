@@ -31,8 +31,8 @@ aiohttp==3.9.1
 apscheduler==3.10.4
 
 # 数据库
-sqlalchemy==2.0.23
-alembic==1.13.1
+sqlalchemy>=2.0.25  # 支持Python 3.13
+alembic==1.13.2
 pymysql==1.1.0
 # mysql-connector-python==8.2.0  # 可选，如果使用mysql-connector
 

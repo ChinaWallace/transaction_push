@@ -103,7 +103,7 @@ class Settings(BaseSettings):
             'consecutive_periods': 3
         },
         'funding_rate': {
-            'negative_threshold': -0.001,  # -0.1% 阈值，只推送更显著的负费率
+            'negative_threshold': -0.0001,  # -0.01% 阈值，降低阈值以捕获更多负费率机会
             'high_threshold': 0.1
         }
     }, description="策略参数配置")
@@ -243,6 +243,7 @@ class Settings(BaseSettings):
         
         # 热门DeFi币种
         'AAVE-USDT-SWAP', 'SNX-USDT-SWAP', '1INCH-USDT-SWAP', 'YFI-USDT-SWAP',
+        'LPT-USDT-SWAP',  # 添加LPT - 经常有负费率机会
         
         # Layer2和新兴币种
         'HBAR-USDT-SWAP', 'VET-USDT-SWAP', 'THETA-USDT-SWAP', 'ENJ-USDT-SWAP',
