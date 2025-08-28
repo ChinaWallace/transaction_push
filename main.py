@@ -28,6 +28,7 @@ from app.api import (
     tradingview_router, strategy_router, ml_enhanced_router,
     backtest_router
 )
+from app.api.news import router as news_router
 from app.api.kronos import router as kronos_router
 from app.api.kronos_integrated import router as kronos_integrated_router
 from app.api.funding_monitor import router as funding_monitor_router
@@ -236,6 +237,49 @@ async def perform_startup_funding_analysis():
         logger.error(f"❌ 负费率分析异常: {e}")
         return {"status": "error", "error": str(e)}
 
+async def perform_startup_news_analysis():
+    """启动时执行新闻分析和推送"""
+    try:
+        logger.info("📰 开始启动新闻分析...")
+        
+        from app.services.news_monitor_service import get_news_monitor_service
+        
+        # 获取新闻监控服务
+        news_monitor = await get_news_monitor_service()
+        
+        # 执行一次监控周期
+        result = await news_monitor.run_monitoring_cycle()
+        
+        if result['status'] == 'success':
+            news_count = result.get('news_count', 0)
+            analysis_count = result.get('analysis_count', 0)
+            notifications_sent = result.get('notifications_sent', 0)
+            
+            logger.info(f"✅ 启动新闻分析完成:")
+            logger.info(f"   📰 获取新闻: {news_count} 条")
+            logger.info(f"   🔍 分析新闻: {analysis_count} 条")
+            logger.info(f"   📢 发送通知: {notifications_sent} 条")
+            
+            return {
+                "status": "success",
+                "news_count": news_count,
+                "analysis_count": analysis_count,
+                "notifications_sent": notifications_sent,
+                "duration": result.get('duration_seconds', 0),
+                "message": result.get('message', '分析完成')
+            }
+        elif result['status'] == 'disabled':
+            logger.info("📴 新闻分析已禁用")
+            return {"status": "disabled", "message": "新闻分析已禁用"}
+        else:
+            error_msg = result.get('message', '未知错误')
+            logger.error(f"❌ 启动新闻分析失败: {error_msg}")
+            return {"status": "error", "error": error_msg}
+            
+    except Exception as e:
+        logger.error(f"❌ 启动新闻分析异常: {e}")
+        return {"status": "error", "error": str(e)}
+
 async def perform_startup_ml_analysis(ml_service: MLEnhancedService):
     """启动时执行ML分析和推送（可选）"""
     try:
@@ -411,44 +455,18 @@ async def lifespan(app: FastAPI):
             )
             logger.info("✅ Kronos强交易机会扫描已启动（30分钟间隔）")
             
-            # 添加网格交易机会扫描任务（每2小时）
-            scheduler.add_job(
-                kronos_grid_opportunities_scan,
-                'interval',
-                hours=2,
-                id='kronos_grid_opportunities_scan',
-                name='Kronos网格交易机会扫描'
-            )
-            logger.info("✅ Kronos网格交易机会扫描已启动（2小时间隔）")
+            # 网格交易机会扫描任务已暂时禁用
+            # scheduler.add_job(
+            #     kronos_grid_opportunities_scan,
+            #     'interval',
+            #     hours=2,
+            #     id='kronos_grid_opportunities_scan',
+            #     name='Kronos网格交易机会扫描'
+            # )
+            logger.info("⚠️ Kronos网格交易机会扫描已暂时禁用")
 
-            # 添加Kronos动量扫描任务（每10分钟）
-            from app.services.kronos_momentum_scanner_service import get_kronos_momentum_scanner
-            
-            async def kronos_momentum_scan():
-                """Kronos动量机会扫描"""
-                try:
-                    scanner = await get_kronos_momentum_scanner()
-                    result = await scanner.scan_momentum_opportunities()
-                    
-                    if result.get("status") == "success":
-                        signals = result.get("signals_found", 0)
-                        strong_signals = result.get("strong_signals", 0)
-                        logger.info(f"✅ Kronos动量扫描完成: 发现 {signals} 个信号，{strong_signals} 个强信号")
-                    elif result.get("status") == "skipped":
-                        logger.debug("📊 Kronos动量扫描跳过（未到间隔时间）")
-                    else:
-                        logger.warning(f"⚠️ Kronos动量扫描异常: {result.get('error', '未知错误')}")
-                except Exception as e:
-                    logger.error(f"❌ Kronos动量扫描失败: {e}")
-            
-            scheduler.add_job(
-                kronos_momentum_scan,
-                'interval',
-                minutes=10,
-                id='kronos_momentum_scan',
-                name='Kronos动量机会扫描'
-            )
-            logger.info("✅ Kronos动量机会扫描已启动（10分钟间隔）")
+
+
 
         else:
             logger.info("📴 Kronos预测已禁用，跳过所有Kronos扫描任务")
@@ -465,6 +483,29 @@ async def lifespan(app: FastAPI):
             name='负费率吃利息机会监控'
         )
         logger.info("✅ Negative funding rate monitor scheduled")
+        
+        # 添加新闻监控定时任务
+        if settings.news_config.get('enable_news_analysis', True):
+            from app.services.news_monitor_service import get_news_monitor_service
+            
+            news_monitor = await get_news_monitor_service()
+            
+            # 获取新闻监控间隔配置
+            news_interval = settings.news_config.get('fetch_interval_minutes', 30)
+            
+            scheduler.add_job(
+                news_monitor.run_monitoring_cycle,
+                'interval',
+                minutes=news_interval,
+                id='news_monitor',
+                name='新闻分析监控'
+            )
+            logger.info(f"✅ News analysis monitor scheduled (every {news_interval} minutes)")
+            
+            # 将新闻监控服务存储到应用状态
+            app.state.news_monitor = news_monitor
+        else:
+            logger.info("📴 News analysis monitoring disabled")
         
         # 将负费率监控服务存储到应用状态
         app.state.funding_monitor = funding_monitor
@@ -498,16 +539,16 @@ async def lifespan(app: FastAPI):
             if existing_job:
                 logger.warning("⚠️ Kronos持仓分析任务已存在，跳过重复添加")
             else:
-                # 每30分钟执行一次Kronos持仓分析和推送
+                # 每10分钟执行一次Kronos持仓分析和推送
                 scheduler.add_job(
                     kronos_position_service.run_scheduled_analysis,
                     'interval',
-                    minutes=30,
+                    minutes=10,
                     id='kronos_position_analysis',
                     name='Kronos持仓分析和风险评估',
                     max_instances=1  # 确保同时只有一个实例运行
                 )
-                logger.info("✅ Kronos持仓分析定时任务已启动 (每30分钟)")
+                logger.info("✅ Kronos持仓分析定时任务已启动 (每10分钟)")
             
             # 将服务存储到应用状态
             app.state.kronos_position_service = kronos_position_service
@@ -528,6 +569,18 @@ async def lifespan(app: FastAPI):
             logger.warning(f"⚠️ 启动负费率分析失败: {e}")
             app.state.startup_funding_results = {"status": "error", "error": str(e)}
         
+        # 启动时执行新闻分析
+        if settings.news_config.get('enable_news_analysis', True):
+            try:
+                news_results = await perform_startup_news_analysis()
+                app.state.startup_news_results = news_results
+            except Exception as e:
+                logger.warning(f"⚠️ 启动新闻分析失败: {e}")
+                app.state.startup_news_results = {"status": "error", "error": str(e)}
+        else:
+            logger.info("📴 新闻分析已禁用，跳过启动新闻分析")
+            app.state.startup_news_results = {"status": "disabled"}
+        
         # 启动时执行Kronos市场机会扫描
         if settings.kronos_config.get('enable_kronos_prediction', False):
             try:
@@ -539,9 +592,11 @@ async def lifespan(app: FastAPI):
                 # 并行执行强信号和网格机会扫描
                 import asyncio
                 strong_task = market_service.scan_strong_trading_opportunities(force_scan=True)
-                grid_task = market_service.scan_grid_trading_opportunities(force_scan=True)
+                # 网格交易扫描已暂时禁用
+                # grid_task = market_service.scan_grid_trading_opportunities(force_scan=True)
                 
-                strong_result, grid_result = await asyncio.gather(strong_task, grid_task)
+                strong_result = await strong_task
+                # strong_result, grid_result = await asyncio.gather(strong_task, grid_task)
                 
                 # 汇总启动扫描结果
                 startup_scan_results = {
@@ -803,6 +858,7 @@ def create_app() -> FastAPI:
     app.include_router(http_pool_router, prefix="/api/http-pool", tags=["HTTP连接池管理"])
     app.include_router(trading_pairs_router, prefix="/api/trading-pairs", tags=["交易对管理"])
     app.include_router(unified_data_router, prefix="/api", tags=["统一数据服务"])
+    app.include_router(news_router, prefix="/api/news", tags=["新闻分析"])
     
     # 根路径
     @app.get("/", summary="根路径")

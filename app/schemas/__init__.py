@@ -7,6 +7,7 @@ Data schemas for request/response models
 from .trend import *
 from .monitor import *
 from .notification import *
+from .news import *
 from .base import *
 
 __all__ = [
@@ -16,5 +17,12 @@ __all__ = [
     "MonitorStatusResponse",
     "NotificationRequest",
     "NotificationResponse",
+    "NewsItem",
+    "NewsAnalysisResult",
+    "NewsRequest",
+    "NewsAnalysisRequest",
+    "NewsResponse",
+    "NewsAnalysisResponse",
+    "KronosNewsAnalysisData",
     "BaseResponse"
 ]

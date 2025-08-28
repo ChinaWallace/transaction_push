@@ -810,7 +810,7 @@ class SchedulerService:
                             symbol = ticker.get('instId', '')
                             if symbol in hot_symbols:
                                 volume_24h = float(ticker.get('volCcy24h', '0') or '0')
-                                change_24h = abs(float(ticker.get('chg', '0') or '0'))
+                                change_24h = abs(float(ticker.get('chg', '0') or '0'))  # 这里保留abs，用于筛选活跃币种
                                 
                                 # 筛选条件：涨幅超过50% 或 交易量前10
                                 if (change_24h > 0.10 or  # 涨幅超过10%

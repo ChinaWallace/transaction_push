@@ -24,7 +24,6 @@ class OpportunityType(Enum):
     """机会类型"""
     BREAKOUT = "突破机会"           # 价格突破关键阻力/支撑
     REVERSAL = "反转机会"           # 趋势反转
-    MOMENTUM = "动量机会"           # 强势延续
     ARBITRAGE = "套利机会"          # 价差套利
     FUNDING_RATE = "费率机会"       # 资金费率套利
     VOLATILITY = "波动率机会"       # 高波动率交易
@@ -74,7 +73,6 @@ class ProfitMaximizationService:
         # 币圈特色配置
         self.crypto_multipliers = {
             'volatility_boost': 1.5,     # 波动率加成
-            'momentum_factor': 2.0,      # 动量因子
             'breakout_multiplier': 1.8   # 突破倍数
         }
     
@@ -93,7 +91,6 @@ class ProfitMaximizationService:
             tasks.extend([
                 self._scan_breakout_opportunities(symbol),
                 self._scan_reversal_opportunities(symbol),
-                self._scan_momentum_opportunities(symbol),
                 self._scan_funding_rate_opportunities(symbol),
                 self._scan_volatility_opportunities(symbol),
                 self._scan_technical_pattern_opportunities(symbol)
@@ -201,104 +198,7 @@ class ProfitMaximizationService:
         
         return opportunities
     
-    async def _scan_momentum_opportunities(self, symbol: str) -> List[ProfitOpportunity]:
-        """扫描动量机会 - 币圈特色：抓住强势币种"""
-        opportunities = []
-        
-        try:
-            # 获取多周期数据
-            klines_1h = await self.okx_service.get_kline_data(symbol, '1H', 24)
-            klines_4h = await self.okx_service.get_kline_data(symbol, '4H', 12)
-            
-            if not klines_1h or not klines_4h:
-                return opportunities
-            
-            # 计算动量指标
-            current_price = klines_1h[-1]['close']
-            price_1h_ago = klines_1h[-2]['close']
-            price_4h_ago = klines_1h[-5]['close'] if len(klines_1h) >= 5 else klines_1h[0]['close']
-            price_24h_ago = klines_1h[0]['close']
-            
-            # 计算涨跌幅
-            change_1h = (current_price - price_1h_ago) / price_1h_ago
-            change_4h = (current_price - price_4h_ago) / price_4h_ago
-            change_24h = (current_price - price_24h_ago) / price_24h_ago
-            
-            # 强势上涨动量
-            if (change_1h > 0.02 and change_4h > 0.05 and change_24h > 0.1):  # 1h>2%, 4h>5%, 24h>10%
-                # 计算成交量确认
-                recent_volume = sum(k['volume'] for k in klines_1h[-3:]) / 3
-                avg_volume = sum(k['volume'] for k in klines_1h) / len(klines_1h)
-                volume_ratio = recent_volume / avg_volume
-                
-                if volume_ratio > 1.5:  # 成交量放大1.5倍
-                    target_price = current_price * 1.08  # 8%目标
-                    stop_loss = current_price * 0.96     # 4%止损
-                    
-                    expected_return = 8.0
-                    risk_reward = 2.0
-                    
-                    kronos_support, kronos_conf = await self._get_kronos_support(symbol, 'bullish')
-                    
-                    opportunities.append(ProfitOpportunity(
-                        symbol=symbol,
-                        opportunity_type=OpportunityType.MOMENTUM,
-                        entry_price=current_price,
-                        target_price=target_price,
-                        stop_loss=stop_loss,
-                        expected_return=expected_return,
-                        risk_reward_ratio=risk_reward,
-                        confidence=0.8 + (0.1 if kronos_support else 0),
-                        time_horizon="4h",
-                        reasoning=f"强势上涨动量：1h{change_1h:.1%}, 4h{change_4h:.1%}, 24h{change_24h:.1%}, 量比{volume_ratio:.1f}",
-                        urgency="immediate",
-                        kronos_support=kronos_support,
-                        kronos_confidence=kronos_conf,
-                        predicted_volatility=0.08,
-                        market_sentiment="bullish",
-                        volume_profile="high",
-                        timestamp=datetime.now()
-                    ))
-            
-            # 强势下跌动量（做空机会）
-            elif (change_1h < -0.02 and change_4h < -0.05 and change_24h < -0.1):
-                recent_volume = sum(k['volume'] for k in klines_1h[-3:]) / 3
-                avg_volume = sum(k['volume'] for k in klines_1h) / len(klines_1h)
-                volume_ratio = recent_volume / avg_volume
-                
-                if volume_ratio > 1.5:
-                    target_price = current_price * 0.92  # 8%目标
-                    stop_loss = current_price * 1.04     # 4%止损
-                    
-                    expected_return = 8.0
-                    risk_reward = 2.0
-                    
-                    kronos_support, kronos_conf = await self._get_kronos_support(symbol, 'bearish')
-                    
-                    opportunities.append(ProfitOpportunity(
-                        symbol=symbol,
-                        opportunity_type=OpportunityType.MOMENTUM,
-                        entry_price=current_price,
-                        target_price=target_price,
-                        stop_loss=stop_loss,
-                        expected_return=expected_return,
-                        risk_reward_ratio=risk_reward,
-                        confidence=0.8 + (0.1 if kronos_support else 0),
-                        time_horizon="4h",
-                        reasoning=f"强势下跌动量：1h{change_1h:.1%}, 4h{change_4h:.1%}, 24h{change_24h:.1%}, 量比{volume_ratio:.1f}",
-                        urgency="immediate",
-                        kronos_support=kronos_support,
-                        kronos_confidence=kronos_conf,
-                        predicted_volatility=0.08,
-                        market_sentiment="bearish",
-                        volume_profile="high",
-                        timestamp=datetime.now()
-                    ))
-        
-        except Exception as e:
-            logger.warning(f"扫描 {symbol} 动量机会失败: {e}")
-        
-        return opportunities
+
     
     async def _scan_funding_rate_opportunities(self, symbol: str) -> List[ProfitOpportunity]:
         """扫描资金费率套利机会"""

@@ -99,9 +99,21 @@ class KronosIntegratedDecisionService:
         symbol: str,
         force_update: bool = False
     ) -> Optional[KronosEnhancedDecision]:
-        """获取Kronos增强的交易决策"""
+        """获取Kronos增强的交易决策 - 只分析配置中的核心币种"""
         try:
-            self.logger.info(f"开始为{symbol}生成Kronos增强决策")
+            # 检查是否为配置中允许的核心币种
+            kronos_target_symbols = self.settings.kronos_config.get('target_symbols', [])
+            
+            # 确保symbol格式正确
+            if not symbol.endswith("-SWAP"):
+                symbol = f"{symbol}-USDT-SWAP"
+            
+            # 如果不是核心币种，直接返回None
+            if symbol not in kronos_target_symbols:
+                self.logger.debug(f"跳过非核心币种的Kronos分析: {symbol}")
+                return None
+            
+            self.logger.info(f"开始为核心币种{symbol}生成Kronos增强决策")
             
             # 第一步：获取Kronos预测（前置）
             kronos_prediction = None
@@ -440,15 +452,29 @@ class KronosIntegratedDecisionService:
         symbols: List[str],
         force_update: bool = False
     ) -> Dict[str, Optional[KronosEnhancedDecision]]:
-        """批量分析多个交易对"""
+        """批量分析多个交易对 - 只分析配置中的核心币种"""
+        # 获取配置中允许的Kronos分析币种
+        kronos_target_symbols = self.settings.kronos_config.get('target_symbols', [])
+        
+        # 过滤输入的symbols，只保留配置中允许的币种
+        filtered_symbols = []
+        for symbol in symbols:
+            # 确保symbol格式正确
+            if not symbol.endswith("-SWAP"):
+                symbol = f"{symbol}-USDT-SWAP"
+            
+            # 只分析配置中允许的币种
+            if symbol in kronos_target_symbols:
+                filtered_symbols.append(symbol)
+            else:
+                self.logger.debug(f"跳过非核心币种的Kronos分析: {symbol}")
+        
+        self.logger.info(f"Kronos批量分析: 从{len(symbols)}个币种中筛选出{len(filtered_symbols)}个核心币种")
+        
         results = {}
         
-        for symbol in symbols:
+        for symbol in filtered_symbols:
             try:
-                # 确保symbol格式正确
-                if not symbol.endswith("-SWAP"):
-                    symbol = f"{symbol}-USDT-SWAP"
-                
                 decision = await self.get_kronos_enhanced_decision(symbol, force_update)
                 results[symbol] = decision
                 
@@ -746,26 +772,46 @@ class KronosIntegratedDecisionService:
         
         return " | ".join(reasoning_parts)
     
-    async def batch_analyze_symbols(
+    async def batch_analyze_symbols_concurrent(
         self,
         symbols: List[str],
         force_update: bool = False
     ) -> Dict[str, Optional[KronosEnhancedDecision]]:
-        """批量分析多个交易对"""
+        """并发批量分析多个交易对 - 只分析配置中的核心币种"""
         try:
-            self.logger.info(f"开始批量分析{len(symbols)}个交易对")
+            # 获取配置中允许的Kronos分析币种
+            kronos_target_symbols = self.settings.kronos_config.get('target_symbols', [])
             
-            # 并发分析所有交易对
+            # 过滤输入的symbols，只保留配置中允许的币种
+            filtered_symbols = []
+            for symbol in symbols:
+                # 确保symbol格式正确
+                if not symbol.endswith("-SWAP"):
+                    symbol = f"{symbol}-USDT-SWAP"
+                
+                # 只分析配置中允许的币种
+                if symbol in kronos_target_symbols:
+                    filtered_symbols.append(symbol)
+                else:
+                    self.logger.debug(f"跳过非核心币种的Kronos分析: {symbol}")
+            
+            self.logger.info(f"Kronos并发批量分析: 从{len(symbols)}个币种中筛选出{len(filtered_symbols)}个核心币种")
+            
+            if not filtered_symbols:
+                self.logger.warning("没有符合条件的核心币种需要分析")
+                return {}
+            
+            # 并发分析筛选后的交易对
             tasks = [
                 self.get_kronos_enhanced_decision(symbol, force_update)
-                for symbol in symbols
+                for symbol in filtered_symbols
             ]
             
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
             # 整理结果
             analysis_results = {}
-            for symbol, result in zip(symbols, results):
+            for symbol, result in zip(filtered_symbols, results):
                 if isinstance(result, Exception):
                     self.logger.error(f"分析{symbol}失败: {result}")
                     analysis_results[symbol] = None
@@ -773,10 +819,10 @@ class KronosIntegratedDecisionService:
                     analysis_results[symbol] = result
             
             successful_count = sum(1 for r in analysis_results.values() if r is not None)
-            self.logger.info(f"批量分析完成: {successful_count}/{len(symbols)}个成功")
+            self.logger.info(f"Kronos批量分析完成: {successful_count}/{len(filtered_symbols)}个成功")
             
             return analysis_results
             
         except Exception as e:
-            self.logger.error(f"批量分析失败: {e}")
+            self.logger.error(f"Kronos批量分析失败: {e}")
             return {}

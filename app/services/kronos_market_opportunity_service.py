@@ -163,7 +163,7 @@ class KronosMarketOpportunityService:
     
     async def scan_grid_trading_opportunities(self, force_scan: bool = False) -> Dict[str, Any]:
         """
-        扫描网格交易机会 - 获取交易量前50的币种用Kronos分析网格潜力
+        扫描网格交易机会 - 已暂时禁用
         
         Args:
             force_scan: 是否强制扫描
@@ -171,69 +171,72 @@ class KronosMarketOpportunityService:
         Returns:
             扫描结果
         """
-        try:
-            if not self.enable_scan:
-                return {"status": "disabled", "message": "网格交易扫描已禁用"}
-            
-            # 检查扫描间隔
-            if not force_scan and not self._should_scan('grid_trading'):
-                return {"status": "skipped", "message": "未到扫描时间"}
-            
-            self.logger.info("🎯 开始Kronos网格交易机会扫描...")
-            
-            # 获取交易量前50的币种
-            top_volume_symbols = await self._get_top_volume_symbols(50)
-            
-            if not top_volume_symbols:
-                return {"status": "error", "message": "无法获取交易量数据"}
-            
-            # 使用Kronos分析网格交易潜力
-            grid_opportunities = []
-            kronos_service = await get_kronos_integrated_service()
-            
-            # 批量分析（分批处理避免过载）
-            batch_size = 10
-            for i in range(0, len(top_volume_symbols), batch_size):
-                batch_symbols = top_volume_symbols[i:i + batch_size]
-                batch_results = await kronos_service.batch_analyze_symbols(batch_symbols, force_update=True)
-                
-                for symbol, decision in batch_results.items():
-                    if decision:
-                        grid_opportunity = await self._analyze_grid_potential(symbol, decision)
-                        if grid_opportunity and grid_opportunity.opportunity_score >= 60:  # 60分以上才推荐
-                            grid_opportunities.append(grid_opportunity)
-                
-                # 避免API限制，批次间稍作延迟
-                await asyncio.sleep(1)
-            
-            # 按网格适合度排序
-            grid_opportunities.sort(key=lambda x: x.opportunity_score, reverse=True)
-            
-            # 发送网格机会通知
-            notification_count = 0
-            if grid_opportunities:
-                notification_count = await self._send_grid_opportunities_notification(
-                    grid_opportunities[:10]  # 最多推送前10个
-                )
-            
-            # 更新扫描时间
-            self.last_scan_time['grid_trading'] = datetime.now()
-            
-            result = {
-                "status": "success",
-                "scan_time": datetime.now(),
-                "symbols_scanned": len(top_volume_symbols),
-                "grid_opportunities": len(grid_opportunities),
-                "notifications_sent": notification_count,
-                "top_grid_opportunities": [self._format_opportunity_summary(op) for op in grid_opportunities[:5]]
-            }
-            
-            self.logger.info(f"✅ Kronos网格交易扫描完成: 发现 {len(grid_opportunities)} 个网格机会")
-            return result
-            
-        except Exception as e:
-            self.logger.error(f"Kronos网格交易扫描失败: {e}")
-            return {"status": "error", "error": str(e)}
+        # 网格交易扫描功能已暂时禁用
+        return {"status": "disabled", "message": "网格交易扫描已暂时禁用"}
+        
+        # try:
+        #     if not self.enable_scan:
+        #         return {"status": "disabled", "message": "网格交易扫描已禁用"}
+        #     
+        #     # 检查扫描间隔
+        #     if not force_scan and not self._should_scan('grid_trading'):
+        #         return {"status": "skipped", "message": "未到扫描时间"}
+        #     
+        #     self.logger.info("🎯 开始Kronos网格交易机会扫描...")
+        #     
+        #     # 获取交易量前50的币种
+        #     top_volume_symbols = await self._get_top_volume_symbols(50)
+        #     
+        #     if not top_volume_symbols:
+        #         return {"status": "error", "message": "无法获取交易量数据"}
+        #     
+        #     # 使用Kronos分析网格交易潜力
+        #     grid_opportunities = []
+        #     kronos_service = await get_kronos_integrated_service()
+        #     
+        #     # 批量分析（分批处理避免过载）
+        #     batch_size = 10
+        #     for i in range(0, len(top_volume_symbols), batch_size):
+        #         batch_symbols = top_volume_symbols[i:i + batch_size]
+        #         batch_results = await kronos_service.batch_analyze_symbols(batch_symbols, force_update=True)
+        #         
+        #         for symbol, decision in batch_results.items():
+        #             if decision:
+        #                 grid_opportunity = await self._analyze_grid_potential(symbol, decision)
+        #                 if grid_opportunity and grid_opportunity.opportunity_score >= 60:  # 60分以上才推荐
+        #                     grid_opportunities.append(grid_opportunity)
+        #         
+        #         # 避免API限制，批次间稍作延迟
+        #         await asyncio.sleep(1)
+        #     
+        #     # 按网格适合度排序
+        #     grid_opportunities.sort(key=lambda x: x.opportunity_score, reverse=True)
+        #     
+        #     # 发送网格机会通知
+        #     notification_count = 0
+        #     if grid_opportunities:
+        #         notification_count = await self._send_grid_opportunities_notification(
+        #             grid_opportunities[:10]  # 最多推送前10个
+        #         )
+        #     
+        #     # 更新扫描时间
+        #     self.last_scan_time['grid_trading'] = datetime.now()
+        #     
+        #     result = {
+        #         "status": "success",
+        #         "scan_time": datetime.now(),
+        #         "symbols_scanned": len(top_volume_symbols),
+        #         "grid_opportunities": len(grid_opportunities),
+        #         "notifications_sent": notification_count,
+        #         "top_grid_opportunities": [self._format_opportunity_summary(op) for op in grid_opportunities[:5]]
+        #     }
+        #     
+        #     self.logger.info(f"✅ Kronos网格交易扫描完成: 发现 {len(grid_opportunities)} 个网格机会")
+        #     return result
+        #     
+        # except Exception as e:
+        #     self.logger.error(f"Kronos网格交易扫描失败: {e}")
+        #     return {"status": "error", "error": str(e)}
     
     async def _get_scan_symbols(self) -> List[str]:
         """获取要扫描的交易对列表"""
@@ -646,10 +649,9 @@ class KronosMarketOpportunityService:
             message += "🤖 基于Kronos AI分析的网格交易适合度评估"
             
             success = await self.notification_service.send_notification(
-                title=f"🎯 Kronos网格机会: {count}个",
                 message=message,
-                notification_type="kronos_grid_opportunities",
-                priority="medium"
+                priority="normal",
+                subject=f"🎯 Kronos网格机会: {count}个"
             )
             
             return 1 if success else 0

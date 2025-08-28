@@ -111,7 +111,7 @@ class Settings(BaseSettings):
     # Kronos预测模型配置 - 专门分析ETH和SOL，增加收益机会扫描
     kronos_config: Dict[str, Any] = Field(default_factory=lambda: {
         'enable_kronos_prediction': True,
-        'model_name': 'NeoQuasar/Kronos-small',  # 默认使用small模型
+        'model_name': 'NeoQuasar/Kronos-Tokenizer-base', 
         'tokenizer_name': 'NeoQuasar/Kronos-Tokenizer-base',
         'max_context': 256,  # 降低上下文长度避免张量形状问题
         'lookback_periods': 100,  # 减少历史数据回看期数，避免张量维度不匹配
@@ -119,14 +119,15 @@ class Settings(BaseSettings):
         'sampling_params': {
             'temperature': 0.8,
             'top_p': 0.9,
-            'sample_count': 1  # 减少采样次数，避免内存和张量问题
+            'sample_count': 3  # 减少采样次数，避免内存和张量问题
         },
         'confidence_threshold': 0.35,  # 大幅降低阈值，抓住更多机会
         'update_interval_minutes': 15,  # 缩短更新间隔到15分钟
         'cache_predictions': True,
         'use_gpu': False,  # 强制使用CPU避免CUDA张量问题
-        # 专注ETH和SOL的分析配置
-        'target_symbols': ['ETH-USDT-SWAP', 'SOL-USDT-SWAP'],  # 只分析这两个币种
+        'target_symbols': [
+            'BTC-USDT-SWAP', 'ETH-USDT-SWAP', 'SOL-USDT-SWAP','ADA-USDT-SWAP', 'DOGE-USDT-SWAP',
+        ],  # 主要币种分析
         'enhanced_analysis': True,  # 对目标币种进行增强分析
         # 强制只推送Kronos分析的信号
         'strict_kronos_only': True,  # 严格模式：只推送经过Kronos分析的信号
@@ -225,11 +226,17 @@ class Settings(BaseSettings):
         }
     }, description="机器学习增强配置 - 与Kronos协同工作，专注异常检测和信号验证，避免功能重复")
     
-    # 主要监控币种配置 - 只分析ETH和SOL，使用Kronos进行深度分析
+    # 主要监控币种配置 - 增加主要币种，使用Kronos进行深度分析
     monitored_symbols: List[str] = Field(default=[
-        'ETH-USDT-SWAP',
-        'SOL-USDT-SWAP'
-    ], description="主要监控的交易对列表 - 只分析ETH和SOL，使用Kronos进行深度分析和交易决策")
+        'BTC-USDT-SWAP',   # 比特币
+        'ETH-USDT-SWAP',   # 以太坊
+        'SOL-USDT-SWAP',   # Solana
+        'BNB-USDT-SWAP',   # 币安币
+        'ADA-USDT-SWAP',   # Cardano
+        'DOGE-USDT-SWAP',  # 狗狗币
+        'AVAX-USDT-SWAP',  # Avalanche
+        'DOT-USDT-SWAP'    # Polkadot
+    ], description="主要监控的交易对列表 - 包含主流币种，使用Kronos进行深度分析和交易决策")
     
     # 费率监控币种配置 - 扩展到更多币种，增加收益机会
     funding_rate_only_symbols: List[str] = Field(default=[
@@ -285,7 +292,6 @@ class Settings(BaseSettings):
         # 策略权重配置
         'strategy_weights': {
             'breakout': 1.0,      # 突破策略
-            'momentum': 1.2,      # 动量策略（币圈特色）
             'funding_rate': 0.8,  # 费率套利
             'volatility': 1.1,    # 波动率策略
             'reversal': 0.9,      # 反转策略
@@ -300,7 +306,7 @@ class Settings(BaseSettings):
             'enable_nft_trend_analysis': True,     # NFT趋势分析
             'enable_layer2_opportunities': True,   # Layer2机会
             'high_volatility_threshold': 0.15,     # 高波动率阈值15%
-            'momentum_acceleration_factor': 2.0    # 动量加速因子
+            'volatility_acceleration_factor': 2.0    # 波动率加速因子
         },
         
         # 自动通知配置
@@ -332,6 +338,38 @@ class Settings(BaseSettings):
         'enable_prediction_cache': True,  # 启用预测结果缓存
         'prediction_cache_ttl_minutes': 10  # 预测缓存10分钟
     }, description="数据缓存配置 - 优化币圈高频交易")
+    
+    # 新闻分析配置
+    news_config: Dict[str, Any] = Field(default_factory=lambda: {
+        'enable_news_analysis': True,
+        'panews_api_url': 'https://api.panewslab.com/webapi',
+        'fetch_interval_minutes': 30,  # 新闻获取间隔
+        'analysis_interval_minutes': 15,  # 新闻分析间隔
+        'max_news_per_fetch': 50,  # 每次最多获取新闻数量
+        'news_retention_hours': 168,  # 新闻保留时间（7天）
+        
+        # 新闻过滤配置
+        'importance_threshold': 0.3,  # 重要性阈值
+        'sentiment_threshold': 0.2,   # 情感强度阈值
+        'enable_auto_notification': True,  # 自动通知
+        
+        # Kronos集成配置
+        'enable_kronos_integration': True,
+        'kronos_analysis_symbols': [
+            'BTC-USDT-SWAP', 'ETH-USDT-SWAP', 'SOL-USDT-SWAP', 
+            'BNB-USDT-SWAP', 'ADA-USDT-SWAP', 'DOGE-USDT-SWAP',
+            'AVAX-USDT-SWAP', 'DOT-USDT-SWAP'
+        ],
+        'kronos_confidence_threshold': 0.6,
+        
+        # 通知配置
+        'notification_config': {
+            'enable_news_alerts': True,
+            'high_impact_threshold': 0.7,  # 高影响新闻阈值
+            'max_alerts_per_hour': 10,     # 每小时最大通知数
+            'channels': ['feishu', 'wechat']  # 通知渠道
+        }
+    }, description="新闻分析配置 - PANews集成和Kronos分析")
     
     # 数据保留配置
     data_retention_days: int = Field(default=30, description="数据保留天数")

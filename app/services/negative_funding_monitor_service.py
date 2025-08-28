@@ -27,6 +27,14 @@ from app.core.config import get_settings
 logger = get_logger(__name__)
 settings = get_settings()
 
+# 导入Kronos服务
+try:
+    from app.services.kronos_integrated_decision_service import get_kronos_integrated_service
+    KRONOS_AVAILABLE = True
+except ImportError:
+    KRONOS_AVAILABLE = False
+    logger.warning("Kronos服务不可用，将使用传统技术分析")
+
 
 class PriceDirection(Enum):
     """价格方向预测"""
@@ -59,6 +67,11 @@ class PricePrediction:
     volatility_score: float  # 0-100
     trend_strength: float  # 0-1
     reasoning: List[str]
+    # 新增Kronos相关字段
+    kronos_prediction: Optional[Dict[str, Any]] = None
+    kronos_confidence: float = 0.0
+    kronos_signal: str = ""
+    use_kronos: bool = False
 
 
 @dataclass
@@ -274,7 +287,7 @@ class NegativeFundingMonitorService:
                     symbol not in self.excluded_major_coins):
                     
                     volume_24h = float(ticker.get('volCcy24h', '0') or '0')
-                    change_24h = abs(float(ticker.get('chg', '0') or '0'))
+                    change_24h = float(ticker.get('chg', '0') or '0')  # 保留正负号，不取绝对值
                     
                     # 只考虑有一定交易量的币种（大于10万USDT）
                     if volume_24h > 100000:
@@ -429,7 +442,7 @@ class NegativeFundingMonitorService:
                 risk_factors.append("交易量过小，流动性风险")
             
             # 价格稳定性评分 - 考虑波动率对套利的影响
-            change_24h = abs(info.get('change_24h', 0))
+            change_24h = abs(info.get('change_24h', 0))  # 这里需要绝对值来判断波动性
             if change_24h < 0.02:  # 24小时涨跌幅小于2%
                 score += 25
                 reasons.append("🛡️ 价格非常稳定")
@@ -525,7 +538,7 @@ class NegativeFundingMonitorService:
                 'price': info.get('price', 0),
                 'volume_24h': volume_24h,
                 'volume_24h_formatted': f"{volume_24h/1000000:.1f}M" if volume_24h > 1000000 else f"{volume_24h/1000:.0f}K",
-                'change_24h_percent': info.get('change_24h', 0) * 100,
+                'change_24h_percent': info.get('change_24h', 0) * 100,  # OKX返回小数，需要乘100转为百分比
                 'score': score,
                 'rating': rating,
                 'priority': priority,
@@ -621,10 +634,23 @@ class NegativeFundingMonitorService:
                     # 价格预测
                     if opp.get('price_prediction'):
                         pred = opp['price_prediction']
-                        message += f"   📈 价格预测: {pred['direction']} (置信度: {pred['confidence']:.1%})\n"
-                        if pred['target_price_24h'] != pred['current_price']:
-                            change_pct = (pred['target_price_24h'] - pred['current_price']) / pred['current_price'] * 100
-                            message += f"   🎯 24h目标: ${pred['target_price_24h']:.2f} ({change_pct:+.1f}%)\n"
+                        # 显示预测来源
+                        source_icon = "🤖" if pred.get('use_kronos') else "📊"
+                        source_text = "Kronos AI" if pred.get('use_kronos') else "技术分析"
+                        
+                        message += f"   {source_icon} {source_text}预测: {pred['direction']} (置信度: {pred['confidence']:.1%})\n"
+                        
+                        # 安全获取价格数据
+                        current_price = pred.get('current_price', 0)
+                        target_price = pred.get('target_price_24h', current_price)
+                        
+                        if target_price != current_price and current_price > 0:
+                            change_pct = (target_price - current_price) / current_price * 100
+                            message += f"   🎯 24h目标: ${target_price:.4f} ({change_pct:+.2f}%)\n"
+                        
+                        # 如果是Kronos预测，显示额外信息
+                        if pred.get('use_kronos') and pred.get('kronos_signal'):
+                            message += f"   💡 AI建议: {pred['kronos_signal']}\n"
                     
                     # 仓位建议
                     if opp.get('position_recommendation'):
@@ -858,8 +884,15 @@ class NegativeFundingMonitorService:
             return None
     
     async def analyze_price_prediction(self, symbol: str) -> Optional[PricePrediction]:
-        """分析价格预测"""
+        """分析价格预测 - 优先使用Kronos，回退到技术分析"""
         try:
+            # 1. 尝试使用Kronos预测
+            kronos_result = await self._get_kronos_prediction(symbol)
+            if kronos_result:
+                return kronos_result
+            
+            # 2. 回退到传统技术分析
+            logger.info(f"Kronos预测不可用，使用技术分析 {symbol}")
             # 获取K线数据
             klines_1h = await self.get_market_data(symbol, '1H', 168)  # 7天1小时数据
             
@@ -928,6 +961,87 @@ class NegativeFundingMonitorService:
             
         except Exception as e:
             logger.error(f"价格预测分析失败 {symbol}: {e}")
+            return None
+    
+    async def _get_kronos_prediction(self, symbol: str) -> Optional[PricePrediction]:
+        """获取Kronos预测结果"""
+        try:
+            if not KRONOS_AVAILABLE:
+                return None
+            
+            # 获取Kronos集成决策服务
+            kronos_service = await get_kronos_integrated_service()
+            if not kronos_service:
+                return None
+            
+            # 获取Kronos增强决策
+            kronos_decision = await kronos_service.get_kronos_enhanced_decision(symbol, force_update=False)
+            if not kronos_decision or not kronos_decision.kronos_prediction:
+                return None
+            
+            kronos_pred = kronos_decision.kronos_prediction
+            current_price = kronos_pred.current_price
+            
+            # 转换Kronos预测为PriceDirection
+            price_change_pct = kronos_pred.price_change_pct
+            confidence = kronos_pred.confidence
+            
+            if price_change_pct > 0.03 and confidence > 0.7:
+                direction = PriceDirection.STRONG_UP
+            elif price_change_pct > 0.01 and confidence > 0.6:
+                direction = PriceDirection.UP
+            elif price_change_pct < -0.03 and confidence > 0.7:
+                direction = PriceDirection.STRONG_DOWN
+            elif price_change_pct < -0.01 and confidence > 0.6:
+                direction = PriceDirection.DOWN
+            else:
+                direction = PriceDirection.NEUTRAL
+            
+            # 计算目标价格
+            target_price_24h = current_price * (1 + price_change_pct)
+            
+            # 计算支撑阻力位（基于Kronos预测的波动范围）
+            volatility_range = abs(price_change_pct) * 0.5
+            support_level = current_price * (1 - volatility_range)
+            resistance_level = current_price * (1 + volatility_range)
+            
+            # 生成推理说明
+            reasoning = [
+                f"🤖 Kronos AI预测: {direction.value}",
+                f"📊 预测变化: {price_change_pct*100:+.2f}%",
+                f"🎯 置信度: {confidence:.1%}",
+                f"💡 目标价格: ${target_price_24h:.4f}",
+                f"📈 当前价格: ${current_price:.4f}"
+            ]
+            
+            # 添加Kronos具体推理
+            if hasattr(kronos_decision, 'reasoning') and kronos_decision.reasoning:
+                reasoning.append(f"🔍 AI分析: {kronos_decision.reasoning[:100]}...")
+            
+            return PricePrediction(
+                symbol=symbol,
+                current_price=current_price,
+                direction=direction,
+                confidence=confidence,
+                target_price_24h=target_price_24h,
+                support_level=support_level,
+                resistance_level=resistance_level,
+                volatility_score=min(100, abs(price_change_pct) * 1000),
+                trend_strength=confidence,
+                reasoning=reasoning,
+                kronos_prediction={
+                    'price_change_pct': price_change_pct,
+                    'predicted_price': kronos_pred.predicted_price,
+                    'confidence': confidence,
+                    'prediction_time': kronos_pred.prediction_time.isoformat() if kronos_pred.prediction_time else None
+                },
+                kronos_confidence=confidence,
+                kronos_signal=kronos_decision.final_action,
+                use_kronos=True
+            )
+            
+        except Exception as e:
+            logger.error(f"获取Kronos预测失败 {symbol}: {e}")
             return None
     
     def _generate_prediction(self, rsi: Optional[float], ma20: Optional[float], 
@@ -1227,7 +1341,10 @@ class NegativeFundingMonitorService:
                         'support_level': price_prediction.support_level,
                         'resistance_level': price_prediction.resistance_level,
                         'volatility_score': price_prediction.volatility_score,
-                        'reasoning': price_prediction.reasoning
+                        'reasoning': price_prediction.reasoning,
+                        'use_kronos': price_prediction.use_kronos,
+                        'kronos_signal': price_prediction.kronos_signal,
+                        'kronos_confidence': price_prediction.kronos_confidence
                     } if price_prediction else None,
                     'position_recommendation': {
                         'recommended_action': position_recommendation.recommended_action,

@@ -33,7 +33,6 @@ class OpportunityType(Enum):
     TREND_REVERSAL = "trend_reversal"        # 趋势反转
     BREAKOUT = "breakout"                    # 突破信号
     ARBITRAGE = "arbitrage"                  # 套利机会
-    MOMENTUM = "momentum"                    # 动量机会
     MEAN_REVERSION = "mean_reversion"        # 均值回归
 
 
@@ -137,12 +136,6 @@ class CoreOpportunityService:
                 'scan_interval_minutes': 120,
                 'min_score': 60.0,
                 'max_notifications_per_day': 3
-            },
-            'momentum': {
-                'enabled': True,
-                'scan_interval_minutes': 60,
-                'min_score': 70.0,
-                'max_notifications_per_day': 5
             }
         }
         
@@ -194,15 +187,12 @@ class CoreOpportunityService:
                 if self._should_scan('strong_signal', force_scan):
                     scan_tasks.append(self._scan_strong_signals(opportunity_filter))
             
-            # 网格交易机会扫描
-            if self.opportunity_config['grid_trading']['enabled']:
-                if self._should_scan('grid_trading', force_scan):
-                    scan_tasks.append(self._scan_grid_opportunities(opportunity_filter))
+            # 网格交易机会扫描 - 已暂时禁用
+            # if self.opportunity_config['grid_trading']['enabled']:
+            #     if self._should_scan('grid_trading', force_scan):
+            #         scan_tasks.append(self._scan_grid_opportunities(opportunity_filter))
             
-            # 动量机会扫描
-            if self.opportunity_config['momentum']['enabled']:
-                if self._should_scan('momentum', force_scan):
-                    scan_tasks.append(self._scan_momentum_opportunities(opportunity_filter))
+
             
             # 执行所有扫描任务
             if scan_tasks:
