@@ -33,6 +33,17 @@ class NotificationService:
         self.http_manager = None  # 延迟初始化
         self.notification_config = settings.notification_config
     
+    async def __aenter__(self):
+        """异步上下文管理器入口"""
+        await self._get_http_manager()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """异步上下文管理器出口"""
+        if exc_type:
+            logger.error(f"通知服务异常: {exc_type.__name__}: {exc_val}")
+        # HTTP管理器由全局管理，这里不需要关闭
+    
     async def _get_http_manager(self):
         """获取HTTP管理器实例"""
         if self.http_manager is None:
@@ -43,7 +54,9 @@ class NotificationService:
                               message: str, 
                               channels: List[str] = None,
                               priority: str = "normal",
-                              subject: str = None) -> Dict[str, bool]:
+                              subject: str = None,
+                              title: str = None,
+                              notification_type: str = "general") -> Dict[str, bool]:
         """
         发送通知到指定渠道
         
@@ -52,10 +65,15 @@ class NotificationService:
             channels: 通知渠道列表，如果为None则使用所有启用的渠道
             priority: 优先级 (low/normal/high/urgent)
             subject: 消息主题（用于邮件）
+            title: 通知标题（兼容性参数，与subject相同）
+            notification_type: 通知类型
             
         Returns:
             各渠道发送结果
         """
+        # 兼容性处理：如果提供了title但没有subject，使用title作为subject
+        if title and not subject:
+            subject = title
         if channels is None:
             channels = self._get_enabled_channels()
         

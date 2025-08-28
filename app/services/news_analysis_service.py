@@ -101,90 +101,160 @@ class NewsAnalysisService:
     
     async def fetch_latest_news(self, limit: int = 20, category: str = None) -> List[NewsItem]:
         """
-        获取最新新闻
+        获取最新新闻 - 支持多种API源
         """
         try:
             await self._ensure_http_manager()
             
-            # PANews API参数
-            params = {
-                'limit': min(limit, 100),  # 限制最大100条
-                'offset': 0,
-                'lang': 'zh'  # 中文新闻
-            }
+            # 尝试多个新闻源
+            news_sources = [
+                self._fetch_from_panews,
+                self._fetch_from_alternative_api,
+                self._get_mock_news_data  # 最后的回退方案
+            ]
             
-            if category:
-                params['category'] = category
-            
-            url = f"{self.base_url}/news"
-            
-            async with self.http_manager.get_session() as session:
-                kwargs = {'params': params}
-                
-                # 配置代理
-                if settings.proxy_enabled and settings.proxy_url:
-                    kwargs['proxy'] = settings.proxy_url
-                
-                async with session.get(url, **kwargs) as response:
-                    if response.status != 200:
-                        logger.error(f"PANews API请求失败: {response.status}")
-                        return []
-                    
-                    data = await response.json()
-                    
-                    # 调试：打印API响应
-                    logger.debug(f"PANews API响应: {data}")
-                    
-                    # PANews API可能返回不同的结构，尝试适配
-                    if isinstance(data, dict):
-                        if not data.get('success', True):  # 默认为True，兼容不同API结构
-                            logger.error(f"PANews API返回错误: {data.get('message', 'Unknown error')}")
-                            return []
-                        
-                        # 尝试不同的数据路径
-                        news_list = (
-                            data.get('data', {}).get('list', []) or
-                            data.get('data', []) or
-                            data.get('list', []) or
-                            []
-                        )
-                    elif isinstance(data, list):
-                        # 直接返回列表
-                        news_list = data
+            for source_func in news_sources:
+                try:
+                    if source_func == self._get_mock_news_data:
+                        # 模拟数据不需要参数
+                        news_items = source_func()
                     else:
-                        logger.error(f"PANews API返回未知格式: {type(data)}")
-                        return []
+                        news_items = await source_func(limit, category)
                     
-
-                    
-                    # 如果没有新闻数据，使用模拟数据进行测试
-                    if not news_list:
-                        logger.warning("PANews API返回空数据，使用模拟数据进行测试")
-                        return self._get_mock_news_data()
-                    
-                    # 转换为NewsItem对象
-                    news_items = []
-                    for item in news_list:
-                        try:
-                            news_item = self._parse_news_item(item)
-                            if news_item:
-                                news_items.append(news_item)
-                        except Exception as e:
-                            logger.warning(f"解析新闻项失败: {e}")
-                            continue
-                    
-                    # 如果解析后没有有效新闻，使用模拟数据
-                    if not news_items:
-                        logger.warning("解析新闻失败，使用模拟数据进行测试")
-                        return self._get_mock_news_data()
-                    
-                    logger.info(f"成功获取 {len(news_items)} 条新闻")
-                    return news_items
+                    if news_items and len(news_items) > 0:
+                        logger.info(f"成功从 {source_func.__name__} 获取 {len(news_items)} 条新闻")
+                        return news_items
+                        
+                except Exception as e:
+                    logger.warning(f"新闻源 {source_func.__name__} 失败: {e}")
+                    continue
+            
+            # 如果所有源都失败，返回模拟数据
+            logger.warning("所有新闻源都失败，使用模拟数据")
+            return self._get_mock_news_data()
                     
         except Exception as e:
             logger.error(f"获取新闻失败: {e}")
-            logger.info("使用模拟数据进行测试")
             return self._get_mock_news_data()
+    
+    async def _fetch_from_panews(self, limit: int, category: str = None) -> List[NewsItem]:
+        """从PANews获取新闻"""
+        # 尝试不同的PANews API端点
+        endpoints = [
+            "/news",
+            "/v1/news", 
+            "/api/news",
+            "/webapi/news"
+        ]
+        
+        for endpoint in endpoints:
+            try:
+                url = f"{self.base_url.replace('/webapi', '')}{endpoint}"
+                
+                # 尝试不同的参数组合
+                param_sets = [
+                    {'limit': min(limit, 100), 'offset': 0, 'lang': 'zh'},
+                    {'limit': min(limit, 100), 'page': 1, 'language': 'zh'},
+                    {'count': min(limit, 100), 'start': 0},
+                    {'size': min(limit, 100)}
+                ]
+                
+                if category:
+                    for params in param_sets:
+                        params['category'] = category
+                
+                for params in param_sets:
+                    try:
+                        async with self.http_manager.get_session() as session:
+                            kwargs = {'params': params, 'timeout': 10}
+                            
+                            # 配置代理
+                            if settings.proxy_enabled and settings.proxy_url:
+                                kwargs['proxy'] = settings.proxy_url
+                            
+                            async with session.get(url, **kwargs) as response:
+                                if response.status == 200:
+                                    data = await response.json()
+                                    news_items = self._parse_panews_response(data)
+                                    if news_items:
+                                        return news_items
+                                        
+                    except Exception as e:
+                        logger.debug(f"PANews API尝试失败 {url} {params}: {e}")
+                        continue
+                        
+            except Exception as e:
+                logger.debug(f"PANews端点失败 {endpoint}: {e}")
+                continue
+        
+        return []
+    
+    async def _fetch_from_alternative_api(self, limit: int, category: str = None) -> List[NewsItem]:
+        """从备用API获取新闻（可以是其他新闻源）"""
+        try:
+            # 这里可以添加其他新闻API，比如：
+            # - CoinDesk API
+            # - CryptoNews API  
+            # - 自建新闻聚合API
+            
+            # 暂时返回空，表示没有备用API
+            return []
+            
+        except Exception as e:
+            logger.debug(f"备用API获取失败: {e}")
+            return []
+    
+    def _parse_panews_response(self, data: Any) -> List[NewsItem]:
+        """解析PANews API响应"""
+        try:
+            news_list = []
+            
+            # 尝试不同的数据结构
+            if isinstance(data, dict):
+                # 检查是否有错误
+                if data.get('code') != 0 and data.get('status') != 'success' and not data.get('success', True):
+                    logger.debug(f"PANews API返回错误: {data}")
+                    return []
+                
+                # 尝试不同的数据路径
+                possible_paths = [
+                    data.get('data', {}).get('list', []),
+                    data.get('data', {}).get('items', []),
+                    data.get('data', {}).get('news', []),
+                    data.get('data', []),
+                    data.get('list', []),
+                    data.get('items', []),
+                    data.get('news', []),
+                    data.get('result', [])
+                ]
+                
+                for path in possible_paths:
+                    if isinstance(path, list) and len(path) > 0:
+                        news_list = path
+                        break
+                        
+            elif isinstance(data, list):
+                news_list = data
+            
+            if not news_list:
+                return []
+            
+            # 转换为NewsItem对象
+            news_items = []
+            for item in news_list:
+                try:
+                    news_item = self._parse_news_item(item)
+                    if news_item:
+                        news_items.append(news_item)
+                except Exception as e:
+                    logger.debug(f"解析新闻项失败: {e}")
+                    continue
+            
+            return news_items
+            
+        except Exception as e:
+            logger.debug(f"解析PANews响应失败: {e}")
+            return []
     
     def _get_mock_news_data(self) -> List[NewsItem]:
         """获取模拟新闻数据用于测试"""

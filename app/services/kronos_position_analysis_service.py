@@ -27,6 +27,11 @@ class PositionAnalysisResult:
     urgency_level: str
     potential_pnl: float
     suggested_action: str
+    
+    # 新增涨跌预测字段
+    price_prediction: Optional[Dict[str, Any]] = None  # 价格预测详情
+    trend_prediction: Optional[str] = None  # 趋势预测
+    confidence_level: Optional[float] = None  # 预测置信度
 
 
 class KronosPositionAnalysisService:
@@ -182,6 +187,11 @@ class KronosPositionAnalysisService:
             # 建议操作
             suggested_action = self._suggest_action(position, kronos_decision, risk_assessment)
             
+            # 生成涨跌预测
+            price_prediction = self._generate_price_prediction(position, kronos_decision)
+            trend_prediction = self._generate_trend_prediction(kronos_decision)
+            confidence_level = kronos_decision.kronos_confidence if kronos_decision else 0.5
+            
             return PositionAnalysisResult(
                 symbol=symbol,
                 current_position=position,
@@ -190,7 +200,10 @@ class KronosPositionAnalysisService:
                 recommendation=recommendation,
                 urgency_level=urgency_level,
                 potential_pnl=potential_pnl,
-                suggested_action=suggested_action
+                suggested_action=suggested_action,
+                price_prediction=price_prediction,
+                trend_prediction=trend_prediction,
+                confidence_level=confidence_level
             )
             
         except Exception as e:
@@ -378,6 +391,111 @@ class KronosPositionAnalysisService:
                 
         except Exception as e:
             return "谨慎操作"
+    
+    def _generate_price_prediction(self, position: Dict[str, Any], kronos_decision: Optional[KronosEnhancedDecision]) -> Optional[Dict[str, Any]]:
+        """生成价格预测详情"""
+        try:
+            if not kronos_decision or not kronos_decision.kronos_prediction:
+                return None
+            
+            current_price = float(position.get('markPx', 0))
+            predicted_change = kronos_decision.kronos_prediction.price_change_pct
+            confidence = kronos_decision.kronos_confidence
+            
+            # 计算预测价格
+            predicted_price = current_price * (1 + predicted_change)
+            price_change_abs = predicted_price - current_price
+            
+            # 预测时间范围（基于Kronos模型的预测周期）
+            prediction_timeframe = "24小时"  # 可以根据实际模型调整
+            
+            # 生成预测等级
+            if abs(predicted_change) >= 0.1:  # 10%以上
+                magnitude = "极大"
+            elif abs(predicted_change) >= 0.05:  # 5-10%
+                magnitude = "较大"
+            elif abs(predicted_change) >= 0.02:  # 2-5%
+                magnitude = "中等"
+            elif abs(predicted_change) >= 0.01:  # 1-2%
+                magnitude = "较小"
+            else:  # 1%以下
+                magnitude = "微小"
+            
+            # 预测方向
+            if predicted_change > 0.01:
+                direction = "上涨"
+                direction_emoji = "📈"
+            elif predicted_change < -0.01:
+                direction = "下跌"
+                direction_emoji = "📉"
+            else:
+                direction = "横盘"
+                direction_emoji = "➡️"
+            
+            # 置信度等级
+            if confidence >= 0.8:
+                confidence_level = "极高"
+            elif confidence >= 0.7:
+                confidence_level = "高"
+            elif confidence >= 0.6:
+                confidence_level = "中等"
+            elif confidence >= 0.5:
+                confidence_level = "较低"
+            else:
+                confidence_level = "低"
+            
+            return {
+                "current_price": current_price,
+                "predicted_price": predicted_price,
+                "price_change_abs": price_change_abs,
+                "price_change_pct": predicted_change * 100,
+                "direction": direction,
+                "direction_emoji": direction_emoji,
+                "magnitude": magnitude,
+                "confidence": confidence,
+                "confidence_level": confidence_level,
+                "timeframe": prediction_timeframe,
+                "prediction_summary": f"{direction_emoji} 预测{prediction_timeframe}内{direction}{magnitude}幅度 ({predicted_change*100:+.1f}%)"
+            }
+            
+        except Exception as e:
+            self.logger.error(f"生成价格预测失败: {e}")
+            return None
+    
+    def _generate_trend_prediction(self, kronos_decision: Optional[KronosEnhancedDecision]) -> Optional[str]:
+        """生成趋势预测"""
+        try:
+            if not kronos_decision or not kronos_decision.kronos_prediction:
+                return "趋势不明"
+            
+            predicted_change = kronos_decision.kronos_prediction.price_change_pct
+            confidence = kronos_decision.kronos_confidence
+            
+            # 基于预测变化和置信度生成趋势描述
+            if confidence >= 0.8:
+                if predicted_change >= 0.08:  # 8%以上为强烈看涨
+                    return "强烈看涨"
+                elif predicted_change >= 0.03:  # 3-8%为温和看涨
+                    return "温和看涨"
+                elif predicted_change <= -0.08:  # -8%以下为强烈看跌
+                    return "强烈看跌"
+                elif predicted_change <= -0.03:  # -3%到-8%为温和看跌
+                    return "温和看跌"
+                else:
+                    return "震荡整理"
+            elif confidence >= 0.6:
+                if predicted_change >= 0.05:  # 中等置信度需要更大变化
+                    return "偏向看涨"
+                elif predicted_change <= -0.05:
+                    return "偏向看跌"
+                else:
+                    return "方向不明"
+            else:
+                return "趋势不明"
+                
+        except Exception as e:
+            self.logger.error(f"生成趋势预测失败: {e}")
+            return "趋势不明"
     
     async def _generate_comprehensive_report(self, analysis_results: List[PositionAnalysisResult]) -> Dict[str, Any]:
         """生成综合报告"""
@@ -597,6 +715,12 @@ class KronosPositionAnalysisService:
                     symbol = rec.symbol.replace('-USDT-SWAP', '')
                     message_parts.append(f"{i}. **{symbol}**: {rec.suggested_action}")
                     message_parts.append(f"   💡 {rec.recommendation}")
+                    
+                    # 添加预测信息到紧急建议
+                    if rec.price_prediction:
+                        pred = rec.price_prediction
+                        message_parts.append(f"   {pred['direction_emoji']} {pred['prediction_summary']}")
+                    
                     if rec.potential_pnl != 0:
                         message_parts.append(f"   💰 预期: {rec.potential_pnl:+.2f} USDT")
                     message_parts.append("")
@@ -641,6 +765,25 @@ class KronosPositionAnalysisService:
                 message_parts.append(f"   💰 仓位: {abs(pos_size):.4f} @ ${mark_price:,.2f}")
                 message_parts.append(f"   📊 价值: ${position_value:,.2f} ({position_ratio:.1f}%)")
                 message_parts.append(f"   {pnl_emoji} 盈亏: ${unrealized_pnl:+,.2f}")
+                
+                # 添加涨跌预测信息
+                if result.price_prediction:
+                    pred = result.price_prediction
+                    message_parts.append(f"   {pred['direction_emoji']} 预测: {pred['prediction_summary']}")
+                    message_parts.append(f"   🎯 目标价: ${pred['predicted_price']:.4f} (置信度: {pred['confidence_level']})")
+                
+                # 添加趋势预测
+                if result.trend_prediction and result.trend_prediction != "趋势不明":
+                    trend_emoji = {
+                        "强烈看涨": "🚀",
+                        "温和看涨": "📈", 
+                        "偏向看涨": "↗️",
+                        "强烈看跌": "💥",
+                        "温和看跌": "📉",
+                        "偏向看跌": "↘️",
+                        "震荡整理": "🔄"
+                    }.get(result.trend_prediction, "➡️")
+                    message_parts.append(f"   {trend_emoji} 趋势: {result.trend_prediction}")
                 
                 # 只显示有意义的Kronos建议（过滤"持有观望"）
                 if result.kronos_decision and result.kronos_decision.final_action:

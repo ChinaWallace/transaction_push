@@ -987,6 +987,59 @@ class KronosPredictionService:
         else:
             self.prediction_cache.clear()
             self.last_update.clear()
+    
+    async def predict_symbol(
+        self,
+        symbol: str,
+        lookback_periods: int = 100,
+        prediction_horizon: int = 12
+    ) -> Optional[Dict[str, Any]]:
+        """
+        预测指定币种的价格走势
+        这是新闻分析服务需要的方法
+        """
+        try:
+            # 这里需要获取历史数据，暂时使用模拟数据
+            # 实际使用时应该从数据库或API获取真实的历史数据
+            from app.services.binance_service import BinanceService
+            
+            async with BinanceService() as binance_service:
+                # 获取历史K线数据
+                historical_data = await binance_service.get_klines(
+                    symbol=symbol,
+                    interval='1h',
+                    limit=lookback_periods
+                )
+                
+                if historical_data is None or len(historical_data) == 0:
+                    self.logger.warning(f"无法获取{symbol}的历史数据")
+                    return None
+                
+                # 获取预测
+                prediction = await self.get_prediction(
+                    symbol=symbol,
+                    historical_data=historical_data,
+                    force_update=False
+                )
+                
+                if prediction is None:
+                    return None
+                
+                # 返回新闻分析服务需要的格式
+                return {
+                    'symbol': symbol,
+                    'confidence': prediction.confidence,
+                    'price_change_pct': prediction.price_change_pct,
+                    'signal': prediction.signal,
+                    'trend_direction': prediction.trend_direction,
+                    'volatility': prediction.volatility,
+                    'predictions': prediction.predictions.to_dict('records') if prediction.predictions is not None else [],
+                    'timestamp': prediction.timestamp
+                }
+                
+        except Exception as e:
+            self.logger.error(f"预测{symbol}失败: {e}")
+            return None
 
 
 # 全局服务实例

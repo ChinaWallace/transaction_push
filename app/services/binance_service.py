@@ -38,6 +38,23 @@ class BinanceService:
             self.base_url = "https://testnet.binancefuture.com"
             logger.warning("Using Binance testnet")
     
+    async def __aenter__(self):
+        """异步上下文管理器入口"""
+        await self._ensure_http_manager()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """异步上下文管理器出口"""
+        if exc_type:
+            logger.error(f"币安服务异常: {exc_type.__name__}: {exc_val}")
+        # HTTP管理器由全局管理，这里不需要关闭
+    
+    async def _ensure_http_manager(self):
+        """确保HTTP管理器可用"""
+        if not self.http_manager:
+            self.http_manager = await get_http_manager()
+            logger.debug("✅ 币安服务已连接到统一HTTP连接池")
+    
     def _generate_signature(self, params: dict) -> str:
         """生成API签名"""
         query_string = "&".join([f"{k}={v}" for k, v in params.items()])
@@ -168,6 +185,41 @@ class BinanceService:
         except Exception as e:
             logger.error(f"Failed to get kline data for {symbol}: {e}")
             raise
+    
+    async def get_klines(self, symbol: str, interval: str, limit: int = 500) -> Optional[pd.DataFrame]:
+        """
+        获取K线数据并返回DataFrame格式（用于Kronos预测服务）
+        """
+        try:
+            # 调用现有的get_kline_data方法
+            klines_data = await self.get_kline_data(symbol, interval, limit)
+            
+            if not klines_data:
+                return None
+            
+            # 转换为DataFrame格式，符合Kronos预测服务的期望
+            df_data = []
+            for kline in klines_data:
+                df_data.append({
+                    'open': float(kline['open_price']),
+                    'high': float(kline['high_price']),
+                    'low': float(kline['low_price']),
+                    'close': float(kline['close_price']),
+                    'volume': float(kline['volume'])
+                })
+            
+            df = pd.DataFrame(df_data)
+            
+            # 设置时间索引
+            timestamps = [kline['open_time'] for kline in klines_data]
+            df.index = pd.DatetimeIndex(timestamps)
+            
+            logger.debug(f"转换K线数据为DataFrame: {symbol} {interval}, 形状: {df.shape}")
+            return df
+            
+        except Exception as e:
+            logger.error(f"获取K线DataFrame失败 {symbol}: {e}")
+            return None
     
     async def get_funding_rate(self, symbol: Optional[str] = None, limit: int = 100) -> List[dict]:
         """获取资金费率数据"""
