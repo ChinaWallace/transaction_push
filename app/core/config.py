@@ -132,17 +132,21 @@ class Settings(BaseSettings):
         # 强制只推送Kronos分析的信号
         'strict_kronos_only': True,  # 严格模式：只推送经过Kronos分析的信号
         'disable_traditional_signals': True,  # 禁用传统技术分析信号推送
-        # 强信号通知配置 - 币圈优化
+        # 强信号通知配置 - 优化整合后
         'notification_config': {
             'enable_strong_signal_notification': True,  # 启用强信号通知
-            'strong_signal_threshold': 0.4,   # 大幅降低强信号阈值
-            'medium_signal_threshold': 0.3,   # 大幅降低中等信号阈值
+            'strong_signal_threshold': 0.45,  # 优化后阈值 (平衡质量和数量)
+            'medium_signal_threshold': 0.35,  # 中等信号阈值
             'notification_channels': ['feishu', 'wechat'],  # 通知渠道
             'notification_priority': 'high',  # 通知优先级
             'batch_notification': False,      # 关闭批量通知，立即推送
             'enable_immediate_alerts': True,  # 启用立即告警
+            'enable_enhanced_analysis': True,  # 启用增强版技术分析
+            'include_technical_details': True,  # 包含详细技术指标
+            'include_trade_params': True,     # 包含精准交易参数
             'profit_opportunity_threshold': 3.0,  # 预期收益3%以上立即通知
-            'require_kronos_validation': True  # 要求所有信号都必须经过Kronos验证
+            'require_kronos_validation': True,    # 要求所有信号都必须经过Kronos验证
+            'unified_signal_analysis': True      # 启用统一信号分析 (整合趋势+扫描)
         },
         # 市场机会扫描配置 - 增强版
         'market_scan_config': {

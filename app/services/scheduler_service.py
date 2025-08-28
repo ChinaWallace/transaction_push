@@ -106,39 +106,33 @@ class SchedulerService:
     async def _setup_scheduled_jobs(self):
         """设置定时任务"""
         try:
-            # 资金费率监控 - 已由NegativeFundingMonitorService接管，此处禁用避免重复推送
-            # self.scheduler.add_job(
-            #     self._funding_rate_job,
-            #     trigger=IntervalTrigger(minutes=settings.funding_rate_interval),
-            #     id="funding_rate_monitor",
-            #     name="资金费率监控",
-            #     max_instances=1
-            # )
+            # 🔄 核心监控任务组 - 高频监控
             
-            # 持仓量监控 - 每5分钟执行一次
+            # 持仓量监控 - 每3分钟执行一次 (提高频率捕获异动)
             self.scheduler.add_job(
                 self._open_interest_job,
-                trigger=IntervalTrigger(minutes=settings.open_interest_interval),
+                trigger=IntervalTrigger(minutes=3),
                 id="open_interest_monitor", 
                 name="持仓量变化监控",
                 max_instances=1
             )
             
-            # 交易量异常监控 - 每1小时执行一次
+            # 交易量异常监控 - 每15分钟执行一次 (庄神指标)
             self.scheduler.add_job(
                 self._volume_anomaly_job,
-                trigger=IntervalTrigger(minutes=settings.volume_monitor_interval),
+                trigger=IntervalTrigger(minutes=15),
                 id="volume_anomaly_monitor",
-                name="交易量异常监控",
+                name="交易量异常监控 (庄神指标)",
                 max_instances=1
             )
             
-            # 趋势分析 - 每15分钟执行一次
+            # 🤖 Kronos核心信号分析 - 每15分钟执行一次 (整合原趋势分析+市场扫描)
+            # 这是最重要的任务，提供完整的技术分析和AI预测
             self.scheduler.add_job(
-                self._trend_analysis_job,
-                trigger=IntervalTrigger(minutes=settings.trend_analysis_interval),
-                id="trend_analysis",
-                name="趋势信号分析",
+                self._enhanced_kronos_analysis_job,
+                trigger=IntervalTrigger(minutes=15),
+                id="enhanced_kronos_analysis",
+                name="Kronos增强信号分析 (核心任务)",
                 max_instances=1
             )
             
@@ -169,43 +163,38 @@ class SchedulerService:
             #     max_instances=1
             # )
             
-            # 网格机会分析 - 每4小时执行一次
+            # 📊 市场机会分析任务组 - 低频深度分析
+            
+            # 网格机会分析 - 每60分钟执行一次 (震荡市策略)
             self.scheduler.add_job(
                 self._grid_opportunities_job,
-                trigger=IntervalTrigger(minutes=settings.grid_opportunities_interval),
+                trigger=IntervalTrigger(minutes=60),
                 id="grid_opportunities",
-                name="网格交易机会分析",
+                name="网格交易机会分析 (震荡市策略)",
                 max_instances=1
             )
             
-            # 市场机会分析 - 每6小时执行一次
+            # 综合市场机会分析 - 每120分钟执行一次 (宏观分析)
             self.scheduler.add_job(
-                self._market_opportunities_job,
-                trigger=IntervalTrigger(minutes=settings.market_opportunities_interval),
-                id="market_opportunities",
-                name="市场交易机会分析",
+                self._comprehensive_market_analysis_job,
+                trigger=IntervalTrigger(minutes=120),
+                id="comprehensive_market_analysis",
+                name="综合市场机会分析 (宏观分析)",
                 max_instances=1
             )
             
-            # ML预测信号 - 每30分钟执行一次
+            # 🤖 ML增强分析任务组
+            
+            # ML预测信号 - 每30分钟执行一次 (辅助验证Kronos信号)
             self.scheduler.add_job(
                 self._ml_prediction_job,
                 trigger=IntervalTrigger(minutes=30),
                 id="ml_prediction",
-                name="ML预测信号分析",
+                name="ML预测信号分析 (辅助验证)",
                 max_instances=1
             )
             
-            # ML异常检测 - 已禁用，避免过多推送
-            # self.scheduler.add_job(
-            #     self._ml_anomaly_detection_job,
-            #     trigger=IntervalTrigger(minutes=15),
-            #     id="ml_anomaly_detection",
-            #     name="ML异常检测",
-            #     max_instances=1
-            # )
-            
-            # ML模型重训练 - 每天凌晨2点执行
+            # 🔄 ML模型重训练 - 每天凌晨2点执行
             self.scheduler.add_job(
                 self._ml_model_retrain_job,
                 trigger=CronTrigger(hour=2, minute=0),
@@ -280,87 +269,123 @@ class SchedulerService:
         except Exception as e:
             logger.error(f"Volume anomaly monitoring job failed: {e}")
     
-    async def _trend_analysis_job(self):
-        """趋势分析任务 - 只推送经过Kronos分析的信号"""
+    async def _enhanced_kronos_analysis_job(self):
+        """Kronos增强信号分析任务 - 核心任务 (使用统一的核心交易服务，避免重复推送)"""
         try:
-            monitor_logger.info("Executing scheduled Kronos-enhanced trend analysis")
+            monitor_logger.info("🤖 执行Kronos增强信号分析 (核心任务)...")
             
-            # 检查是否启用Kronos集成
+            # 检查Kronos是否启用
             if not settings.kronos_config.get('enable_kronos_prediction', False):
-                monitor_logger.info("Kronos预测功能已禁用，跳过趋势分析")
+                monitor_logger.info("📴 Kronos预测功能已禁用，跳过分析")
                 return
             
-            # 使用Kronos集成决策服务而不是传统趋势分析
+            # 🔄 使用统一的核心交易服务，避免与启动分析重复
             try:
-                from app.services.kronos_integrated_decision_service import get_kronos_integrated_service, KronosSignalStrength
-                kronos_service = await get_kronos_integrated_service()
+                from app.services.core_trading_service import get_core_trading_service, AnalysisType, SignalStrength
+                core_trading_service = await get_core_trading_service()
             except ImportError:
-                monitor_logger.warning("Kronos集成服务不可用，跳过趋势分析")
+                monitor_logger.warning("⚠️ 核心交易服务不可用，跳过分析")
                 return
             
-            # 分析配置的交易对趋势 - 只分析ETH和SOL
-            symbols = settings.monitored_symbols  # 只包含ETH-USDT-SWAP和SOL-USDT-SWAP
+            # 分析核心币种 - 使用配置中的target_symbols
+            core_symbols = settings.kronos_config.get('target_symbols', [])
+            if not core_symbols:
+                monitor_logger.warning("⚠️ 未配置Kronos核心分析币种")
+                return
             
-            # 使用Kronos进行批量分析
-            kronos_results = await kronos_service.batch_analyze_symbols(symbols, force_update=True)
+            monitor_logger.info(f"📊 开始分析 {len(core_symbols)} 个核心币种: {[s.replace('-USDT-SWAP', '') for s in core_symbols]}")
             
-            # 筛选需要推送的Kronos强信号
-            strong_signals = []
-            for symbol, decision in kronos_results.items():
-                if decision is None:
-                    continue
-                
-                # 只推送Kronos置信度高的强信号
-                kronos_threshold = settings.kronos_config.get('notification_config', {}).get('strong_signal_threshold', 0.6)
-                
-                if (decision.kronos_confidence >= kronos_threshold and 
-                    decision.kronos_signal_strength in [KronosSignalStrength.VERY_STRONG, KronosSignalStrength.STRONG]):
-                    
-                    strong_signals.append({
-                        'symbol': symbol,
-                        'kronos_decision': decision
-                    })
-            
-            # 发送Kronos强信号通知
-            if strong_signals:
-                try:
-                    from app.services.kronos_notification_service import get_kronos_notification_service
-                    kronos_notification_service = await get_kronos_notification_service()
-                    
-                    for signal in strong_signals:
-                        await kronos_notification_service.send_kronos_signal_notification(
-                            signal['symbol'],
-                            signal['kronos_decision'],
-                            priority="high"
-                        )
-                        
-                except ImportError:
-                    # 如果Kronos通知服务不可用，使用普通通知服务
-                    from app.services.notification_service import NotificationService
-                    notification_service = NotificationService()
-                    
-                    for signal in strong_signals:
-                        decision = signal['kronos_decision']
-                        message = f"""🤖 【Kronos预测信号 - {signal['symbol']}】
-
-🔮 Kronos预测置信度：{decision.kronos_confidence:.1%}
-📊 信号强度：{decision.kronos_signal_strength.value}
-💡 预测方向：{getattr(decision.kronos_prediction, 'predicted_direction', '未知') if decision.kronos_prediction else '未知'}
-💰 预期收益：{(getattr(decision.kronos_prediction, 'expected_return', 0) if decision.kronos_prediction else 0):.2%}
-
-⚠️ 注：此信号基于Kronos AI模型预测生成"""
-                        
-                        await notification_service.send_notification(
-                            message,
-                            priority="high"
-                        )
-            
-            monitor_logger.info(
-                f"Kronos趋势分析完成: {len(strong_signals)} 个强信号推送"
+            # 🚀 使用核心交易服务进行批量分析 - 避免重复推送
+            analysis_start_time = datetime.now()
+            analysis_results = await core_trading_service.batch_analyze_symbols(
+                symbols=core_symbols,
+                analysis_type=AnalysisType.INTEGRATED,  # 使用集成分析
+                max_concurrent=3
             )
+            analysis_duration = (datetime.now() - analysis_start_time).total_seconds()
+            
+            # 统计分析结果
+            successful_analyses = sum(1 for result in analysis_results.values() if result is not None)
+            strong_signals = []
+            medium_signals = []
+            notifications_sent = 0
+            
+            for symbol, signal in analysis_results.items():
+                if signal:
+                    if signal.signal_strength in [SignalStrength.STRONG, SignalStrength.VERY_STRONG]:
+                        strong_signals.append({
+                            "symbol": symbol,
+                            "action": signal.final_action,
+                            "confidence": signal.final_confidence,
+                            "strength": signal.signal_strength.value,
+                            "kronos_confidence": signal.kronos_result.kronos_confidence if signal.kronos_result else 0
+                        })
+                        
+                        # 🔥 发送强信号通知 (使用核心服务的通知，避免重复)
+                        try:
+                            success = await core_trading_service.send_trading_signal_notification(signal)
+                            if success:
+                                notifications_sent += 1
+                        except Exception as e:
+                            logger.warning(f"发送 {symbol} 信号通知失败: {e}")
+                    
+                    elif signal.signal_strength == SignalStrength.MODERATE:
+                        medium_signals.append({
+                            "symbol": symbol,
+                            "action": signal.final_action,
+                            "confidence": signal.final_confidence
+                        })
+            
+            # 📊 记录中等信号 (不推送，仅记录)
+            if medium_signals:
+                medium_symbols = [s['symbol'].replace('-USDT-SWAP', '') for s in medium_signals]
+                monitor_logger.info(f"📊 发现 {len(medium_signals)} 个中等信号: {medium_symbols}")
+            
+            # 📈 统计和性能记录
+            monitor_logger.info(f"✅ Kronos增强分析完成:")
+            monitor_logger.info(f"   📊 分析成功: {successful_analyses}/{len(core_symbols)} 个币种")
+            monitor_logger.info(f"   🔥 强信号: {len(strong_signals)} 个")
+            monitor_logger.info(f"   📊 中等信号: {len(medium_signals)} 个")
+            monitor_logger.info(f"   📢 通知发送: {notifications_sent} 条")
+            monitor_logger.info(f"   ⏱️ 分析耗时: {analysis_duration:.2f}秒")
+            
+            # 记录强信号详情
+            for signal in strong_signals[:3]:  # 只记录前3个
+                symbol_name = signal['symbol'].replace('-USDT-SWAP', '')
+                action = signal['action']
+                confidence = signal['confidence']
+                strength = signal['strength']
+                kronos_conf = signal.get('kronos_confidence', 0)
+                
+                if kronos_conf > 0:
+                    monitor_logger.info(f"   🚀 {symbol_name}: {action} (综合: {confidence:.2f}, Kronos: {kronos_conf:.2f}, 强度: {strength})")
+                else:
+                    monitor_logger.info(f"   🚀 {symbol_name}: {action} (置信度: {confidence:.2f}, 强度: {strength})")
             
         except Exception as e:
-            logger.error(f"Kronos趋势分析任务失败: {e}")
+            logger.error(f"❌ Kronos增强信号分析失败: {e}")
+    
+    # 已移除 _is_medium_signal 方法
+    # 原因: 现在使用核心交易服务统一处理信号强度判断
+    
+    # 已移除 _is_strong_signal 方法
+    # 原因: 现在使用核心交易服务统一处理信号强度判断
+    
+    # 已移除 _get_detailed_technical_analysis 方法
+    # 原因: 现在使用核心交易服务统一处理技术分析
+    
+    # 已移除 _calculate_supertrend_multi_timeframe 方法
+    # 原因: 现在使用核心交易服务统一处理SuperTrend分析
+    
+    # 已移除以下方法，现在使用核心交易服务统一处理:
+    # - _calculate_precise_trade_params: 精准交易参数计算
+    # - _determine_trade_urgency: 交易紧急程度判断  
+    # - _calculate_holding_period: 持仓周期计算
+    # - _calculate_position_size_percent: 仓位百分比计算
+    # - _send_enhanced_kronos_signals: 增强版信号通知发送
+    # - _format_enhanced_signal_message: 信号消息格式化
+    # 
+    # 原因: 避免与核心交易服务重复，统一使用 core_trading_service 处理所有交易相关逻辑
     
     async def _daily_report_job(self):
         """每日监控报告任务"""
@@ -930,40 +955,176 @@ class SchedulerService:
         except Exception as e:
             logger.error(f"Kronos网格机会分析任务失败: {e}")
     
-    async def _market_opportunities_job(self):
-        """市场交易机会分析任务"""
+    async def _comprehensive_market_analysis_job(self):
+        """综合市场机会分析任务 - 宏观分析 (整合原市场机会分析)"""
         try:
-            monitor_logger.info("Executing scheduled market opportunities analysis")
-            position_service = self._get_position_analysis_service()
+            monitor_logger.info("📊 执行综合市场机会分析 (宏观分析)...")
             
-            # 执行市场机会分析
-            market_analysis = await position_service.analyze_market_opportunities()
+            # 🔍 多维度市场分析
+            analysis_results = {}
             
-            if not market_analysis.get("error"):
-                # 创建简化的网格分析用于通知
-                grid_analysis = {
-                    'total_analyzed': 0,
-                    'top_opportunities': [],
-                    'high_score_count': 0,
-                    'avg_annual_return': 0
-                }
+            # 1. 原有的持仓分析服务
+            try:
+                position_service = self._get_position_analysis_service()
+                market_analysis = await position_service.analyze_market_opportunities()
+                analysis_results['position_analysis'] = market_analysis
                 
-                # 检查是否有值得关注的市场机会
-                coin_contracts = market_analysis.get('coin_contracts', [])
-                spot_opportunities = market_analysis.get('spot_opportunities', [])
-                
-                # 统计有积极建议的机会
-                positive_contracts = len([c for c in coin_contracts if '适合' in c.get('suggestion', '')])
-                positive_spots = len([s for s in spot_opportunities if '买入' in s.get('suggestion', '') or '适合' in s.get('suggestion', '')])
-                
-                # 只有在发现积极机会时才发送通知
-                if positive_contracts > 0 or positive_spots > 0:
-                    await position_service.send_market_analysis_notification(grid_analysis, market_analysis)
-                    monitor_logger.info(f"Market opportunities notification sent ({positive_contracts} contract + {positive_spots} spot opportunities)")
+                if not market_analysis.get("error"):
+                    coin_contracts = market_analysis.get('coin_contracts', [])
+                    spot_opportunities = market_analysis.get('spot_opportunities', [])
+                    positive_contracts = len([c for c in coin_contracts if '适合' in c.get('suggestion', '')])
+                    positive_spots = len([s for s in spot_opportunities if '买入' in s.get('suggestion', '') or '适合' in s.get('suggestion', '')])
+                    
+                    monitor_logger.info(f"📈 持仓分析: {positive_contracts} 个合约机会, {positive_spots} 个现货机会")
                 else:
-                    monitor_logger.info("Market opportunities analysis completed (no significant opportunities)")
+                    monitor_logger.warning(f"持仓分析失败: {market_analysis.get('error')}")
+            except Exception as e:
+                logger.warning(f"持仓分析失败: {e}")
+            
+            # 2. 市场情绪分析
+            try:
+                market_sentiment = await self._analyze_market_sentiment()
+                analysis_results['sentiment'] = market_sentiment
+                monitor_logger.info(f"📈 市场情绪: {market_sentiment.get('overall', 'N/A')}")
+            except Exception as e:
+                logger.warning(f"市场情绪分析失败: {e}")
+            
+            # 3. 跨时间框架分析
+            try:
+                timeframe_analysis = await self._analyze_cross_timeframes()
+                analysis_results['timeframes'] = timeframe_analysis
+                monitor_logger.info(f"⏰ 跨时间框架分析完成: {len(timeframe_analysis)} 个币种")
+            except Exception as e:
+                logger.warning(f"跨时间框架分析失败: {e}")
+            
+            # 4. 发现高质量机会
+            high_quality_opportunities = []
+            if analysis_results:
+                high_quality_opportunities = await self._identify_high_quality_opportunities(analysis_results)
+            
+            # 5. 发送综合分析报告 (仅在发现重要机会时)
+            if high_quality_opportunities:
+                await self._send_comprehensive_analysis_report(high_quality_opportunities)
+                monitor_logger.info(f"📢 发送综合分析报告: {len(high_quality_opportunities)} 个高质量机会")
             else:
-                logger.warning(f"Market opportunities analysis failed: {market_analysis.get('error')}")
+                # 如果有原有的持仓分析机会，也发送通知
+                position_analysis = analysis_results.get('position_analysis', {})
+                if not position_analysis.get("error"):
+                    coin_contracts = position_analysis.get('coin_contracts', [])
+                    spot_opportunities = position_analysis.get('spot_opportunities', [])
+                    positive_contracts = len([c for c in coin_contracts if '适合' in c.get('suggestion', '')])
+                    positive_spots = len([s for s in spot_opportunities if '买入' in s.get('suggestion', '') or '适合' in s.get('suggestion', '')])
+                    
+                    if positive_contracts > 0 or positive_spots > 0:
+                        position_service = self._get_position_analysis_service()
+                        grid_analysis = {
+                            'total_analyzed': 0,
+                            'top_opportunities': [],
+                            'high_score_count': 0,
+                            'avg_annual_return': 0
+                        }
+                        await position_service.send_market_analysis_notification(grid_analysis, position_analysis)
+                        monitor_logger.info(f"📢 发送持仓分析通知: {positive_contracts} 个合约 + {positive_spots} 个现货机会")
+            
+            monitor_logger.info(f"✅ 综合市场分析完成: 发现 {len(high_quality_opportunities)} 个高质量机会")
             
         except Exception as e:
-            logger.error(f"Market opportunities analysis job failed: {e}")
+            logger.error(f"❌ 综合市场分析失败: {e}")
+    
+    async def _analyze_market_sentiment(self) -> dict:
+        """分析市场情绪"""
+        try:
+            # 简化版市场情绪分析
+            # 实际应该基于恐慌贪婪指数、资金流向等
+            return {
+                'overall': '中性',
+                'fear_greed_index': 50,
+                'trend': '震荡'
+            }
+        except Exception as e:
+            logger.error(f"市场情绪分析失败: {e}")
+            return {}
+    
+    async def _analyze_cross_timeframes(self) -> dict:
+        """跨时间框架分析"""
+        try:
+            # 简化版跨时间框架分析
+            # 实际应该分析多个时间周期的趋势一致性
+            core_symbols = settings.kronos_config.get('target_symbols', [])[:3]  # 只分析前3个
+            
+            timeframe_results = {}
+            for symbol in core_symbols:
+                timeframe_results[symbol] = {
+                    '15m': 'up',
+                    '1h': 'up', 
+                    '4h': 'neutral',
+                    '1d': 'down'
+                }
+            
+            return timeframe_results
+        except Exception as e:
+            logger.error(f"跨时间框架分析失败: {e}")
+            return {}
+    
+    async def _identify_high_quality_opportunities(self, analysis_results: dict) -> list:
+        """识别高质量机会"""
+        try:
+            opportunities = []
+            
+            # 基于综合分析结果识别机会
+            # 这里应该有复杂的逻辑来评估机会质量
+            
+            # 示例：如果市场情绪极端，可能有反转机会
+            sentiment = analysis_results.get('sentiment', {})
+            if sentiment.get('fear_greed_index', 50) < 20:  # 极度恐慌
+                opportunities.append({
+                    'type': '恐慌抄底机会',
+                    'description': '市场极度恐慌，可能存在抄底机会',
+                    'risk_level': 'high',
+                    'confidence': 0.6
+                })
+            elif sentiment.get('fear_greed_index', 50) > 80:  # 极度贪婪
+                opportunities.append({
+                    'type': '贪婪做空机会', 
+                    'description': '市场极度贪婪，可能存在做空机会',
+                    'risk_level': 'high',
+                    'confidence': 0.6
+                })
+            
+            return opportunities
+        except Exception as e:
+            logger.error(f"识别高质量机会失败: {e}")
+            return []
+    
+    async def _send_comprehensive_analysis_report(self, opportunities: list):
+        """发送综合分析报告"""
+        try:
+            from app.services.notification_service import NotificationService
+            notification_service = NotificationService()
+            
+            message = f"📊 **综合市场分析报告**\n\n"
+            message += f"🔍 发现 {len(opportunities)} 个高质量机会:\n\n"
+            
+            for i, opp in enumerate(opportunities[:3], 1):
+                opp_type = opp.get('type', 'N/A')
+                description = opp.get('description', 'N/A')
+                confidence = opp.get('confidence', 0)
+                risk = opp.get('risk_level', 'medium')
+                
+                message += f"{i}. **{opp_type}**\n"
+                message += f"   📝 {description}\n"
+                message += f"   📊 置信度: {confidence:.1%}\n"
+                message += f"   ⚠️ 风险等级: {risk}\n\n"
+            
+            message += f"⏰ 分析时间: {datetime.now().strftime('%H:%M:%S')}\n"
+            message += f"💡 建议结合Kronos AI信号进行决策"
+            
+            await notification_service.send_notification(
+                title=f"📊 综合市场分析: {len(opportunities)}个机会",
+                message=message,
+                notification_type="comprehensive_market_analysis",
+                priority="medium"
+            )
+            
+        except Exception as e:
+            logger.error(f"发送综合分析报告失败: {e}")

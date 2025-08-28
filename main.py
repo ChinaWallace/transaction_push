@@ -128,62 +128,74 @@ async def perform_startup_trading_analysis():
         logger.error(f"❌ 启动交易分析失败 (核心服务): {e}")
         return {"status": "error", "error": str(e)}
 
-async def perform_startup_kronos_analysis():
-    """启动时执行专门的Kronos集成分析"""
+# 已移除 perform_startup_kronos_market_scan() 函数
+# 原因: 与 perform_startup_trading_analysis() 功能重复
+# 核心交易决策分析已经包含了Kronos分析和信号推送功能
+
+async def send_startup_summary_notification(app_state, successful_tasks: int, failed_tasks: int):
+    """发送启动完成摘要通知"""
     try:
-        logger.info("🤖 开始专门的Kronos集成分析...")
+        from app.services.notification_service import NotificationService
+        notification_service = NotificationService()
         
-        from app.services.kronos_integrated_decision_service import get_kronos_integrated_service
+        # 收集各任务结果
+        trading_result = getattr(app_state, 'startup_trading_analysis_results', {})
+        funding_result = getattr(app_state, 'startup_funding_analysis_results', {})
+        news_result = getattr(app_state, 'startup_news_analysis_results', {})
+        kronos_result = getattr(app_state, 'startup_kronos_market_scan_results', {})
         
-        # 获取Kronos集成服务
-        kronos_service = await get_kronos_integrated_service()
+        # 构建摘要消息
+        message = f"🚀 **交易分析工具启动完成**\n\n"
+        message += f"📊 任务执行: {successful_tasks} 成功, {failed_tasks} 失败\n\n"
         
-        # 主要交易对列表 - 只分析ETH和SOL
-        major_symbols = [
-            "ETH-USDT", "SOL-USDT"
-        ]
+        # 核心交易分析结果
+        if trading_result.get("status") == "success":
+            strong_signals = len(trading_result.get("strong_signals", []))
+            notifications = trading_result.get("notifications_sent", 0)
+            message += f"🎯 核心交易分析: {strong_signals} 个强信号, {notifications} 条通知\n"
         
-        # 批量Kronos分析
-        kronos_results = await kronos_service.batch_analyze_symbols(major_symbols, force_update=True)
+        # 负费率分析结果
+        if funding_result.get("status") == "success":
+            opportunities = funding_result.get("opportunities_count", 0)
+            message += f"💰 负费率机会: {opportunities} 个套利机会\n"
         
-        # 筛选强信号
-        strong_kronos_signals = []
-        for symbol, decision in kronos_results.items():
-            if decision and decision.kronos_confidence >= 0.7:
-                if decision.kronos_signal_strength.value in ["强", "极强"]:
-                    strong_kronos_signals.append({
-                        "symbol": symbol,
-                        "action": decision.final_action,
-                        "kronos_confidence": decision.kronos_confidence,
-                        "signal_strength": decision.kronos_signal_strength.value,
-                        "final_confidence": decision.final_confidence,
-                        "reasoning": decision.reasoning
-                    })
+        # 新闻分析结果
+        if news_result.get("status") == "success":
+            news_notifications = news_result.get("notifications_sent", 0)
+            message += f"📰 新闻分析: {news_notifications} 条重要新闻\n"
+        elif news_result.get("status") == "disabled":
+            message += f"📴 新闻分析: 已禁用\n"
         
-        # 记录结果
-        successful_count = sum(1 for r in kronos_results.values() if r is not None)
-        logger.info(f"✅ Kronos专门分析完成: {successful_count}/{len(major_symbols)} 个成功")
-        logger.info(f"🔥 发现 {len(strong_kronos_signals)} 个强Kronos信号")
+        # Kronos市场扫描 - 已整合到核心交易分析中
+        if kronos_result.get("status") == "success":
+            kronos_opportunities = kronos_result.get("summary", {}).get("total_strong_opportunities", 0)
+            message += f"🤖 Kronos扫描: {kronos_opportunities} 个AI机会 (已整合)\n"
+        else:
+            message += f"🤖 Kronos扫描: 已整合到核心分析\n"
         
-        # 记录强信号详情
-        for signal in strong_kronos_signals[:3]:
-            symbol = signal["symbol"]
-            action = signal["action"]
-            kronos_conf = signal["kronos_confidence"]
-            strength = signal["signal_strength"]
-            logger.info(f"   🚀 {symbol}: {action} (Kronos: {kronos_conf:.2f}, 强度: {strength})")
+        message += f"\n⏰ 启动时间: {datetime.now().strftime('%H:%M:%S')}"
+        message += f"\n🔄 系统已就绪，开始监控市场..."
         
-        return {
-            "status": "success",
-            "total_analyzed": len(major_symbols),
-            "successful_analyses": successful_count,
-            "strong_signals": strong_kronos_signals,
-            "all_results": kronos_results
-        }
+        # 确定通知优先级
+        total_signals = (
+            len(trading_result.get("strong_signals", [])) +
+            funding_result.get("opportunities_count", 0) +
+            kronos_result.get("summary", {}).get("total_strong_opportunities", 0)
+        )
+        
+        priority = "high" if total_signals > 0 else "medium" if failed_tasks == 0 else "low"
+        
+        await notification_service.send_notification(
+            title=f"🚀 系统启动完成 ({successful_tasks}/{successful_tasks + failed_tasks})",
+            message=message,
+            notification_type="system_startup",
+            priority=priority
+        )
+        
+        logger.info(f"✅ 启动摘要通知已发送 (优先级: {priority})")
         
     except Exception as e:
-        logger.error(f"❌ Kronos专门分析失败: {e}")
-        return {"status": "error", "error": str(e)}
+        logger.warning(f"⚠️ 发送启动摘要通知失败: {e}")
 
 async def perform_startup_funding_analysis():
     """启动时执行负费率分析和推送"""
@@ -401,75 +413,34 @@ async def lifespan(app: FastAPI):
         from app.services.intelligent_trading_notification_service import IntelligentTradingNotificationService
         intelligent_notification_service = IntelligentTradingNotificationService()
         
-        # 使用新的Kronos市场机会扫描服务
+        # ❌ 已移除重复的Kronos市场机会扫描服务 - 已整合到调度器的趋势分析任务中
+        # 原因: 避免与调度器中的_trend_analysis_job重复分析相同币种
+        # 新的整合方案: 调度器中的趋势分析任务已增强为"Kronos核心信号分析"，每15分钟执行
+        
+        # if settings.kronos_config.get('enable_kronos_prediction', False):
+        #     from app.services.kronos_market_opportunity_service import get_kronos_market_opportunity_service
+        #     
+        #     async def kronos_strong_opportunities_scan():
+        #         """Kronos强交易机会扫描 - 每30分钟 (已移除，避免重复)"""
+        #         # 此功能已整合到调度器的_trend_analysis_job中
+        #         pass
+        #     
+        #     # 移除重复的扫描任务
+        #     # scheduler.add_job(kronos_strong_opportunities_scan, ...)
+        #     
+        #     logger.info("🔄 Kronos强交易机会扫描已整合到调度器趋势分析任务中")
+        # else:
+        #     logger.info("📴 Kronos预测已禁用")
+        
+        # 📝 优化说明: 
+        # 1. 原来的市场扫描任务(每30分钟) + 趋势分析任务(每15分钟) = 重复分析
+        # 2. 现在统一为调度器中的"Kronos核心信号分析"任务(每15分钟)
+        # 3. 提供更详细的技术分析和精准的交易建议
+        
         if settings.kronos_config.get('enable_kronos_prediction', False):
-            from app.services.kronos_market_opportunity_service import get_kronos_market_opportunity_service
-            
-            async def kronos_strong_opportunities_scan():
-                """Kronos强交易机会扫描 - 每30分钟"""
-                try:
-                    logger.info("🤖 开始Kronos强交易机会扫描...")
-                    market_service = await get_kronos_market_opportunity_service()
-                    
-                    result = await market_service.scan_strong_trading_opportunities(force_scan=False)
-                    
-                    if result.get("status") == "success":
-                        opportunities = result.get("opportunities_found", 0)
-                        notifications = result.get("notifications_sent", 0)
-                        logger.info(f"✅ Kronos强机会扫描完成: 发现 {opportunities} 个机会，发送 {notifications} 条通知")
-                    elif result.get("status") == "skipped":
-                        logger.debug("📊 Kronos强机会扫描跳过（未到间隔时间）")
-                    else:
-                        logger.warning(f"⚠️ Kronos强机会扫描异常: {result.get('message', '未知')}")
-                        
-                except Exception as e:
-                    logger.error(f"❌ Kronos强机会扫描失败: {e}")
-            
-            async def kronos_grid_opportunities_scan():
-                """Kronos网格交易机会扫描 - 每2小时"""
-                try:
-                    logger.info("🎯 开始Kronos网格交易机会扫描...")
-                    market_service = await get_kronos_market_opportunity_service()
-                    
-                    result = await market_service.scan_grid_trading_opportunities(force_scan=False)
-                    
-                    if result.get("status") == "success":
-                        opportunities = result.get("grid_opportunities", 0)
-                        notifications = result.get("notifications_sent", 0)
-                        logger.info(f"✅ Kronos网格扫描完成: 发现 {opportunities} 个网格机会，发送 {notifications} 条通知")
-                    elif result.get("status") == "skipped":
-                        logger.debug("📊 Kronos网格扫描跳过（未到间隔时间）")
-                    else:
-                        logger.warning(f"⚠️ Kronos网格扫描异常: {result.get('message', '未知')}")
-                        
-                except Exception as e:
-                    logger.error(f"❌ Kronos网格扫描失败: {e}")
-            
-            # 添加强交易机会扫描任务（每30分钟）
-            scheduler.add_job(
-                kronos_strong_opportunities_scan,
-                'interval',
-                minutes=30,
-                id='kronos_strong_opportunities_scan',
-                name='Kronos强交易机会扫描'
-            )
-            logger.info("✅ Kronos强交易机会扫描已启动（30分钟间隔）")
-            
-            # 网格交易机会扫描任务已暂时禁用
-            # scheduler.add_job(
-            #     kronos_grid_opportunities_scan,
-            #     'interval',
-            #     hours=2,
-            #     id='kronos_grid_opportunities_scan',
-            #     name='Kronos网格交易机会扫描'
-            # )
-            logger.info("⚠️ Kronos网格交易机会扫描已暂时禁用")
-
-
-
-
+            logger.info("✅ Kronos预测已启用，核心信号分析由调度器统一管理")
         else:
-            logger.info("📴 Kronos预测已禁用，跳过所有Kronos扫描任务")
+            logger.info("📴 Kronos预测已禁用")
         
         # 添加负费率监控定时任务
         funding_monitor = NegativeFundingMonitorService()
@@ -553,123 +524,60 @@ async def lifespan(app: FastAPI):
             # 将服务存储到应用状态
             app.state.kronos_position_service = kronos_position_service
         
-        # 启动时交易决策分析 - 使用新的核心服务
-        try:
-            startup_results = await perform_startup_trading_analysis()
-            app.state.startup_analysis_results = startup_results
-        except Exception as e:
-            logger.warning(f"⚠️ 启动交易分析失败: {e}")
-            app.state.startup_analysis_results = {"status": "error", "error": str(e)}
+        # 🚀 启动时并发执行所有分析任务 - 异步优化
+        logger.info("🚀 开始并发执行启动分析任务...")
+        startup_tasks = []
         
-        # 启动时执行负费率分析和推送
-        try:
-            funding_results = await perform_startup_funding_analysis()
-            app.state.startup_funding_results = funding_results
-        except Exception as e:
-            logger.warning(f"⚠️ 启动负费率分析失败: {e}")
-            app.state.startup_funding_results = {"status": "error", "error": str(e)}
+        # 1. 核心交易决策分析任务
+        startup_tasks.append(("trading_analysis", perform_startup_trading_analysis()))
         
-        # 启动时执行新闻分析
+        # 2. 负费率分析任务
+        startup_tasks.append(("funding_analysis", perform_startup_funding_analysis()))
+        
+        # 3. 新闻分析任务 (如果启用)
         if settings.news_config.get('enable_news_analysis', True):
-            try:
-                news_results = await perform_startup_news_analysis()
-                app.state.startup_news_results = news_results
-            except Exception as e:
-                logger.warning(f"⚠️ 启动新闻分析失败: {e}")
-                app.state.startup_news_results = {"status": "error", "error": str(e)}
-        else:
-            logger.info("📴 新闻分析已禁用，跳过启动新闻分析")
-            app.state.startup_news_results = {"status": "disabled"}
+            startup_tasks.append(("news_analysis", perform_startup_news_analysis()))
         
-        # 启动时执行Kronos市场机会扫描
-        if settings.kronos_config.get('enable_kronos_prediction', False):
-            try:
-                # 执行启动时的市场机会扫描
-                from app.services.kronos_market_opportunity_service import get_kronos_market_opportunity_service
-                
-                market_service = await get_kronos_market_opportunity_service()
-                
-                # 并行执行强信号和网格机会扫描
-                import asyncio
-                strong_task = market_service.scan_strong_trading_opportunities(force_scan=True)
-                # 网格交易扫描已暂时禁用
-                # grid_task = market_service.scan_grid_trading_opportunities(force_scan=True)
-                
-                strong_result = await strong_task
-                # strong_result, grid_result = await asyncio.gather(strong_task, grid_task)
-                
-                # 汇总启动扫描结果
-                startup_scan_results = {
-                    "status": "success",
-                    "scan_time": datetime.now(),
-                    "strong_opportunities": strong_result,
-                    "grid_opportunities": grid_result,
-                    "summary": {
-                        "total_strong_opportunities": strong_result.get("opportunities_found", 0),
-                        "total_grid_opportunities": grid_result.get("grid_opportunities", 0),
-                        "total_notifications": (
-                            strong_result.get("notifications_sent", 0) + 
-                            grid_result.get("notifications_sent", 0)
-                        )
-                    }
-                }
-                
-                app.state.startup_kronos_results = startup_scan_results
-                
-                # 记录启动扫描结果
-                strong_count = startup_scan_results["summary"]["total_strong_opportunities"]
-                grid_count = startup_scan_results["summary"]["total_grid_opportunities"]
-                total_notifications = startup_scan_results["summary"]["total_notifications"]
-                
-                logger.info(f"🤖 Kronos启动市场扫描完成:")
-                logger.info(f"   🚀 强交易机会: {strong_count} 个")
-                logger.info(f"   🎯 网格机会: {grid_count} 个")
-                logger.info(f"   📢 发送通知: {total_notifications} 条")
-                
-                # 如果有机会发现，发送启动摘要通知
-                if strong_count > 0 or grid_count > 0:
-                    from app.services.notification_service import NotificationService
-                    notification_service = NotificationService()
-                    
-                    message = f"🤖 **Kronos启动市场扫描完成**\n\n"
-                    
-                    if strong_count > 0:
-                        message += f"🚀 发现 {strong_count} 个强交易机会\n"
-                        # 显示前3个强机会
-                        top_strong = strong_result.get("top_opportunities", [])[:3]
-                        for i, opp in enumerate(top_strong, 1):
-                            symbol = opp.get("symbol", "").replace("-USDT-SWAP", "")
-                            direction = opp.get("direction", "")
-                            score = opp.get("opportunity_score", 0)
-                            message += f"   {i}. {symbol} {direction} (评分: {score:.0f})\n"
-                        message += "\n"
-                    
-                    if grid_count > 0:
-                        message += f"🎯 发现 {grid_count} 个网格交易机会\n"
-                        # 显示前3个网格机会
-                        top_grid = grid_result.get("top_grid_opportunities", [])[:3]
-                        for i, opp in enumerate(top_grid, 1):
-                            symbol = opp.get("symbol", "").replace("-USDT-SWAP", "")
-                            score = opp.get("opportunity_score", 0)
-                            message += f"   {i}. {symbol} 网格 (评分: {score:.0f})\n"
-                        message += "\n"
-                    
-                    message += f"⏰ 扫描时间: {datetime.now().strftime('%H:%M:%S')}\n"
-                    message += f"💡 仅推送Kronos AI识别的高质量机会"
-                    
-                    await notification_service.send_notification(
-                        title=f"🤖 Kronos启动扫描: {strong_count + grid_count}个机会",
-                        message=message,
-                        notification_type="kronos_startup_scan",
-                        priority="high" if strong_count > 0 else "medium"
-                    )
-                        
-            except Exception as e:
-                logger.warning(f"⚠️ Kronos启动市场扫描失败: {e}")
-                app.state.startup_kronos_results = {"status": "error", "error": str(e)}
-        else:
-            logger.info("📴 Kronos预测已禁用，跳过启动市场扫描")
-            app.state.startup_kronos_results = {"status": "disabled"}
+        # 4. Kronos市场机会扫描任务 - 已整合到核心交易决策分析中，避免重复推送
+        # 原因: perform_startup_trading_analysis() 已经包含了Kronos分析功能
+        # 不再需要单独的市场扫描任务
+        logger.info("🔄 Kronos市场扫描已整合到核心交易决策分析中，避免重复推送")
+        
+        # 并发执行所有启动任务
+        task_names = [name for name, _ in startup_tasks]
+        task_coroutines = [task for _, task in startup_tasks]
+        
+        logger.info(f"📊 准备并发执行 {len(task_coroutines)} 个启动任务: {task_names}")
+        
+        # 使用 asyncio.gather 并发执行，允许部分失败
+        startup_results = await asyncio.gather(*task_coroutines, return_exceptions=True)
+        
+        # 处理并发执行结果
+        successful_tasks = 0
+        failed_tasks = 0
+        
+        for i, (task_name, result) in enumerate(zip(task_names, startup_results)):
+            if isinstance(result, Exception):
+                logger.warning(f"⚠️ 启动任务 {task_name} 失败: {result}")
+                setattr(app.state, f"startup_{task_name}_results", {"status": "error", "error": str(result)})
+                failed_tasks += 1
+            else:
+                logger.info(f"✅ 启动任务 {task_name} 完成")
+                setattr(app.state, f"startup_{task_name}_results", result)
+                successful_tasks += 1
+        
+        # 记录并发执行总结
+        total_tasks = len(task_coroutines)
+        logger.info(f"🎯 启动任务并发执行完成: {successful_tasks}/{total_tasks} 成功, {failed_tasks} 失败")
+        
+        # 设置默认状态 (兼容性)
+        if not hasattr(app.state, 'startup_news_analysis_results'):
+            app.state.startup_news_analysis_results = {"status": "disabled"}
+        if not hasattr(app.state, 'startup_kronos_market_scan_results'):
+            app.state.startup_kronos_market_scan_results = {"status": "disabled"}
+        
+        # 发送启动完成摘要通知
+        await send_startup_summary_notification(app.state, successful_tasks, failed_tasks)
         
         # 初始化Kronos预测服务（可选）
         if settings.kronos_config.get('enable_kronos_prediction', False):
