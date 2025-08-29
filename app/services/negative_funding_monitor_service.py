@@ -20,6 +20,7 @@ import numpy as np
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from app.services.okx_service import OKXService
+from app.services.core_notification_service import get_core_notification_service
 from app.services.notification_service import NotificationService
 from app.core.logging import get_logger
 from app.core.config import get_settings
@@ -98,7 +99,7 @@ class NegativeFundingMonitorService:
     
     def __init__(self):
         self.okx_service = OKXService()
-        self.notification_service = NotificationService()
+        self.notification_service = None  # Will be initialized async
         
         # 历史费率数据存储 (用于检测显著变化)
         self.funding_rate_history = {}  # {symbol: [(timestamp, rate), ...]}
@@ -132,6 +133,11 @@ class NegativeFundingMonitorService:
             'risk_per_trade': 0.02,             # 单笔交易风险比例
             'min_risk_reward_ratio': 2.0        # 最小风险收益比
         }
+    
+    async def _ensure_notification_service(self):
+        """确保通知服务已初始化"""
+        if self.notification_service is None:
+            self.notification_service = await get_core_notification_service()
     
     async def get_all_funding_rates_optimized(self) -> List[Dict[str, Any]]:
         """优化版：直接从OKX获取所有SWAP交易对，然后批量获取费率"""
@@ -798,11 +804,26 @@ class NegativeFundingMonitorService:
             # 7. 发送通知（只有发现机会时才发送）
             if opportunities:
                 try:
+                    # 确保通知服务已初始化
+                    await self._ensure_notification_service()
+                    
                     # 直接发送详细的负费率机会分析消息
-                    results = await self.notification_service.send_notification(
-                        notification_message,
-                        priority="normal"
+                    from app.services.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+                    
+                    content = NotificationContent(
+                        type=NotificationType.FUNDING_RATE,
+                        priority=NotificationPriority.NORMAL,
+                        title="💰 负费率套利机会",
+                        message=notification_message,
+                        metadata={
+                            'opportunities': opportunities,  # 添加完整的机会数据
+                            'opportunities_count': len(opportunities),
+                            'monitoring_type': 'negative_funding',
+                            'skip_formatting': True  # 标记跳过重新格式化
+                        }
                     )
+                    
+                    results = await self.notification_service.send_notification(content)
                     if any(results.values()):
                         logger.info("✅ 负费率机会通知已发送")
                         logger.debug(f"📱 推送消息内容:\n{'-'*80}\n{notification_message}\n{'-'*80}")

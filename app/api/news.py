@@ -14,7 +14,7 @@ from app.schemas.news import (
     NewsItem, NewsAnalysisResult
 )
 from app.services.news_analysis_service import NewsAnalysisService
-from app.services.notification_service import NotificationService
+from app.services.core_notification_service import get_core_notification_service
 
 logger = get_logger(__name__)
 router = APIRouter()

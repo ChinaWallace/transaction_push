@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from app.core.config import get_settings
 from app.core.logging import get_logger, trading_logger
 from app.services.kronos_integrated_decision_service import get_kronos_integrated_service, KronosEnhancedDecision
-from app.services.notification_service import NotificationService
+from app.services.core_notification_service import get_core_notification_service
 from app.services.okx_service import OKXService
 
 
@@ -40,7 +40,7 @@ class KronosPositionAnalysisService:
     def __init__(self):
         self.settings = get_settings()
         self.logger = get_logger(__name__)
-        self.notification_service = NotificationService()
+        self.notification_service = None  # Will be initialized async
         self.okx_service = OKXService()
         
         # 分析配置
@@ -48,22 +48,37 @@ class KronosPositionAnalysisService:
             'enable_notifications': True,
             'min_position_value': 100,  # 最小持仓价值(USDT)
             'high_risk_threshold': 0.15,  # 15%风险阈值
-            'notification_cooldown_hours': 2,  # 通知冷却时间
+            'notification_cooldown_minutes': 30,  # 通知冷却时间改为30分钟
+            'urgent_notification_cooldown_minutes': 10,  # 紧急情况冷却时间10分钟
+            'high_risk_notification_cooldown_minutes': 15,  # 高风险情况冷却时间15分钟
         }
         
         # 通知历史
         self.last_notification_time = None
+    
+    def update_notification_config(self, **kwargs):
+        """更新通知配置"""
+        for key, value in kwargs.items():
+            if key in self.analysis_config:
+                old_value = self.analysis_config[key]
+                self.analysis_config[key] = value
+                self.logger.info(f"📝 更新配置 {key}: {old_value} -> {value}")
+            else:
+                self.logger.warning(f"⚠️ 未知配置项: {key}")
+    
+    def get_notification_config(self) -> Dict[str, Any]:
+        """获取当前通知配置"""
+        return self.analysis_config.copy()
+    
+    async def _ensure_notification_service(self):
+        """确保通知服务已初始化"""
+        if self.notification_service is None:
+            self.notification_service = await get_core_notification_service()
         
     async def run_scheduled_analysis(self, force_notification: bool = False) -> Dict[str, Any]:
         """运行定时持仓分析"""
         try:
             self.logger.info(f"🤖 开始定时Kronos持仓分析... (实例ID: {id(self)}, 强制推送: {force_notification})")
-            
-            # 检查通知冷却（启动时强制推送）
-            if not force_notification and not self._should_send_notification():
-                cooldown_remaining = self._get_cooldown_remaining_minutes()
-                self.logger.info(f"⏰ 通知冷却期内，跳过推送 (剩余冷却时间: {cooldown_remaining:.1f}分钟)")
-                return {"status": "skipped", "reason": "cooldown", "cooldown_remaining_minutes": cooldown_remaining}
             
             # 获取当前持仓
             positions = await self._get_current_positions()
@@ -80,6 +95,19 @@ class KronosPositionAnalysisService:
             
             # 生成综合报告
             report = await self._generate_comprehensive_report(analysis_results)
+            
+            # 检查通知冷却（基于分析结果动态调整）
+            if not force_notification and not self._should_send_notification(analysis_results):
+                cooldown_remaining = self._get_cooldown_remaining_minutes(analysis_results)
+                self.logger.info(f"⏰ 通知冷却期内，跳过推送 (剩余冷却时间: {cooldown_remaining:.1f}分钟)")
+                return {
+                    "status": "analyzed_no_notification", 
+                    "reason": "cooldown", 
+                    "cooldown_remaining_minutes": cooldown_remaining,
+                    "positions_analyzed": len(analysis_results),
+                    "report": report,
+                    "analysis_time": datetime.now().isoformat()
+                }
             
             # 发送通知
             if self.analysis_config['enable_notifications'] and analysis_results:
@@ -636,6 +664,8 @@ class KronosPositionAnalysisService:
     async def _send_position_analysis_notification(self, report: Dict[str, Any], analysis_results: List[PositionAnalysisResult]):
         """发送持仓分析通知"""
         try:
+            # 确保通知服务已初始化
+            await self._ensure_notification_service()
             # 获取报告数据
             total_positions = report.get("total_positions", 0)
             total_equity = report.get("total_equity", 0)
@@ -812,11 +842,24 @@ class KronosPositionAnalysisService:
             message = "\n".join(message_parts)
             
             # 发送通知
-            results = await self.notification_service.send_notification(
-                message=message,
-                priority=priority,
-                subject=title
+            from app.services.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+            
+            # 转换优先级字符串为枚举
+            priority_map = {
+                'low': NotificationPriority.LOW,
+                'medium': NotificationPriority.NORMAL,
+                'high': NotificationPriority.HIGH,
+                'urgent': NotificationPriority.URGENT
+            }
+            
+            notification_content = NotificationContent(
+                type=NotificationType.POSITION_ANALYSIS,
+                priority=priority_map.get(priority, NotificationPriority.NORMAL),
+                title=title,
+                message=message
             )
+            
+            results = await self.notification_service.send_notification(notification_content)
             
             # 检查是否有任何渠道发送成功
             success = any(results.values()) if isinstance(results, dict) else bool(results)
@@ -835,33 +878,50 @@ class KronosPositionAnalysisService:
             self.logger.error(f"发送持仓分析通知失败: {e}")
             return False
     
-    def _should_send_notification(self) -> bool:
-        """检查是否应该发送通知"""
+    def _should_send_notification(self, analysis_results: List[PositionAnalysisResult] = None) -> bool:
+        """检查是否应该发送通知（基于冷却时间和紧急程度）"""
         if not self.last_notification_time:
             self.logger.info("📅 首次运行，允许发送通知")
             return True
         
-        cooldown_hours = self.analysis_config['notification_cooldown_hours']
+        # 根据分析结果确定冷却时间
+        cooldown_minutes = self._get_dynamic_cooldown_minutes(analysis_results)
         time_since_last = datetime.now() - self.last_notification_time
-        cooldown_seconds = cooldown_hours * 3600
+        cooldown_seconds = cooldown_minutes * 60
         
         should_send = time_since_last.total_seconds() >= cooldown_seconds
         
         self.logger.info(f"🕐 冷却检查: 上次通知时间 {self.last_notification_time.strftime('%H:%M:%S')}, "
                         f"已过去 {time_since_last.total_seconds()/60:.1f}分钟, "
-                        f"冷却期 {cooldown_hours}小时, "
+                        f"冷却期 {cooldown_minutes}分钟, "
                         f"允许发送: {should_send}")
         
         return should_send
     
-    def _get_cooldown_remaining_minutes(self) -> float:
+    def _get_dynamic_cooldown_minutes(self, analysis_results: List[PositionAnalysisResult] = None) -> int:
+        """根据分析结果动态确定冷却时间"""
+        if not analysis_results:
+            return self.analysis_config['notification_cooldown_minutes']
+        
+        # 检查是否有紧急情况
+        urgent_count = sum(1 for r in analysis_results if r.urgency_level == "紧急")
+        high_risk_count = sum(1 for r in analysis_results if r.risk_assessment in ["极高风险", "高风险"])
+        
+        if urgent_count > 0:
+            return self.analysis_config['urgent_notification_cooldown_minutes']
+        elif high_risk_count > 0:
+            return self.analysis_config['high_risk_notification_cooldown_minutes']
+        else:
+            return self.analysis_config['notification_cooldown_minutes']
+    
+    def _get_cooldown_remaining_minutes(self, analysis_results: List[PositionAnalysisResult] = None) -> float:
         """获取剩余冷却时间（分钟）"""
         if not self.last_notification_time:
             return 0.0
         
-        cooldown_hours = self.analysis_config['notification_cooldown_hours']
+        cooldown_minutes = self._get_dynamic_cooldown_minutes(analysis_results)
         time_since_last = datetime.now() - self.last_notification_time
-        cooldown_seconds = cooldown_hours * 3600
+        cooldown_seconds = cooldown_minutes * 60
         
         remaining_seconds = cooldown_seconds - time_since_last.total_seconds()
         return max(0.0, remaining_seconds / 60)

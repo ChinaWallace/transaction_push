@@ -14,7 +14,7 @@ from app.core.logging import get_logger, trading_logger
 from app.core.config import get_settings
 from app.services.okx_service import OKXService
 from app.services.trading_decision_service import TradingDecisionService, RiskLevel
-from app.services.notification_service import NotificationService
+from app.services.core_notification_service import get_core_notification_service
 from app.utils.exceptions import TradingToolError
 
 logger = get_logger(__name__)
@@ -45,7 +45,7 @@ class PositionAnalysisService:
     def __init__(self):
         self.exchange_service = OKXService()
         self.trading_service = TradingDecisionService()
-        self.notification_service = NotificationService()
+        self.notification_service = None  # Will be initialized async
         
         # 风险阈值配置
         self.risk_thresholds = {
@@ -82,6 +82,11 @@ class PositionAnalysisService:
                 'spot': 'OKB-USDT'
             }
         }
+    
+    async def _ensure_notification_service(self):
+        """确保通知服务已初始化"""
+        if self.notification_service is None:
+            self.notification_service = await get_core_notification_service()
     
     async def analyze_account_positions(self) -> Dict[str, Any]:
         """
@@ -846,11 +851,21 @@ class PositionAnalysisService:
             else:
                 priority = "normal"
             
-            # 发送通知
-            success_results = await self.notification_service.send_notification(
-                message=f"{title}\n\n{message}",
-                priority=priority
-            )
+            # 确保通知服务已初始化
+            await self._ensure_notification_service()
+            
+            # 发送通知 (添加超时保护)
+            try:
+                success_results = await asyncio.wait_for(
+                    self.notification_service.send_notification(
+                        message=f"{title}\n\n{message}",
+                        priority=priority
+                    ),
+                    timeout=30.0  # 30秒超时
+                )
+            except asyncio.TimeoutError:
+                logger.warning("⏰ 持仓分析通知发送超时，跳过通知")
+                return False
             
             success = any(success_results.values()) if success_results else False
             
@@ -1250,11 +1265,21 @@ class PositionAnalysisService:
             
             message = "\n".join(message_parts)
             
-            # 发送通知
-            success_results = await self.notification_service.send_notification(
-                message=f"{title}\n\n{message}",
-                priority="normal"
-            )
+            # 确保通知服务已初始化
+            await self._ensure_notification_service()
+            
+            # 发送通知 (添加超时保护)
+            try:
+                success_results = await asyncio.wait_for(
+                    self.notification_service.send_notification(
+                        message=f"{title}\n\n{message}",
+                        priority="normal"
+                    ),
+                    timeout=30.0  # 30秒超时
+                )
+            except asyncio.TimeoutError:
+                logger.warning("⏰ 市场分析通知发送超时，跳过通知")
+                return False
             
             success = any(success_results.values()) if success_results else False
             

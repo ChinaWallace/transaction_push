@@ -45,10 +45,10 @@ class NotificationType(Enum):
 
 class NotificationPriority(Enum):
     """通知优先级"""
-    LOW = "low"
-    NORMAL = "normal"
-    HIGH = "high"
-    URGENT = "urgent"
+    LOW = 1
+    NORMAL = 2
+    HIGH = 3
+    URGENT = 4
 
 
 class NotificationChannel(Enum):
@@ -106,6 +106,7 @@ class CoreNotificationService:
         
         # 通知历史和频率控制
         self.notification_history = {}  # type -> last_sent_time
+        self.symbol_notification_history = {}  # (type, symbol) -> last_sent_time (用于交易信号)
         self.hourly_counts = {}         # type -> count per hour
         self.last_hour_reset = datetime.now().hour
         
@@ -134,11 +135,11 @@ class CoreNotificationService:
     def _initialize_notification_rules(self) -> Dict[NotificationType, NotificationRule]:
         """初始化通知规则"""
         return {
-            # 交易信号 - 高优先级，立即推送
+            # 交易信号 - 降低最低优先级要求，支持更多强信号
             NotificationType.TRADING_SIGNAL: NotificationRule(
                 type=NotificationType.TRADING_SIGNAL,
-                min_priority=NotificationPriority.HIGH,
-                cooldown_minutes=15,
+                min_priority=NotificationPriority.NORMAL,  # 从HIGH降低到NORMAL
+                cooldown_minutes=5,  # 强信号冷却时间5分钟
                 filter_func=self._filter_trading_signal,
                 format_func=self._format_trading_signal
             ),
@@ -184,11 +185,12 @@ class CoreNotificationService:
                 format_func=self._format_ml_prediction
             ),
             
-            # 系统警报 - 立即推送
+            # 系统警报 - 添加过滤器，过滤系统启动状态信息
             NotificationType.SYSTEM_ALERT: NotificationRule(
                 type=NotificationType.SYSTEM_ALERT,
                 min_priority=NotificationPriority.HIGH,
                 cooldown_minutes=5,
+                filter_func=self._filter_system_alert,
             ),
         }
     
@@ -203,14 +205,27 @@ class CoreNotificationService:
             各渠道发送结果
         """
         try:
+            # 特别记录交易信号的处理过程
+            if content.type == NotificationType.TRADING_SIGNAL:
+                symbol = content.metadata.get('symbol', 'Unknown')
+                confidence = content.metadata.get('confidence', 0)
+                action = content.metadata.get('action', 'Unknown')
+                logger.info(f"🔍 处理交易信号: {symbol} {action} (置信度: {confidence:.2f})")
+            
             # 检查通知规则
             if not self._should_send_notification(content):
-                logger.debug(f"跳过通知: {content.type.value} - 不满足发送条件")
+                if content.type == NotificationType.TRADING_SIGNAL:
+                    logger.warning(f"❌ 交易信号被规则拦截: {content.metadata.get('symbol')} - 不满足发送条件")
+                else:
+                    logger.debug(f"跳过通知: {content.type.value} - 不满足发送条件")
                 return {}
             
             # 应用过滤规则
             if not self._apply_filters(content):
-                logger.debug(f"跳过通知: {content.type.value} - 被过滤器拦截")
+                if content.type == NotificationType.TRADING_SIGNAL:
+                    logger.warning(f"❌ 交易信号被过滤器拦截: {content.metadata.get('symbol')}")
+                else:
+                    logger.debug(f"跳过通知: {content.type.value} - 被过滤器拦截")
                 return {}
             
             # 检查是否需要批量处理
@@ -218,6 +233,9 @@ class CoreNotificationService:
                 return await self._add_to_batch(content)
             
             # 立即发送
+            if content.type == NotificationType.TRADING_SIGNAL:
+                logger.info(f"✅ 交易信号通过所有检查，准备发送: {content.metadata.get('symbol')}")
+            
             return await self._send_immediately(content)
             
         except Exception as e:
@@ -233,13 +251,19 @@ class CoreNotificationService:
         
         # 检查优先级
         if content.priority.value < rule.min_priority.value:
-            logger.debug(f"通知优先级不足: {content.priority.value} < {rule.min_priority.value}")
+            logger.debug(f"通知优先级不足: {content.priority.name} ({content.priority.value}) < {rule.min_priority.name} ({rule.min_priority.value})")
             return False
         
-        # 检查冷却时间
-        if not self._check_cooldown(content.type, rule.cooldown_minutes):
-            logger.debug(f"通知冷却时间未到: {content.type.value}")
-            return False
+        # 检查冷却时间 - 交易信号按交易对独立检查
+        if content.type == NotificationType.TRADING_SIGNAL:
+            symbol = content.metadata.get('symbol', 'Unknown')
+            if not self._check_symbol_cooldown(content.type, symbol, rule.cooldown_minutes):
+                logger.debug(f"交易信号冷却时间未到: {content.type.value} - {symbol}")
+                return False
+        else:
+            if not self._check_cooldown(content.type, rule.cooldown_minutes):
+                logger.debug(f"通知冷却时间未到: {content.type.value}")
+                return False
         
         # 检查频率限制
         if not self._check_rate_limit(content.type):
@@ -256,7 +280,30 @@ class CoreNotificationService:
             return True
         
         time_since_last = datetime.now() - last_sent
-        return time_since_last >= timedelta(minutes=cooldown_minutes)
+        cooldown_passed = time_since_last >= timedelta(minutes=cooldown_minutes)
+        
+        # 如果冷却时间未到，记录详细信息
+        if not cooldown_passed:
+            remaining_seconds = (timedelta(minutes=cooldown_minutes) - time_since_last).total_seconds()
+            logger.debug(f"冷却时间未到: {notification_type.value}, 还需等待 {remaining_seconds:.0f} 秒")
+        
+        return cooldown_passed
+    
+    def _check_symbol_cooldown(self, notification_type: NotificationType, symbol: str, cooldown_minutes: int) -> bool:
+        """检查特定交易对的冷却时间"""
+        key = (notification_type, symbol)
+        last_sent = self.symbol_notification_history.get(key)
+        if last_sent is None:
+            return True
+        
+        time_since_last = datetime.now() - last_sent
+        cooldown_passed = time_since_last >= timedelta(minutes=cooldown_minutes)
+        
+        if not cooldown_passed:
+            remaining_seconds = (timedelta(minutes=cooldown_minutes) - time_since_last).total_seconds()
+            logger.debug(f"交易对冷却时间未到: {symbol}, 还需等待 {remaining_seconds:.0f} 秒")
+        
+        return cooldown_passed
     
     def _check_rate_limit(self, notification_type: NotificationType) -> bool:
         """检查频率限制"""
@@ -383,7 +430,8 @@ class CoreNotificationService:
                 results[channel_name] = False
         
         # 更新发送历史
-        self._update_notification_history(content.type)
+        symbol = content.metadata.get('symbol') if content.type == NotificationType.TRADING_SIGNAL else None
+        self._update_notification_history(content.type, symbol)
         
         return results
     
@@ -408,10 +456,16 @@ class CoreNotificationService:
         else:
             return [NotificationChannel.FEISHU]
     
-    def _update_notification_history(self, notification_type: NotificationType):
+    def _update_notification_history(self, notification_type: NotificationType, symbol: str = None):
         """更新通知历史"""
-        self.notification_history[notification_type] = datetime.now()
+        now = datetime.now()
+        self.notification_history[notification_type] = now
         self.hourly_counts[notification_type] = self.hourly_counts.get(notification_type, 0) + 1
+        
+        # 如果是交易信号，也更新交易对特定的历史
+        if notification_type == NotificationType.TRADING_SIGNAL and symbol:
+            key = (notification_type, symbol)
+            self.symbol_notification_history[key] = now
     
     async def _get_http_manager(self):
         """获取HTTP管理器实例"""
@@ -534,22 +588,48 @@ class CoreNotificationService:
         """过滤交易信号"""
         signal_data = content.metadata
         confidence = signal_data.get('confidence', 0)
-        action = signal_data.get('action', '').lower()
+        action = signal_data.get('action', '').lower().strip()
+        strength = signal_data.get('strength', '').lower()
         
-        # 只推送高置信度的强烈买入/卖出信号
-        if confidence < 0.75:
+        # 🚫 过滤掉HOLD动作 - 持有操作不需要推送通知
+        hold_actions = ['hold', '持有', '观望', '持有观望', '等待', 'wait']
+        if action in hold_actions:
+            logger.debug(f"交易信号被过滤: HOLD动作不推送通知 - 动作: '{action}'")
             return False
         
-        # 支持中英文动作名称
+        # 降低置信度要求，支持更多强信号
+        min_confidence = 0.6  # 从0.75降低到0.6
+        
+        # 如果是强信号或很强信号，进一步降低置信度要求
+        if strength in ['strong', 'very_strong', '强', '很强', 'moderate', '中等']:
+            min_confidence = 0.5
+        
+        if confidence < min_confidence:
+            logger.debug(f"交易信号被过滤: 置信度 {confidence:.2f} < {min_confidence:.2f}")
+            return False
+        
+        # 扩展支持的动作名称，包括更多格式（移除hold相关动作）
         valid_actions = [
+            # 英文格式
             'strong_buy', 'strong_sell', 'buy', 'sell',
-            '强烈买入', '强烈卖出', '买入', '卖出'
+            'strongbuy', 'strongsell',
+            # 中文格式
+            '强烈买入', '强烈卖出', '买入', '卖出',
+            '强买入', '强卖出', '买', '卖',
+            # 其他可能的格式
+            'long', 'short', 'bullish', 'bearish'
         ]
         
-        if action not in valid_actions:
-            logger.debug(f"交易信号被过滤: 动作 '{action}' 不在有效列表中")
-            return False
+        # 如果动作为空或无效，但置信度很高，也允许通过
+        if not action or action not in valid_actions:
+            if confidence >= 0.8:  # 高置信度信号即使动作不明确也推送
+                logger.info(f"高置信度信号通过: 动作 '{action}', 置信度 {confidence:.2f}")
+                return True
+            else:
+                logger.debug(f"交易信号被过滤: 动作 '{action}' 不在有效列表中，置信度不够高")
+                return False
         
+        logger.debug(f"交易信号通过过滤: 动作 '{action}', 置信度 {confidence:.2f}")
         return True
     
     def _filter_kronos_prediction(self, content: NotificationContent) -> bool:
@@ -565,6 +645,28 @@ class CoreNotificationService:
         # 只推送高置信度预测
         return confidence >= 0.65
     
+    def _filter_system_alert(self, content: NotificationContent) -> bool:
+        """过滤系统警报"""
+        # 🚫 过滤掉系统启动完成的状态信息
+        title = content.title.lower()
+        message = content.message.lower()
+        
+        # 检查是否为系统启动相关的状态信息
+        startup_keywords = [
+            '系统启动完成', '启动完成', '交易分析工具启动完成', '启动报告',
+            '系统已就绪', '开始监控市场', '任务执行', '启动时间',
+            'startup completed', 'system ready', '核心交易分析',
+            '💰 负费率机会', '🤖 kronos扫描', '📊 任务执行'
+        ]
+        
+        for keyword in startup_keywords:
+            if keyword in title or keyword in message:
+                logger.debug(f"系统警报被过滤: 系统启动状态信息不推送 - 标题: '{content.title}'")
+                return False
+        
+        # 其他系统警报正常推送
+        return True
+    
     # ========== 格式化函数 ==========
     
     def _format_trading_signal(self, content: NotificationContent) -> NotificationContent:
@@ -573,59 +675,115 @@ class CoreNotificationService:
         symbol = data.get('symbol', 'Unknown')
         action = data.get('action', '未知')
         confidence = data.get('confidence', 0)
-        price = data.get('current_price', 0)
+        strength = data.get('strength', '')
         
-        # 智能处理置信度格式 - 自动检测是否已经是百分比格式
+        # 获取价格信息
+        current_price = data.get('current_price', 0) or data.get('price', 0) or data.get('entry_price', 0)
+        
+        # 智能处理置信度格式
         if confidence > 1.0:
-            # 如果大于1，说明已经是百分比格式，直接使用
             confidence_display = f"{confidence:.1f}%"
         else:
-            # 如果小于等于1，说明是小数格式，转换为百分比
             confidence_display = f"{confidence:.1%}"
         
-        # 获取止盈止损信息
-        stop_loss = data.get('stop_loss')
-        take_profit = data.get('take_profit')
-        reasoning = data.get('reasoning', '')
-        key_factors = data.get('key_factors', [])
+        # 获取详细信息
+        stop_loss = data.get('stop_loss') or data.get('stop_loss_price')
+        take_profit = data.get('take_profit') or data.get('take_profit_price') or data.get('target_price')
+        reasoning = data.get('reasoning', '') or data.get('analysis', '') or data.get('description', '')
+        key_factors = data.get('key_factors', []) or data.get('factors', [])
+        
+        # 获取额外的分析数据
+        expected_return = data.get('expected_return') or data.get('expected_return_percent')
+        risk_reward_ratio = data.get('risk_reward_ratio')
+        win_probability = data.get('win_probability')
+        position_size = data.get('position_size') or data.get('position_size_usdt')
+        leverage = data.get('leverage')
+        
+        # 构建强信号标题
+        strength_emoji = {
+            'very_strong': '🔥🔥🔥',
+            'strong': '🔥🔥',
+            'moderate': '🔥',
+            '很强': '🔥🔥🔥',
+            '强': '🔥🔥',
+            '中等': '🔥'
+        }.get(strength.lower(), '🚀')
         
         message_parts = [
-            f"🎯 {symbol} 交易信号",
-            "",
-            f"📊 交易动作: {action}",
-            f"🎲 置信度: {confidence_display}",
-            f"💰 当前价格: ${price:.4f}"
+            f"{strength_emoji} 【强信号】{symbol} 交易机会",
+            "=" * 40,
+            f"📊 交易动作: {action.upper()}",
+            f"🎯 信号强度: {strength or '强'} ({confidence_display})",
+            f"💰 当前价格: ${current_price:.4f}" if current_price else "💰 价格: 待获取"
         ]
         
-        # 添加止盈止损信息
-        if stop_loss:
-            message_parts.append(f"🛡️ 止损价格: ${stop_loss:.4f}")
-        if take_profit:
-            message_parts.append(f"🎯 止盈价格: ${take_profit:.4f}")
+        # 添加风险管理信息
+        if stop_loss or take_profit:
+            message_parts.append("")
+            message_parts.append("🎯 风险管理:")
+            if stop_loss:
+                loss_pct = ((current_price - stop_loss) / current_price * 100) if current_price else 0
+                message_parts.append(f"  🛡️ 止损: ${stop_loss:.4f} ({loss_pct:+.1f}%)")
+            if take_profit:
+                profit_pct = ((take_profit - current_price) / current_price * 100) if current_price else 0
+                message_parts.append(f"  🎯 止盈: ${take_profit:.4f} ({profit_pct:+.1f}%)")
         
+        # 添加收益预期
+        if expected_return or risk_reward_ratio or win_probability:
+            message_parts.append("")
+            message_parts.append("📈 收益预期:")
+            if expected_return:
+                if expected_return > 1:
+                    message_parts.append(f"  💎 预期收益: {expected_return:.1f}%")
+                else:
+                    message_parts.append(f"  💎 预期收益: {expected_return:.1%}")
+            if risk_reward_ratio:
+                message_parts.append(f"  ⚖️ 风险收益比: 1:{risk_reward_ratio:.1f}")
+            if win_probability:
+                if win_probability > 1:
+                    message_parts.append(f"  🎲 胜率: {win_probability:.1f}%")
+                else:
+                    message_parts.append(f"  🎲 胜率: {win_probability:.1%}")
+        
+        # 添加仓位建议
+        if position_size or leverage:
+            message_parts.append("")
+            message_parts.append("💼 仓位建议:")
+            if position_size:
+                message_parts.append(f"  💵 建议仓位: ${position_size:.0f} USDT")
+            if leverage:
+                message_parts.append(f"  📊 建议杠杆: {leverage}x")
+        
+        # 添加时间信息
         message_parts.extend([
             "",
-            f"⏰ 信号时间: {content.timestamp.strftime('%H:%M:%S')}"
+            f"⏰ 信号时间: {content.timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
         ])
         
         # 添加分析理由
         if reasoning:
             message_parts.extend([
                 "",
-                f"📈 分析理由: {reasoning[:200]}..."  # 限制长度
+                "📋 分析理由:",
+                f"  {reasoning[:300]}{'...' if len(reasoning) > 300 else ''}"
             ])
         
         # 添加关键因素
         if key_factors:
             message_parts.extend([
                 "",
-                "🔍 关键因素:",
-                *[f"  • {factor}" for factor in key_factors[:3]]  # 最多显示3个
+                "🔍 关键因素:"
             ])
+            for i, factor in enumerate(key_factors[:5], 1):  # 最多显示5个
+                message_parts.append(f"  {i}. {factor}")
         
+        # 添加风险提示
         message_parts.extend([
             "",
-            "⚠️ 请谨慎交易，注意风险控制！"
+            "⚠️ 风险提示:",
+            "  • 市场有风险，投资需谨慎",
+            "  • 严格执行止损，控制仓位",
+            "  • 本信号仅供参考，不构成投资建议"
         ])
         
         content.message = "\n".join(message_parts)
@@ -633,6 +791,11 @@ class CoreNotificationService:
     
     def _format_position_analysis(self, content: NotificationContent) -> NotificationContent:
         """格式化持仓分析"""
+        # 如果消息已经有详细内容，就不要覆盖它
+        if content.message and len(content.message.strip()) > 50:
+            return content
+            
+        # 只有在消息为空或很短时才使用默认格式
         data = content.metadata
         
         message = f"""💼 账户持仓分析报告
@@ -648,6 +811,11 @@ class CoreNotificationService:
     def _format_funding_rate(self, content: NotificationContent) -> NotificationContent:
         """格式化费率通知"""
         data = content.metadata
+        
+        # 如果标记跳过格式化，直接返回原内容
+        if data.get('skip_formatting'):
+            return content
+            
         opportunities = data.get('opportunities', [])
         
         if not opportunities:
@@ -744,10 +912,10 @@ class CoreNotificationService:
             
             # 根据优先级添加标识
             priority_icons = {
-                "low": "🔵",
-                "normal": "🟢", 
-                "high": "🟡",
-                "urgent": "🔴"
+                1: "🔵",  # LOW
+                2: "🟢",  # NORMAL
+                3: "🟡",  # HIGH
+                4: "🔴"   # URGENT
             }
             
             formatted_message = f"{priority_icons.get(priority, '🟢')} {message}"

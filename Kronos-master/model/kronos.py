@@ -387,58 +387,195 @@ def sample_from_logits(logits, temperature=1.0, top_k=None, top_p=None, sample_l
 
 
 def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context, pred_len, clip=5, T=1.0, top_k=0, top_p=0.99, sample_count=5, verbose=False):
-    with torch.no_grad():
-        batch_size = x.size(0)
-        initial_seq_len = x.size(1)
-        x = torch.clip(x, -clip, clip)
+    try:
+        with torch.no_grad():
+            # 输入验证
+            if x is None or x_stamp is None or y_stamp is None:
+                print("Error: Input tensors are None")
+                return None
+                
+            if not torch.is_tensor(x) or not torch.is_tensor(x_stamp) or not torch.is_tensor(y_stamp):
+                print("Error: Inputs must be tensors")
+                return None
+                
+            batch_size = x.size(0)
+            initial_seq_len = x.size(1)
+            x = torch.clip(x, -clip, clip)
 
-        device = x.device
-        x = x.unsqueeze(1).repeat(1, sample_count, 1, 1).reshape(-1, x.size(1), x.size(2)).to(device)
-        x_stamp = x_stamp.unsqueeze(1).repeat(1, sample_count, 1, 1).reshape(-1, x_stamp.size(1), x_stamp.size(2)).to(device)
-        y_stamp = y_stamp.unsqueeze(1).repeat(1, sample_count, 1, 1).reshape(-1, y_stamp.size(1), y_stamp.size(2)).to(device)
+            device = x.device
+            
+            # 确保维度正确性
+            if x.dim() != 3:
+                print(f"Error: x should be 3D tensor, got {x.dim()}D")
+                return None
+            if x_stamp.dim() != 3:
+                print(f"Error: x_stamp should be 3D tensor, got {x_stamp.dim()}D")
+                return None
+            if y_stamp.dim() != 3:
+                print(f"Error: y_stamp should be 3D tensor, got {y_stamp.dim()}D")
+                return None
+            
+            # 确保序列长度匹配
+            if x.size(1) != x_stamp.size(1):
+                print(f"Error: x and x_stamp sequence length mismatch: {x.size(1)} vs {x_stamp.size(1)}")
+                return None
+            
+            # 限制预测长度以避免内存问题
+            pred_len = min(pred_len, y_stamp.size(1))
+            
+            # 扩展样本维度
+            x = x.unsqueeze(1).repeat(1, sample_count, 1, 1).reshape(-1, x.size(1), x.size(2)).to(device)
+            x_stamp = x_stamp.unsqueeze(1).repeat(1, sample_count, 1, 1).reshape(-1, x_stamp.size(1), x_stamp.size(2)).to(device)
+            y_stamp = y_stamp.unsqueeze(1).repeat(1, sample_count, 1, 1).reshape(-1, y_stamp.size(1), y_stamp.size(2)).to(device)
 
-        x_token = tokenizer.encode(x, half=True)
+            # 检查 tokenizer 编码
+            try:
+                x_token = tokenizer.encode(x, half=True)
+                if x_token is None:
+                    print("Error: Tokenizer encode returned None")
+                    return None
+                    
+                # 验证token格式
+                if not isinstance(x_token, (list, tuple)) or len(x_token) != 2:
+                    print("Error: Tokenizer should return tuple of 2 tensors")
+                    return None
+                    
+                # 确保token维度正确
+                for i, token in enumerate(x_token):
+                    if not torch.is_tensor(token):
+                        print(f"Error: Token {i} is not a tensor")
+                        return None
+                    if token.dim() != 2:
+                        print(f"Error: Token {i} should be 2D, got {token.dim()}D")
+                        return None
+                        
+            except Exception as e:
+                print(f"Error in tokenizer encode: {e}")
+                return None
 
-        def get_dynamic_stamp(x_stamp, y_stamp, current_seq_len, pred_step):
+            def get_dynamic_stamp(x_stamp, y_stamp, token_len):
+                try:
+                    # 直接根据token长度返回对应的stamp
+                    if token_len <= x_stamp.size(1):
+                        # 如果token长度不超过x_stamp，直接截取
+                        return x_stamp[:, :token_len, :]
+                    else:
+                        # 如果需要更多长度，从y_stamp补充
+                        needed_y_len = token_len - x_stamp.size(1)
+                        needed_y_len = min(needed_y_len, y_stamp.size(1))
+                        
+                        if needed_y_len > 0:
+                            return torch.cat([x_stamp, y_stamp[:, :needed_y_len, :]], dim=1)
+                        else:
+                            return x_stamp
+                except Exception as e:
+                    print(f"Error in get_dynamic_stamp: {e}")
+                    return None
 
-            if current_seq_len <= max_context - pred_step:
-                return torch.cat([x_stamp, y_stamp[:, :pred_step, :]], dim=1)
+            if verbose:
+                ran = trange
             else:
-                start_idx = max_context - pred_step
-                return torch.cat([x_stamp[:, -start_idx:, :], y_stamp[:, :pred_step, :]], dim=1)
+                ran = range
+                
+            # 添加进度条异常处理
+            try:
+                for i in ran(pred_len):
+                    try:
+                        current_seq_len = initial_seq_len + i
 
-        if verbose:
-            ran = trange
-        else:
-            ran = range
-        for i in ran(pred_len):
-            current_seq_len = initial_seq_len + i
+                        # 动态调整输入长度以避免超出上下文限制
+                        if current_seq_len > max_context:
+                            # 截取最近的序列
+                            context_len = max_context - 1  # 留出空间给新预测
+                            input_tokens = [t[:, -context_len:].contiguous() for t in x_token]
+                        else:
+                            input_tokens = x_token
 
-            if current_seq_len <= max_context:
-                input_tokens = x_token
-            else:
-                input_tokens = [t[:, -max_context:].contiguous() for t in x_token]
+                        # 获取当前token长度并生成对应的stamp
+                        token_len = input_tokens[0].size(1)
+                        current_stamp = get_dynamic_stamp(x_stamp, y_stamp, token_len)
+                        if current_stamp is None:
+                            print(f"Error: get_dynamic_stamp returned None at step {i}")
+                            return None
+                            
+                        # 最终确保长度完全匹配
+                        if current_stamp.size(1) != token_len:
+                            if current_stamp.size(1) > token_len:
+                                current_stamp = current_stamp[:, :token_len, :]
+                            else:
+                                # 用最后一个时间戳填充
+                                pad_len = token_len - current_stamp.size(1)
+                                last_stamp = current_stamp[:, -1:, :].repeat(1, pad_len, 1)
+                                current_stamp = torch.cat([current_stamp, last_stamp], dim=1)
 
-            current_stamp = get_dynamic_stamp(x_stamp, y_stamp, current_seq_len, i)
+                        s1_logits, context = model.decode_s1(input_tokens[0], input_tokens[1], current_stamp)
+                        if s1_logits is None or context is None:
+                            print(f"Error: decode_s1 returned None at step {i}")
+                            return None
+                            
+                        s1_logits = s1_logits[:, -1, :]
+                        sample_pre = sample_from_logits(s1_logits, temperature=T, top_k=top_k, top_p=top_p, sample_logits=True)
+                        if sample_pre is None:
+                            print(f"Error: sample_from_logits (s1) returned None at step {i}")
+                            return None
 
-            s1_logits, context = model.decode_s1(input_tokens[0], input_tokens[1], current_stamp)
-            s1_logits = s1_logits[:, -1, :]
-            sample_pre = sample_from_logits(s1_logits, temperature=T, top_k=top_k, top_p=top_p, sample_logits=True)
+                        s2_logits = model.decode_s2(context, sample_pre)
+                        if s2_logits is None:
+                            print(f"Error: decode_s2 returned None at step {i}")
+                            return None
+                            
+                        s2_logits = s2_logits[:, -1, :]
+                        sample_post = sample_from_logits(s2_logits, temperature=T, top_k=top_k, top_p=top_p, sample_logits=True)
+                        if sample_post is None:
+                            print(f"Error: sample_from_logits (s2) returned None at step {i}")
+                            return None
 
-            s2_logits = model.decode_s2(context, sample_pre)
-            s2_logits = s2_logits[:, -1, :]
-            sample_post = sample_from_logits(s2_logits, temperature=T, top_k=top_k, top_p=top_p, sample_logits=True)
+                        x_token[0] = torch.cat([x_token[0], sample_pre], dim=1)
+                        x_token[1] = torch.cat([x_token[1], sample_post], dim=1)
+                        
+                    except KeyboardInterrupt:
+                        print(f"Prediction interrupted at step {i}/{pred_len}")
+                        return None
+                    except Exception as e:
+                        print(f"Error at prediction step {i}: {e}")
+                        return None
+                        
+            except Exception as e:
+                print(f"Error in prediction loop: {e}")
+                return None
 
-            x_token[0] = torch.cat([x_token[0], sample_pre], dim=1)
-            x_token[1] = torch.cat([x_token[1], sample_post], dim=1)
+            # 最终解码 - 只取预测的部分
+            try:
+                # 确保只解码预测的部分，而不是整个序列
+                pred_tokens = [t[:, -pred_len:].contiguous() for t in x_token]
+                z = tokenizer.decode(pred_tokens, half=True)
+                if z is None:
+                    print("Error: Tokenizer decode returned None")
+                    return None
+                    
+                # 重新整形并平均
+                z = z.reshape(batch_size, sample_count, z.size(1), z.size(2))
+                preds = z.cpu().numpy()
+                preds = np.mean(preds, axis=1)
 
-        input_tokens = [t[:, -max_context:].contiguous() for t in x_token]
-        z = tokenizer.decode(input_tokens, half=True)
-        z = z.reshape(batch_size, sample_count, z.size(1), z.size(2))
-        preds = z.cpu().numpy()
-        preds = np.mean(preds, axis=1)
+                # 最终验证
+                if preds is None or preds.size == 0:
+                    print("Error: Final predictions are None or empty")
+                    return None
+                    
+                if np.isnan(preds).any() or np.isinf(preds).any():
+                    print("Error: Final predictions contain NaN or Inf")
+                    return None
 
-        return preds
+                return preds
+                
+            except Exception as e:
+                print(f"Error in final decoding: {e}")
+                return None
+                
+    except Exception as e:
+        print(f"Error in auto_regressive_inference: {e}")
+        return None
 
 
 def calc_time_stamps(x_timestamp):
@@ -478,15 +615,58 @@ class KronosPredictor:
         self.model = self.model.to(self.device)
 
     def generate(self, x, x_stamp, y_stamp, pred_len, T, top_k, top_p, sample_count, verbose):
+        try:
+            # 输入验证
+            if x is None or x_stamp is None or y_stamp is None:
+                print("Error: Input data contains None values")
+                return None
+                
+            if len(x) == 0 or len(x_stamp) == 0 or len(y_stamp) == 0:
+                print("Error: Input data is empty")
+                return None
 
-        x_tensor = torch.from_numpy(np.array(x).astype(np.float32)).to(self.device)
-        x_stamp_tensor = torch.from_numpy(np.array(x_stamp).astype(np.float32)).to(self.device)
-        y_stamp_tensor = torch.from_numpy(np.array(y_stamp).astype(np.float32)).to(self.device)
+            x_tensor = torch.from_numpy(np.array(x).astype(np.float32)).to(self.device)
+            x_stamp_tensor = torch.from_numpy(np.array(x_stamp).astype(np.float32)).to(self.device)
+            y_stamp_tensor = torch.from_numpy(np.array(y_stamp).astype(np.float32)).to(self.device)
 
-        preds = auto_regressive_inference(self.tokenizer, self.model, x_tensor, x_stamp_tensor, y_stamp_tensor, self.max_context, pred_len,
-                                          self.clip, T, top_k, top_p, sample_count, verbose)
-        preds = preds[:, -pred_len:, :]
-        return preds
+            # 检查tensor是否有效
+            if torch.isnan(x_tensor).any() or torch.isinf(x_tensor).any():
+                print("Error: x_tensor contains NaN or Inf values")
+                return None
+                
+            if torch.isnan(x_stamp_tensor).any() or torch.isinf(x_stamp_tensor).any():
+                print("Error: x_stamp_tensor contains NaN or Inf values")
+                return None
+                
+            if torch.isnan(y_stamp_tensor).any() or torch.isinf(y_stamp_tensor).any():
+                print("Error: y_stamp_tensor contains NaN or Inf values")
+                return None
+
+            preds = auto_regressive_inference(self.tokenizer, self.model, x_tensor, x_stamp_tensor, y_stamp_tensor, self.max_context, pred_len,
+                                              self.clip, T, top_k, top_p, sample_count, verbose)
+            
+            if preds is None:
+                print("Error: auto_regressive_inference returned None")
+                return None
+                
+            # 检查预测结果的有效性
+            if not isinstance(preds, np.ndarray):
+                print(f"Error: preds is not numpy array, got {type(preds)}")
+                return None
+                
+            if preds.size == 0:
+                print("Error: preds is empty")
+                return None
+                
+            if np.isnan(preds).any() or np.isinf(preds).any():
+                print("Error: preds contains NaN or Inf values")
+                return None
+                
+            return preds
+            
+        except Exception as e:
+            print(f"Error in generate method: {e}")
+            return None
 
     def predict(self, df, x_timestamp, y_timestamp, pred_len, T=1.0, top_k=0, top_p=0.9, sample_count=1, verbose=True):
 
@@ -524,8 +704,48 @@ class KronosPredictor:
 
         preds = self.generate(x, x_stamp, y_stamp, pred_len, T, top_k, top_p, sample_count, verbose)
 
+        if preds is None:
+            raise ValueError("Prediction generation failed - returned None")
+        
+        # 确保 preds 是有效的
+        if not isinstance(preds, (np.ndarray, torch.Tensor)):
+            raise ValueError(f"Invalid prediction type: {type(preds)}")
+            
+        # Convert to numpy if it's a tensor
+        if hasattr(preds, 'cpu'):
+            preds = preds.cpu().numpy()
+        elif torch.is_tensor(preds):
+            preds = preds.detach().cpu().numpy()
+            
+        # 检查 preds 的形状和内容
+        if preds.size == 0:
+            raise ValueError("Prediction array is empty")
+            
+        if np.isnan(preds).any() or np.isinf(preds).any():
+            raise ValueError("Prediction contains NaN or Inf values")
+        
         preds = preds.squeeze(0)
-        preds = preds * (x_std + 1e-5) + x_mean
+        
+        # 确保标准化参数有效
+        if x_std is None or x_mean is None:
+            raise ValueError("Normalization parameters (x_std, x_mean) are None")
+            
+        # 检查标准化参数的有效性
+        if np.isnan(x_std).any() or np.isnan(x_mean).any():
+            raise ValueError("Normalization parameters contain NaN values")
+            
+        if np.isinf(x_std).any() or np.isinf(x_mean).any():
+            raise ValueError("Normalization parameters contain Inf values")
+            
+        # 确保形状匹配
+        if x_std.shape[0] != preds.shape[-1] or x_mean.shape[0] != preds.shape[-1]:
+            raise ValueError(f"Shape mismatch: preds {preds.shape}, x_std {x_std.shape}, x_mean {x_mean.shape}")
+            
+        # 安全的反标准化
+        try:
+            preds = preds * (x_std + 1e-5) + x_mean
+        except Exception as e:
+            raise ValueError(f"Denormalization failed: {e}")
 
         pred_df = pd.DataFrame(preds, columns=self.price_cols + [self.vol_col, self.amt_vol], index=y_timestamp)
         return pred_df

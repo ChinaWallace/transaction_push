@@ -34,8 +34,8 @@ class SchedulerService:
     def _get_monitor_service(self):
         """获取监控服务实例"""
         if self._monitor_service is None:
-            from app.services.monitor_service import MonitorService
-            self._monitor_service = MonitorService(exchange='okx')
+            from app.services.core_monitoring_service import CoreMonitoringService
+            self._monitor_service = CoreMonitoringService()
         return self._monitor_service
     
     def _get_trend_service(self):
@@ -52,12 +52,12 @@ class SchedulerService:
             self._ml_service = MLEnhancedService(exchange='okx')
         return self._ml_service
     
-    def _get_ml_notification_service(self):
-        """获取ML通知服务实例"""
-        if not hasattr(self, '_ml_notification_service') or self._ml_notification_service is None:
-            from app.services.ml_notification_service import MLNotificationService
-            self._ml_notification_service = MLNotificationService()
-        return self._ml_notification_service
+    async def _get_core_notification_service(self):
+        """获取核心通知服务实例"""
+        if not hasattr(self, '_core_notification_service') or self._core_notification_service is None:
+            from app.services.core_notification_service import get_core_notification_service
+            self._core_notification_service = await get_core_notification_service()
+        return self._core_notification_service
     
     def _get_position_analysis_service(self):
         """获取持仓分析服务实例"""
@@ -248,7 +248,7 @@ class SchedulerService:
             result = await monitor_service.monitor_open_interest(symbols, notify=True)
             
             monitor_logger.info(
-                f"Open interest monitoring completed: {result['alert_count']} alerts"
+                f"Open interest monitoring completed: {result.get('significant_changes', 0)} significant changes"
             )
             
         except Exception as e:
@@ -260,10 +260,11 @@ class SchedulerService:
             monitor_logger.info("Executing scheduled volume anomaly monitoring")
             monitor_service = self._get_monitor_service()
             
-            result = await monitor_service.monitor_volume_anomaly(notify=True)
+            # 使用核心监控服务的综合监控方法
+            result = await monitor_service.run_comprehensive_monitoring_cycle()
             
             monitor_logger.info(
-                f"Volume anomaly monitoring completed: {result['total_anomalies']} anomalies found"
+                f"Volume anomaly monitoring completed: {result.get('total_opportunities', 0)} opportunities found"
             )
             
         except Exception as e:
@@ -541,7 +542,7 @@ class SchedulerService:
         try:
             monitor_logger.info("Executing scheduled ML prediction analysis")
             ml_service = self._get_ml_service()
-            ml_notification_service = self._get_ml_notification_service()
+            notification_service = await self._get_core_notification_service()
             
             # 获取监控的交易对
             symbols = settings.monitored_symbols
@@ -554,7 +555,12 @@ class SchedulerService:
                     # 推送高置信度的买入/卖出信号
                     if (prediction.signal.value in ['buy', 'sell'] and prediction.confidence > 0.6) or \
                        prediction.signal.value in ['strong_buy', 'strong_sell']:
-                        await ml_notification_service.send_ml_prediction_alert(prediction)
+                        await notification_service.send_ml_prediction_notification({
+                            'symbol': symbol,
+                            'signal': prediction.signal.value,
+                            'confidence': prediction.confidence,
+                            'timestamp': datetime.now()
+                        })
                     
                     # 记录预测结果
                     monitor_logger.info(
@@ -779,19 +785,31 @@ class SchedulerService:
             monitor_logger.info("Executing scheduled position analysis")
             position_service = self._get_position_analysis_service()
             
-            # 执行持仓分析
-            analysis_result = await position_service.analyze_account_positions()
-            
-            if analysis_result.get("status") != "error":
-                overall_score = analysis_result.get("overall_score", 0)
-                risk_level = analysis_result.get("risk_assessment", {}).get("overall_risk")
+            # 执行持仓分析 (添加超时保护)
+            try:
+                analysis_result = await asyncio.wait_for(
+                    position_service.analyze_account_positions(),
+                    timeout=120.0  # 2分钟超时
+                )
                 
-                # 只有在评分较低或风险较高时才发送通知
-                if overall_score < 70 or (risk_level and hasattr(risk_level, 'value') and risk_level.value in ['高风险', '极高风险']):
-                    await position_service.send_position_analysis_notification(analysis_result)
-                    monitor_logger.info(f"Position analysis notification sent (score: {overall_score}/100)")
-                else:
-                    monitor_logger.info(f"Position analysis completed (score: {overall_score}/100, no notification needed)")
+                if analysis_result.get("status") != "error":
+                    overall_score = analysis_result.get("overall_score", 0)
+                    risk_level = analysis_result.get("risk_assessment", {}).get("overall_risk")
+                    
+                    # 只有在评分较低或风险较高时才发送通知
+                    if overall_score < 70 or (risk_level and hasattr(risk_level, 'value') and risk_level.value in ['高风险', '极高风险']):
+                        try:
+                            await asyncio.wait_for(
+                                position_service.send_position_analysis_notification(analysis_result),
+                                timeout=60.0  # 1分钟超时
+                            )
+                            monitor_logger.info(f"Position analysis notification sent (score: {overall_score}/100)")
+                        except asyncio.TimeoutError:
+                            monitor_logger.warning("⏰ 持仓分析通知发送超时")
+                    else:
+                        monitor_logger.info(f"Position analysis completed (score: {overall_score}/100, no notification needed)")
+            except asyncio.TimeoutError:
+                monitor_logger.warning("⏰ 持仓分析执行超时，跳过本次分析")
             else:
                 logger.warning(f"Position analysis failed: {analysis_result.get('message', 'unknown error')}")
             

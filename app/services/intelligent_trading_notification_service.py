@@ -76,7 +76,7 @@ class IntelligentTradingNotificationService:
         self.okx_service = OKXService()
         self.unified_service = UnifiedTradingService()
         self.trading_notification_service = TradingNotificationService()
-        self.notification_service = NotificationService()
+        self.notification_service = None  # Will be initialized async
         self.kronos_service = None  # 延迟初始化
         
         # 机会筛选阈值
@@ -97,6 +97,12 @@ class IntelligentTradingNotificationService:
         # 移除每日限制 - 币圈机会不等人，全天候监控
         # 改用智能过滤：相同交易对的相同信号类型才限制
         self.signal_history = {}  # 记录信号历史，避免重复推送相同信号
+    
+    async def _ensure_notification_service(self):
+        """确保通知服务已初始化"""
+        if self.notification_service is None:
+            from app.services.core_notification_service import get_core_notification_service
+            self.notification_service = await get_core_notification_service()
     
     async def scan_and_notify_opportunities(self, 
                                           symbols: List[str] = None,
@@ -486,6 +492,9 @@ class IntelligentTradingNotificationService:
         """发送机会通知"""
         sent_count = 0
         
+        # 确保通知服务已初始化
+        await self._ensure_notification_service()
+        
         # 顶级机会 - 必须推送
         for op in premium_ops:
             if self._should_send_notification(op, force_send):
@@ -802,13 +811,15 @@ class IntelligentTradingNotificationService:
             # 构建紧急通知消息
             message = self._format_immediate_notification(opportunity)
             
+            # 确保通知服务已初始化
+            await self._ensure_notification_service()
+            
             # 多渠道推送
-            notification_service = NotificationService()
             success_count = 0
             
             for channel in urgency_config['channels']:
                 try:
-                    success = await notification_service.send_notification(
+                    success = await self.notification_service.send_notification(
                         message=message,
                         priority="high",
                         subject=f"🚨 强交易信号: {opportunity.symbol}",

@@ -1,294 +1,295 @@
 # -*- coding: utf-8 -*-
 """
 数据共享服务
-Data Sharing Service - 为其他服务提供优化的数据访问机制
+提供跨服务的数据共享和缓存机制
 """
 
 import asyncio
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Optional, Any, Union
 from datetime import datetime, timedelta
+from dataclasses import dataclass
+from enum import Enum
 import pandas as pd
+import json
 
-from app.core.logging import get_logger
 from app.core.config import get_settings
-from app.services.unified_data_service import (
-    get_unified_data_service, 
-    DataRequest, 
-    DataSource,
-    get_shared_market_data
-)
+from app.core.logging import get_logger
+from app.utils.exceptions import TradingToolError
 
-logger = get_logger(__name__)
-settings = get_settings()
+# 全局服务实例
+_data_sharing_service = None
+
+
+class DataType(Enum):
+    """数据类型"""
+    MARKET_DATA = "market_data"
+    ANALYSIS_RESULT = "analysis_result"
+    PREDICTION = "prediction"
+    SIGNAL = "signal"
+    NOTIFICATION = "notification"
+
+
+@dataclass
+class SharedData:
+    """共享数据结构"""
+    key: str
+    data_type: DataType
+    data: Any
+    timestamp: datetime
+    ttl_seconds: int = 300  # 默认5分钟TTL
+    metadata: Optional[Dict] = None
+    
+    def is_expired(self) -> bool:
+        """检查数据是否过期"""
+        return (datetime.now() - self.timestamp).total_seconds() > self.ttl_seconds
 
 
 class DataSharingService:
-    """
-    数据共享服务
-    
-    为其他服务提供高效的数据访问，避免重复获取相同数据
-    """
+    """数据共享服务"""
     
     def __init__(self):
-        self.logger = get_logger(self.__class__.__name__)
-        self._unified_service = None
+        self.settings = get_settings()
+        self.logger = get_logger(__name__)
         
-        # 常用数据的快速访问缓存
-        self._hot_data_cache = {}
-        self._cache_lock = asyncio.Lock()
+        # 内存缓存
+        self._cache: Dict[str, SharedData] = {}
+        self._access_log: Dict[str, List[datetime]] = {}
         
-        # 订阅者管理
-        self._subscribers = {}
+        # 配置
+        self.max_cache_size = 1000
+        self.cleanup_interval = 300  # 5分钟清理一次
         
-    async def _get_unified_service(self):
-        """获取统一数据服务"""
-        if self._unified_service is None:
-            self._unified_service = await get_unified_data_service()
-        return self._unified_service
-    
-    async def get_market_data_for_analysis(self, symbol: str, 
-                                         timeframes: List[str] = None) -> Dict[str, pd.DataFrame]:
-        """
-        为分析服务获取市场数据
-        优先使用共享数据，减少重复请求
-        """
-        if timeframes is None:
-            timeframes = ['1h', '4h', '1d']
-        
+    async def store_data(
+        self,
+        key: str,
+        data: Any,
+        data_type: DataType,
+        ttl_seconds: int = 300,
+        metadata: Optional[Dict] = None
+    ) -> bool:
+        """存储共享数据"""
         try:
-            market_data = {}
+            shared_data = SharedData(
+                key=key,
+                data_type=data_type,
+                data=data,
+                timestamp=datetime.now(),
+                ttl_seconds=ttl_seconds,
+                metadata=metadata or {}
+            )
             
-            # 首先尝试获取共享数据
-            for timeframe in timeframes:
-                shared_data = await get_shared_market_data(symbol, timeframe)
-                if shared_data is not None:
-                    market_data[timeframe] = shared_data
-                    self.logger.debug(f"📈 使用共享数据: {symbol} {timeframe}")
+            self._cache[key] = shared_data
             
-            # 获取缺失的数据
-            missing_timeframes = [tf for tf in timeframes if tf not in market_data]
-            if missing_timeframes:
-                unified_service = await self._get_unified_service()
-                
-                # 批量请求缺失的数据
-                requests = []
-                for timeframe in missing_timeframes:
-                    request = DataRequest(
-                        symbol=symbol,
-                        timeframe=timeframe,
-                        limit=200,  # 分析通常不需要太多历史数据
-                        source=DataSource.AUTO,
-                        use_cache=True
-                    )
-                    requests.append(request)
-                
-                results = await unified_service.batch_get_kline_data(requests)
-                
-                for result in results:
-                    market_data[result.timeframe] = result.data
-                    self.logger.debug(f"📊 获取新数据: {symbol} {result.timeframe}")
+            # 记录访问日志
+            if key not in self._access_log:
+                self._access_log[key] = []
+            self._access_log[key].append(datetime.now())
             
-            self.logger.info(f"✅ 为分析服务提供 {symbol} 数据: {len(market_data)} 个周期")
-            return market_data
+            # 清理过期数据
+            await self._cleanup_expired_data()
             
-        except Exception as e:
-            self.logger.error(f"❌ 获取分析数据失败: {symbol} - {e}")
-            return {}
-    
-    async def get_funding_rates_batch(self, symbols: List[str]) -> Dict[str, Any]:
-        """
-        批量获取资金费率，支持数据共享
-        """
-        try:
-            async with self._cache_lock:
-                cache_key = "funding_rates_batch"
-                
-                # 检查缓存（5分钟内的数据）
-                if (cache_key in self._hot_data_cache and 
-                    datetime.now() - self._hot_data_cache[cache_key]['timestamp'] < timedelta(minutes=5)):
-                    
-                    cached_rates = self._hot_data_cache[cache_key]['data']
-                    
-                    # 返回请求的币种数据
-                    result = {symbol: cached_rates.get(symbol) for symbol in symbols if symbol in cached_rates}
-                    self.logger.debug(f"📈 使用缓存费率数据: {len(result)} 个币种")
-                    return result
-            
-            # 获取新数据
-            unified_service = await self._get_unified_service()
-            all_rates = await unified_service.get_funding_rates(symbols)
-            
-            # 更新缓存
-            async with self._cache_lock:
-                self._hot_data_cache[cache_key] = {
-                    'data': all_rates,
-                    'timestamp': datetime.now()
-                }
-            
-            self.logger.info(f"✅ 批量获取费率数据: {len(all_rates)} 个币种")
-            return all_rates
-            
-        except Exception as e:
-            self.logger.error(f"❌ 批量获取费率数据失败: {e}")
-            return {}
-    
-    async def get_top_symbols_data(self, count: int = 20) -> Dict[str, Dict[str, pd.DataFrame]]:
-        """
-        获取热门币种的数据，多服务共享
-        """
-        try:
-            # 获取热门币种列表（这里简化为使用配置中的币种）
-            hot_symbols = settings.monitored_symbols + settings.funding_rate_only_symbols[:count-len(settings.monitored_symbols)]
-            hot_symbols = hot_symbols[:count]
-            
-            result = {}
-            
-            # 并发获取多个币种的多周期数据
-            tasks = []
-            for symbol in hot_symbols:
-                task = self.get_market_data_for_analysis(symbol, ['1h', '4h'])
-                tasks.append((symbol, task))
-            
-            # 等待所有任务完成
-            for symbol, task in tasks:
-                try:
-                    data = await task
-                    if data:
-                        result[symbol] = data
-                except Exception as e:
-                    self.logger.warning(f"获取 {symbol} 数据失败: {e}")
-            
-            self.logger.info(f"✅ 获取热门币种数据: {len(result)} 个币种")
-            return result
-            
-        except Exception as e:
-            self.logger.error(f"❌ 获取热门币种数据失败: {e}")
-            return {}
-    
-    async def subscribe_to_data_updates(self, service_name: str, symbols: List[str], 
-                                      callback) -> bool:
-        """
-        订阅数据更新（为未来扩展预留）
-        """
-        try:
-            if service_name not in self._subscribers:
-                self._subscribers[service_name] = {
-                    'symbols': set(),
-                    'callback': callback,
-                    'last_update': datetime.now()
-                }
-            
-            self._subscribers[service_name]['symbols'].update(symbols)
-            self.logger.info(f"✅ 服务 {service_name} 订阅数据更新: {len(symbols)} 个币种")
+            self.logger.debug(f"存储共享数据: {key} ({data_type.value})")
             return True
             
         except Exception as e:
-            self.logger.error(f"❌ 订阅数据更新失败: {e}")
+            self.logger.error(f"存储共享数据失败: {e}")
             return False
     
-    async def get_shared_indicators(self, symbol: str, timeframe: str = "1h") -> Dict[str, Any]:
-        """
-        获取共享的技术指标数据
-        避免多个服务重复计算相同指标
-        """
+    async def get_data(
+        self,
+        key: str,
+        default: Any = None
+    ) -> Any:
+        """获取共享数据"""
         try:
-            cache_key = f"indicators_{symbol}_{timeframe}"
+            if key not in self._cache:
+                return default
             
-            async with self._cache_lock:
-                # 检查缓存（2分钟内的指标）
-                if (cache_key in self._hot_data_cache and 
-                    datetime.now() - self._hot_data_cache[cache_key]['timestamp'] < timedelta(minutes=2)):
-                    
-                    self.logger.debug(f"📈 使用缓存指标: {symbol} {timeframe}")
-                    return self._hot_data_cache[cache_key]['data']
+            shared_data = self._cache[key]
             
-            # 获取市场数据
-            market_data = await self.get_market_data_for_analysis(symbol, [timeframe])
-            if timeframe not in market_data or market_data[timeframe].empty:
-                return {}
+            # 检查是否过期
+            if shared_data.is_expired():
+                del self._cache[key]
+                if key in self._access_log:
+                    del self._access_log[key]
+                return default
             
-            df = market_data[timeframe]
+            # 记录访问
+            if key not in self._access_log:
+                self._access_log[key] = []
+            self._access_log[key].append(datetime.now())
             
-            # 计算常用技术指标
-            indicators = {}
-            
-            if len(df) >= 20:
-                # 移动平均线
-                indicators['ma_20'] = df['close'].rolling(20).mean().iloc[-1]
-                indicators['ma_50'] = df['close'].rolling(50).mean().iloc[-1] if len(df) >= 50 else None
-                
-                # 价格变化
-                indicators['price_change_24h'] = ((df['close'].iloc[-1] - df['close'].iloc[-25]) / df['close'].iloc[-25] * 100) if len(df) >= 25 else None
-                
-                # 成交量指标
-                indicators['volume_avg_20'] = df['volume'].rolling(20).mean().iloc[-1]
-                indicators['volume_ratio'] = df['volume'].iloc[-1] / indicators['volume_avg_20']
-                
-                # 波动率
-                indicators['volatility'] = df['close'].pct_change().rolling(20).std().iloc[-1] * 100
-                
-                # 当前价格信息
-                indicators['current_price'] = df['close'].iloc[-1]
-                indicators['high_24h'] = df['high'].tail(24).max() if len(df) >= 24 else df['high'].max()
-                indicators['low_24h'] = df['low'].tail(24).min() if len(df) >= 24 else df['low'].min()
-            
-            # 缓存指标
-            async with self._cache_lock:
-                self._hot_data_cache[cache_key] = {
-                    'data': indicators,
-                    'timestamp': datetime.now()
-                }
-            
-            self.logger.debug(f"📊 计算技术指标: {symbol} {timeframe}")
-            return indicators
+            return shared_data.data
             
         except Exception as e:
-            self.logger.error(f"❌ 获取技术指标失败: {symbol} {timeframe} - {e}")
-            return {}
+            self.logger.error(f"获取共享数据失败: {e}")
+            return default
     
-    async def get_service_stats(self) -> Dict[str, Any]:
-        """获取数据共享服务统计"""
+    async def get_data_with_metadata(
+        self,
+        key: str
+    ) -> Optional[SharedData]:
+        """获取共享数据及其元数据"""
         try:
-            unified_service = await self._get_unified_service()
-            unified_stats = unified_service.get_stats()
+            if key not in self._cache:
+                return None
+            
+            shared_data = self._cache[key]
+            
+            # 检查是否过期
+            if shared_data.is_expired():
+                del self._cache[key]
+                if key in self._access_log:
+                    del self._access_log[key]
+                return None
+            
+            return shared_data
+            
+        except Exception as e:
+            self.logger.error(f"获取共享数据及元数据失败: {e}")
+            return None
+    
+    async def delete_data(self, key: str) -> bool:
+        """删除共享数据"""
+        try:
+            if key in self._cache:
+                del self._cache[key]
+            if key in self._access_log:
+                del self._access_log[key]
+            
+            self.logger.debug(f"删除共享数据: {key}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"删除共享数据失败: {e}")
+            return False
+    
+    async def list_keys(
+        self,
+        data_type: Optional[DataType] = None,
+        pattern: Optional[str] = None
+    ) -> List[str]:
+        """列出缓存键"""
+        try:
+            keys = []
+            
+            for key, shared_data in self._cache.items():
+                # 检查数据类型过滤
+                if data_type and shared_data.data_type != data_type:
+                    continue
+                
+                # 检查模式匹配
+                if pattern and pattern not in key:
+                    continue
+                
+                # 检查是否过期
+                if not shared_data.is_expired():
+                    keys.append(key)
+            
+            return keys
+            
+        except Exception as e:
+            self.logger.error(f"列出缓存键失败: {e}")
+            return []
+    
+    async def get_cache_stats(self) -> Dict[str, Any]:
+        """获取缓存统计信息"""
+        try:
+            # 清理过期数据
+            await self._cleanup_expired_data()
+            
+            # 统计各类型数据数量
+            type_counts = {}
+            for shared_data in self._cache.values():
+                data_type = shared_data.data_type.value
+                type_counts[data_type] = type_counts.get(data_type, 0) + 1
+            
+            # 计算访问频率
+            access_stats = {}
+            for key, access_times in self._access_log.items():
+                recent_accesses = [
+                    t for t in access_times 
+                    if (datetime.now() - t).total_seconds() < 3600  # 最近1小时
+                ]
+                access_stats[key] = len(recent_accesses)
             
             return {
-                "data_sharing": {
-                    "hot_cache_size": len(self._hot_data_cache),
-                    "subscribers_count": len(self._subscribers),
-                    "subscribers": list(self._subscribers.keys())
-                },
-                "unified_service": unified_stats
+                "total_items": len(self._cache),
+                "type_distribution": type_counts,
+                "most_accessed": sorted(
+                    access_stats.items(), 
+                    key=lambda x: x[1], 
+                    reverse=True
+                )[:10],
+                "cache_size_limit": self.max_cache_size,
+                "cleanup_interval": self.cleanup_interval
             }
             
         except Exception as e:
-            self.logger.error(f"获取服务统计失败: {e}")
+            self.logger.error(f"获取缓存统计失败: {e}")
             return {}
     
-    async def cleanup_cache(self):
-        """清理过期缓存"""
+    async def _cleanup_expired_data(self):
+        """清理过期数据"""
         try:
-            current_time = datetime.now()
             expired_keys = []
             
-            async with self._cache_lock:
-                for key, cache_entry in self._hot_data_cache.items():
-                    # 清理超过10分钟的缓存
-                    if current_time - cache_entry['timestamp'] > timedelta(minutes=10):
-                        expired_keys.append(key)
-                
-                for key in expired_keys:
-                    del self._hot_data_cache[key]
+            for key, shared_data in self._cache.items():
+                if shared_data.is_expired():
+                    expired_keys.append(key)
+            
+            for key in expired_keys:
+                del self._cache[key]
+                if key in self._access_log:
+                    del self._access_log[key]
             
             if expired_keys:
-                self.logger.info(f"🧹 清理过期缓存: {len(expired_keys)} 个条目")
+                self.logger.debug(f"清理了{len(expired_keys)}个过期数据项")
+            
+            # 如果缓存过大，清理最少访问的数据
+            if len(self._cache) > self.max_cache_size:
+                await self._cleanup_least_accessed()
                 
         except Exception as e:
-            self.logger.error(f"清理缓存失败: {e}")
-
-
-# 全局数据共享服务实例
-_data_sharing_service = None
+            self.logger.error(f"清理过期数据失败: {e}")
+    
+    async def _cleanup_least_accessed(self):
+        """清理最少访问的数据"""
+        try:
+            # 计算访问频率
+            access_counts = {}
+            for key in self._cache.keys():
+                access_times = self._access_log.get(key, [])
+                recent_accesses = [
+                    t for t in access_times 
+                    if (datetime.now() - t).total_seconds() < 3600
+                ]
+                access_counts[key] = len(recent_accesses)
+            
+            # 按访问频率排序，删除最少访问的
+            sorted_keys = sorted(access_counts.items(), key=lambda x: x[1])
+            cleanup_count = len(self._cache) - self.max_cache_size + 100  # 多清理100个
+            
+            for key, _ in sorted_keys[:cleanup_count]:
+                if key in self._cache:
+                    del self._cache[key]
+                if key in self._access_log:
+                    del self._access_log[key]
+            
+            self.logger.info(f"清理了{cleanup_count}个最少访问的数据项")
+            
+        except Exception as e:
+            self.logger.error(f"清理最少访问数据失败: {e}")
+    
+    async def clear_all(self):
+        """清空所有缓存"""
+        try:
+            self._cache.clear()
+            self._access_log.clear()
+            self.logger.info("已清空所有共享数据缓存")
+            
+        except Exception as e:
+            self.logger.error(f"清空缓存失败: {e}")
 
 
 async def get_data_sharing_service() -> DataSharingService:
@@ -300,19 +301,60 @@ async def get_data_sharing_service() -> DataSharingService:
 
 
 # 便捷函数
-async def get_analysis_data(symbol: str, timeframes: List[str] = None) -> Dict[str, pd.DataFrame]:
-    """便捷函数：获取分析数据"""
+async def store_shared_data(
+    key: str,
+    data: Any,
+    data_type: DataType,
+    ttl_seconds: int = 300,
+    metadata: Optional[Dict] = None
+) -> bool:
+    """存储共享数据的便捷函数"""
     service = await get_data_sharing_service()
-    return await service.get_market_data_for_analysis(symbol, timeframes)
+    return await service.store_data(key, data, data_type, ttl_seconds, metadata)
+
+
+async def get_shared_data(key: str, default: Any = None) -> Any:
+    """获取共享数据的便捷函数"""
+    service = await get_data_sharing_service()
+    return await service.get_data(key, default)
+
+
+# API兼容性函数
+async def get_analysis_data(symbol: str) -> Optional[Dict]:
+    """获取分析数据（兼容性函数）"""
+    try:
+        service = await get_data_sharing_service()
+        return await service.get_data(f"analysis_{symbol}")
+    except Exception as e:
+        logger = get_logger(__name__)
+        logger.error(f"获取分析数据失败: {e}")
+        return None
 
 
 async def get_batch_funding_rates(symbols: List[str]) -> Dict[str, Any]:
-    """便捷函数：批量获取费率数据"""
-    service = await get_data_sharing_service()
-    return await service.get_funding_rates_batch(symbols)
+    """批量获取资金费率（兼容性函数）"""
+    try:
+        service = await get_data_sharing_service()
+        results = {}
+        
+        for symbol in symbols:
+            funding_data = await service.get_data(f"funding_rate_{symbol}")
+            if funding_data:
+                results[symbol] = funding_data
+        
+        return results
+    except Exception as e:
+        logger = get_logger(__name__)
+        logger.error(f"批量获取资金费率失败: {e}")
+        return {}
 
 
-async def get_technical_indicators(symbol: str, timeframe: str = "1h") -> Dict[str, Any]:
-    """便捷函数：获取技术指标"""
-    service = await get_data_sharing_service()
-    return await service.get_shared_indicators(symbol, timeframe)
+async def get_technical_indicators(symbol: str) -> Optional[Dict]:
+    """获取技术指标（兼容性函数）"""
+    try:
+        service = await get_data_sharing_service()
+        return await service.get_data(f"technical_indicators_{symbol}")
+    except Exception as e:
+        logger = get_logger(__name__)
+        logger.error(f"获取技术指标失败: {e}")
+        return None

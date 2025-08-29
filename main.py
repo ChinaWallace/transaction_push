@@ -41,7 +41,6 @@ from app.api.trading_pairs import router as trading_pairs_router
 from app.api.unified_data import router as unified_data_router
 from app.services.scheduler_service import SchedulerService
 from app.services.ml_enhanced_service import MLEnhancedService
-from app.services.ml_notification_service import MLNotificationService
 from app.services.negative_funding_monitor_service import NegativeFundingMonitorService
 
 # 获取配置和日志
@@ -135,8 +134,8 @@ async def perform_startup_trading_analysis():
 async def send_startup_summary_notification(app_state, successful_tasks: int, failed_tasks: int):
     """发送启动完成摘要通知"""
     try:
-        from app.services.notification_service import NotificationService
-        notification_service = NotificationService()
+        from app.services.core_notification_service import get_core_notification_service
+        notification_service = await get_core_notification_service()
         
         # 收集各任务结果
         trading_result = getattr(app_state, 'startup_trading_analysis_results', {})
@@ -159,12 +158,12 @@ async def send_startup_summary_notification(app_state, successful_tasks: int, fa
             opportunities = funding_result.get("opportunities_count", 0)
             message += f"💰 负费率机会: {opportunities} 个套利机会\n"
         
-        # 新闻分析结果
-        if news_result.get("status") == "success":
-            news_notifications = news_result.get("notifications_sent", 0)
-            message += f"📰 新闻分析: {news_notifications} 条重要新闻\n"
-        elif news_result.get("status") == "disabled":
-            message += f"📴 新闻分析: 已禁用\n"
+        # 新闻分析结果 - 暂时注释掉
+        # if news_result.get("status") == "success":
+        #     news_notifications = news_result.get("notifications_sent", 0)
+        #     message += f"📰 新闻分析: {news_notifications} 条重要新闻\n"
+        # elif news_result.get("status") == "disabled":
+        #     message += f"📴 新闻分析: 已禁用\n"
         
         # Kronos市场扫描 - 已整合到核心交易分析中
         if kronos_result.get("status") == "success":
@@ -185,12 +184,28 @@ async def send_startup_summary_notification(app_state, successful_tasks: int, fa
         
         priority = "high" if total_signals > 0 else "medium" if failed_tasks == 0 else "low"
         
-        await notification_service.send_notification(
+        from app.services.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+        
+        # 转换优先级字符串为枚举
+        priority_map = {
+            "high": NotificationPriority.HIGH,
+            "medium": NotificationPriority.NORMAL,
+            "low": NotificationPriority.LOW
+        }
+        
+        content = NotificationContent(
+            type=NotificationType.SYSTEM_ALERT,
+            priority=priority_map.get(priority, NotificationPriority.NORMAL),
             title=f"🚀 系统启动完成 ({successful_tasks}/{successful_tasks + failed_tasks})",
             message=message,
-            notification_type="system_startup",
-            priority=priority
+            metadata={
+                'successful_tasks': successful_tasks,
+                'failed_tasks': failed_tasks,
+                'total_signals': total_signals
+            }
         )
+        
+        await notification_service.send_notification(content)
         
         logger.info(f"✅ 启动摘要通知已发送 (优先级: {priority})")
         
@@ -205,8 +220,8 @@ async def perform_startup_funding_analysis():
         # 创建负费率监控服务
         funding_monitor = NegativeFundingMonitorService()
         
-        # 执行监控检查
-        result = await funding_monitor.run_monitoring_cycle()
+        # 执行增强版监控检查（包含详细的价格预测和仓位建议）
+        result = await funding_monitor.run_monitoring_cycle(enable_enhanced_analysis=True)
         
         if result['success']:
             opportunities = result['opportunities']
@@ -296,7 +311,9 @@ async def perform_startup_ml_analysis(ml_service: MLEnhancedService):
     """启动时执行ML分析和推送（可选）"""
     try:
         logger.info("🤖 开始ML增强分析...")
-        ml_notification_service = MLNotificationService()
+        # ML通知功能已整合到核心通知服务中
+        from app.services.core_notification_service import get_core_notification_service
+        notification_service = await get_core_notification_service()
         
         # 导入异常状态管理器
         from app.services.anomaly_state_manager import anomaly_state_manager
@@ -320,7 +337,13 @@ async def perform_startup_ml_analysis(ml_service: MLEnhancedService):
                 if (prediction.signal.value in ['buy', 'sell'] and prediction.confidence > 0.6) or \
                    prediction.signal.value in ['strong_buy', 'strong_sell'] or \
                    (prediction.signal.value == 'hold' and prediction.confidence > 0.8):
-                    await ml_notification_service.send_ml_prediction_alert(prediction)
+                    # 使用核心通知服务发送ML预测通知
+                    await notification_service.send_ml_prediction_notification({
+                        'symbol': symbol,
+                        'signal': prediction.signal.value,
+                        'confidence': prediction.confidence,
+                        'timestamp': datetime.now()
+                    })
                     logger.info(f"📢 已发送 {symbol} ML预测通知")
                 
                 # 2. 执行异常检测
@@ -350,7 +373,12 @@ async def perform_startup_ml_analysis(ml_service: MLEnhancedService):
                 new_anomalies.sort(key=lambda x: x.severity, reverse=True)
                 top_anomalies = new_anomalies[:5]
                 
-                await ml_notification_service.send_anomaly_alert(top_anomalies)
+                # 使用核心通知服务发送异常警报
+                await notification_service.send_anomaly_notification({
+                    'anomalies': [{'symbol': a.symbol, 'severity': a.severity, 'description': str(a)} for a in top_anomalies],
+                    'count': len(top_anomalies),
+                    'timestamp': datetime.now()
+                })
                 logger.info(f"📢 已发送 {len(top_anomalies)} 个新异常警报，涉及币种: {list(set(a.symbol for a in top_anomalies))}")
             else:
                 logger.info("✅ 所有检测到的异常都已通知过，跳过推送")
@@ -445,38 +473,38 @@ async def lifespan(app: FastAPI):
         # 添加负费率监控定时任务
         funding_monitor = NegativeFundingMonitorService()
         
-        # 每30分钟检查一次负费率机会
+        # 每30分钟检查一次负费率机会（使用增强版分析）
         scheduler.add_job(
-            funding_monitor.run_monitoring_cycle,
+            lambda: funding_monitor.run_monitoring_cycle(enable_enhanced_analysis=True),
             'interval',
             minutes=30,
             id='negative_funding_monitor',
-            name='负费率吃利息机会监控'
+            name='负费率吃利息机会监控（增强版）'
         )
         logger.info("✅ Negative funding rate monitor scheduled")
         
-        # 添加新闻监控定时任务
-        if settings.news_config.get('enable_news_analysis', True):
-            from app.services.news_monitor_service import get_news_monitor_service
-            
-            news_monitor = await get_news_monitor_service()
-            
-            # 获取新闻监控间隔配置
-            news_interval = settings.news_config.get('fetch_interval_minutes', 30)
-            
-            scheduler.add_job(
-                news_monitor.run_monitoring_cycle,
-                'interval',
-                minutes=news_interval,
-                id='news_monitor',
-                name='新闻分析监控'
-            )
-            logger.info(f"✅ News analysis monitor scheduled (every {news_interval} minutes)")
-            
-            # 将新闻监控服务存储到应用状态
-            app.state.news_monitor = news_monitor
-        else:
-            logger.info("📴 News analysis monitoring disabled")
+        # 添加新闻监控定时任务 - 暂时注释掉
+        # if settings.news_config.get('enable_news_analysis', True):
+        #     from app.services.news_monitor_service import get_news_monitor_service
+        #     
+        #     news_monitor = await get_news_monitor_service()
+        #     
+        #     # 获取新闻监控间隔配置
+        #     news_interval = settings.news_config.get('fetch_interval_minutes', 30)
+        #     
+        #     scheduler.add_job(
+        #         news_monitor.run_monitoring_cycle,
+        #         'interval',
+        #         minutes=news_interval,
+        #         id='news_monitor',
+        #         name='新闻分析监控'
+        #     )
+        #     logger.info(f"✅ News analysis monitor scheduled (every {news_interval} minutes)")
+        #     
+        #     # 将新闻监控服务存储到应用状态
+        #     app.state.news_monitor = news_monitor
+        # else:
+        #     logger.info("📴 News analysis monitoring disabled")
         
         # 将负费率监控服务存储到应用状态
         app.state.funding_monitor = funding_monitor
@@ -534,9 +562,9 @@ async def lifespan(app: FastAPI):
         # 2. 负费率分析任务
         startup_tasks.append(("funding_analysis", perform_startup_funding_analysis()))
         
-        # 3. 新闻分析任务 (如果启用)
-        if settings.news_config.get('enable_news_analysis', True):
-            startup_tasks.append(("news_analysis", perform_startup_news_analysis()))
+        # 3. 新闻分析任务 (如果启用) - 暂时注释掉
+        # if settings.news_config.get('enable_news_analysis', True):
+        #     startup_tasks.append(("news_analysis", perform_startup_news_analysis()))
         
         # 4. Kronos市场机会扫描任务 - 已整合到核心交易决策分析中，避免重复推送
         # 原因: perform_startup_trading_analysis() 已经包含了Kronos分析功能
@@ -576,8 +604,9 @@ async def lifespan(app: FastAPI):
         if not hasattr(app.state, 'startup_kronos_market_scan_results'):
             app.state.startup_kronos_market_scan_results = {"status": "disabled"}
         
-        # 发送启动完成摘要通知
-        await send_startup_summary_notification(app.state, successful_tasks, failed_tasks)
+        # 🚫 不再发送启动完成摘要通知 - 根据用户要求过滤系统状态信息
+        # await send_startup_summary_notification(app.state, successful_tasks, failed_tasks)
+        logger.info("📊 启动摘要通知已禁用 - 系统状态信息不推送")
         
         # 初始化Kronos预测服务（可选）
         if settings.kronos_config.get('enable_kronos_prediction', False):

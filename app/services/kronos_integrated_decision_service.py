@@ -1,8 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Kronos前置集成决策服务
-将Kronos预测前置到持仓分析和统一交易决策的核心服务
-"""
 
 import asyncio
 from typing import Dict, List, Optional, Tuple, Any
@@ -16,7 +11,14 @@ from app.core.config import get_settings
 from app.core.logging import get_logger, trading_logger
 from app.services.kronos_prediction_service import get_kronos_service, KronosPrediction
 from app.services.position_analysis_service import PositionAnalysisService, PositionRecommendation, PositionRisk
-from app.services.unified_trading_service import UnifiedTradingRecommendation, MarketRegime
+# Market regime enum defined locally
+class MarketRegime(Enum):
+    """市场状态枚举"""
+    TRENDING_UP = "上涨趋势"
+    TRENDING_DOWN = "下跌趋势"
+    RANGING = "震荡整理"
+    VOLATILE = "高波动"
+    CALM = "平静"
 from app.services.trend_analysis_service import TrendAnalysisService
 from app.services.okx_service import OKXService
 from app.utils.exceptions import TradingToolError

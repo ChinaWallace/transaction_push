@@ -48,6 +48,16 @@ class FundingRateOpportunity:
     current_rate: float
     predicted_rate: float
     opportunity_type: str  # "negative", "extremely_negative", "positive_high"
+
+
+@dataclass
+class OpenInterestData:
+    """持仓量数据"""
+    symbol: str
+    current_oi: float
+    change_24h: float
+    change_percent: float
+    timestamp: datetime
     annual_return: float
     risk_level: str
     description: str
@@ -136,15 +146,15 @@ class CoreMonitoringService:
             # 并行执行各种监控
             monitoring_tasks = []
             
-            # 负费率监控
-            if self.monitoring_config['negative_funding']['enabled']:
-                if self._should_check('negative_funding'):
-                    monitoring_tasks.append(self._run_negative_funding_monitoring())
+            # 负费率监控 - 已由专门的NegativeFundingMonitorService处理，避免重复
+            # if self.monitoring_config['negative_funding']['enabled']:
+            #     if self._should_check('negative_funding'):
+            #         monitoring_tasks.append(self._run_negative_funding_monitoring())
             
-            # 费率监控
-            if self.monitoring_config['funding_rate']['enabled']:
-                if self._should_check('funding_rate'):
-                    monitoring_tasks.append(self._run_funding_rate_monitoring())
+            # 费率监控 - 已由专门的NegativeFundingMonitorService处理，避免重复
+            # if self.monitoring_config['funding_rate']['enabled']:
+            #     if self._should_check('funding_rate'):
+            #         monitoring_tasks.append(self._run_funding_rate_monitoring())
             
             # 系统健康检查
             if self.monitoring_config['system_health']['enabled']:
@@ -627,6 +637,132 @@ class CoreMonitoringService:
                 'system_status': 'error',
                 'error': str(e)
             }
+    
+    async def monitor_open_interest(self, symbols: List[str], notify: bool = True) -> Dict[str, Any]:
+        """监控持仓量变化"""
+        try:
+            self.logger.info(f"开始监控持仓量变化: {symbols}")
+            
+            results = {}
+            significant_changes = []
+            
+            for symbol in symbols:
+                try:
+                    # 获取持仓量数据
+                    oi_data = await self.okx_service.get_open_interest(symbol)
+                    
+                    if oi_data:
+                        current_oi = float(oi_data.get('oi', 0))
+                        change_24h = float(oi_data.get('oiCcy24h', 0))
+                        
+                        # 计算变化百分比
+                        if current_oi > 0:
+                            change_percent = (change_24h / current_oi) * 100
+                        else:
+                            change_percent = 0
+                        
+                        oi_info = OpenInterestData(
+                            symbol=symbol,
+                            current_oi=current_oi,
+                            change_24h=change_24h,
+                            change_percent=change_percent,
+                            timestamp=datetime.now(),
+                            annual_return=0.0,  # 持仓量监控不涉及年化收益
+                            risk_level="medium",
+                            description=f"持仓量变化 {change_percent:+.2f}%",
+                            next_funding_time=datetime.now() + timedelta(hours=8),
+                            recommended_action="观察" if abs(change_percent) < 20 else "关注",
+                            position_size_usdt=0.0
+                        )
+                        
+                        results[symbol] = {
+                            'current_oi': current_oi,
+                            'change_24h': change_24h,
+                            'change_percent': change_percent,
+                            'status': 'normal'
+                        }
+                        
+                        # 检查是否有显著变化 (>20%)
+                        if abs(change_percent) > 20:
+                            results[symbol]['status'] = 'significant_change'
+                            significant_changes.append(oi_info)
+                            
+                        self.logger.info(f"{symbol} 持仓量: {current_oi:,.0f}, 24h变化: {change_percent:.2f}%")
+                        
+                    else:
+                        results[symbol] = {
+                            'error': 'No data available',
+                            'status': 'error'
+                        }
+                        
+                except Exception as e:
+                    self.logger.error(f"获取{symbol}持仓量数据失败: {e}")
+                    results[symbol] = {
+                        'error': str(e),
+                        'status': 'error'
+                    }
+            
+            # 发送通知
+            if notify and significant_changes:
+                await self._send_open_interest_notification(significant_changes)
+            
+            summary = {
+                'timestamp': datetime.now(),
+                'total_symbols': len(symbols),
+                'successful': len([r for r in results.values() if r.get('status') != 'error']),
+                'significant_changes': len(significant_changes),
+                'results': results
+            }
+            
+            self.logger.info(f"持仓量监控完成: {summary['successful']}/{summary['total_symbols']} 成功")
+            return summary
+            
+        except Exception as e:
+            self.logger.error(f"持仓量监控失败: {e}")
+            return {
+                'timestamp': datetime.now(),
+                'error': str(e),
+                'results': {}
+            }
+    
+    async def _send_open_interest_notification(self, changes: List[OpenInterestData]) -> None:
+        """发送持仓量变化通知"""
+        try:
+            if not self.notification_service:
+                return
+                
+            from app.services.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+            
+            # 构建通知消息
+            message = "📊 持仓量显著变化监控\n\n"
+            
+            for change in changes:
+                direction = "📈" if change.change_percent > 0 else "📉"
+                message += f"{direction} {change.symbol}\n"
+                message += f"   当前持仓量: {change.current_oi:,.0f}\n"
+                message += f"   24h变化: {change.change_percent:+.2f}%\n\n"
+            
+            content = NotificationContent(
+                type=NotificationType.SYSTEM_ALERT,
+                priority=NotificationPriority.NORMAL,
+                title=f"📊 持仓量变化监控 ({len(changes)}个异常)",
+                message=message,
+                metadata={
+                    'changes': [
+                        {
+                            'symbol': c.symbol,
+                            'current_oi': c.current_oi,
+                            'change_percent': c.change_percent
+                        } for c in changes
+                    ]
+                }
+            )
+            
+            await self.notification_service.send_notification(content)
+            self.logger.info(f"已发送持仓量变化通知: {len(changes)}个异常")
+            
+        except Exception as e:
+            self.logger.error(f"发送持仓量变化通知失败: {e}")
 
 
 # 全局服务实例

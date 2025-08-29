@@ -11,7 +11,7 @@ import asyncio
 from app.core.logging import get_logger
 from app.core.config import get_settings
 from app.services.news_analysis_service import NewsAnalysisService
-from app.services.notification_service import NotificationService
+from app.services.core_notification_service import get_core_notification_service
 from app.schemas.news import NewsAnalysisResult
 
 logger = get_logger(__name__)
@@ -215,63 +215,64 @@ class NewsMonitorService:
     async def _send_news_summary_notification(self, important_news: List[NewsAnalysisResult], trading_signals: List[Dict]) -> int:
         """发送新闻摘要通知"""
         try:
-            async with NotificationService() as notification_service:
-                # 构建通知消息
-                message = "📰 **重要新闻分析摘要**\n\n"
+            notification_service = await get_core_notification_service()
+            
+            # 构建通知消息
+            message = "📰 **重要新闻分析摘要**\n\n"
+            
+            # 新闻摘要
+            message += f"🔍 **发现 {len(important_news)} 条重要新闻:**\n"
+            
+            for i, result in enumerate(important_news[:5], 1):  # 最多显示5条
+                news = result.news_item
+                sentiment = result.sentiment_analysis.get('overall_sentiment', 'neutral')
+                sentiment_emoji = {'positive': '📈', 'negative': '📉', 'neutral': '➡️'}.get(sentiment, '➡️')
                 
-                # 新闻摘要
-                message += f"🔍 **发现 {len(important_news)} 条重要新闻:**\n"
+                title = news.title[:60] + "..." if len(news.title) > 60 else news.title
+                importance = news.importance_score or 0
                 
-                for i, result in enumerate(important_news[:5], 1):  # 最多显示5条
-                    news = result.news_item
-                    sentiment = result.sentiment_analysis.get('overall_sentiment', 'neutral')
-                    sentiment_emoji = {'positive': '📈', 'negative': '📉', 'neutral': '➡️'}.get(sentiment, '➡️')
-                    
-                    title = news.title[:60] + "..." if len(news.title) > 60 else news.title
-                    importance = news.importance_score or 0
-                    
-                    message += f"{i}. {sentiment_emoji} {title}\n"
-                    message += f"   重要性: {importance:.2f} | 情感: {sentiment}\n"
-                    
-                    # 显示提及的币种
-                    if news.mentioned_symbols:
-                        symbols = [s.replace('-USDT-SWAP', '').replace('-USD-SWAP', '') for s in news.mentioned_symbols[:3]]
-                        message += f"   币种: {', '.join(symbols)}\n"
-                    
-                    message += "\n"
+                message += f"{i}. {sentiment_emoji} {title}\n"
+                message += f"   重要性: {importance:.2f} | 情感: {sentiment}\n"
                 
-                # 交易信号摘要
-                if trading_signals:
-                    message += f"🎯 **生成 {len(trading_signals)} 个交易信号:**\n"
+                # 显示提及的币种
+                if news.mentioned_symbols:
+                    symbols = [s.replace('-USDT-SWAP', '').replace('-USD-SWAP', '') for s in news.mentioned_symbols[:3]]
+                    message += f"   币种: {', '.join(symbols)}\n"
+                
+                message += "\n"
+            
+            # 交易信号摘要
+            if trading_signals:
+                message += f"🎯 **生成 {len(trading_signals)} 个交易信号:**\n"
+                
+                # 按置信度排序，显示前3个
+                top_signals = sorted(trading_signals, key=lambda x: x['confidence'], reverse=True)[:3]
+                
+                for i, signal in enumerate(top_signals, 1):
+                    symbol = signal['symbol'].replace('-USDT-SWAP', '').replace('-USD-SWAP', '')
+                    action = signal['signal']
+                    confidence = signal['confidence']
                     
-                    # 按置信度排序，显示前3个
-                    top_signals = sorted(trading_signals, key=lambda x: x['confidence'], reverse=True)[:3]
+                    action_emoji = {'buy': '🟢', 'sell': '🔴', 'hold': '🟡'}.get(action, '⚪')
                     
-                    for i, signal in enumerate(top_signals, 1):
-                        symbol = signal['symbol'].replace('-USDT-SWAP', '').replace('-USD-SWAP', '')
-                        action = signal['signal']
-                        confidence = signal['confidence']
-                        
-                        action_emoji = {'buy': '🟢', 'sell': '🔴', 'hold': '🟡'}.get(action, '⚪')
-                        
-                        message += f"{i}. {action_emoji} {symbol} {action.upper()}\n"
-                        message += f"   置信度: {confidence:.2f} | Kronos分析\n"
-                        message += f"   原因: {signal['reason'][:50]}...\n\n"
-                
-                # 添加时间戳和提示
-                message += f"⏰ 分析时间: {datetime.now().strftime('%H:%M:%S')}\n"
-                message += f"🤖 集成Kronos AI分析，仅推送高质量信号"
-                
-                # 发送通知
-                await notification_service.send_notification(
-                    title=f"📰 新闻分析: {len(important_news)}条重要 | {len(trading_signals)}个信号",
-                    message=message,
-                    notification_type="news_analysis",
-                    priority="high" if len(trading_signals) > 0 else "medium"
-                )
-                
-                logger.info(f"📢 已发送新闻摘要通知: {len(important_news)}条新闻, {len(trading_signals)}个信号")
-                return 1
+                    message += f"{i}. {action_emoji} {symbol} {action.upper()}\n"
+                    message += f"   置信度: {confidence:.2f} | Kronos分析\n"
+                    message += f"   原因: {signal['reason'][:50]}...\n\n"
+            
+            # 添加时间戳和提示
+            message += f"⏰ 分析时间: {datetime.now().strftime('%H:%M:%S')}\n"
+            message += f"🤖 集成Kronos AI分析，仅推送高质量信号"
+            
+            # 发送通知
+            await notification_service.send_notification(
+                title=f"📰 新闻分析: {len(important_news)}条重要 | {len(trading_signals)}个信号",
+                message=message,
+                notification_type="news_analysis",
+                priority="high" if len(trading_signals) > 0 else "medium"
+            )
+            
+            logger.info(f"📢 已发送新闻摘要通知: {len(important_news)}条新闻, {len(trading_signals)}个信号")
+            return 1
                 
         except Exception as e:
             logger.error(f"❌ 发送新闻摘要通知失败: {e}")
