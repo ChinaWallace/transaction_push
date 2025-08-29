@@ -144,11 +144,11 @@ class CoreNotificationService:
                 format_func=self._format_trading_signal
             ),
             
-            # 持仓分析 - 中等优先级，批量推送
+            # 持仓分析 - 中等优先级，由持仓分析服务控制冷却时间
             NotificationType.POSITION_ANALYSIS: NotificationRule(
                 type=NotificationType.POSITION_ANALYSIS,
                 min_priority=NotificationPriority.NORMAL,
-                cooldown_minutes=60,
+                cooldown_minutes=0,  # 不在通知服务层面进行冷却检查，由持仓分析服务控制
                 format_func=self._format_position_analysis
             ),
             
@@ -205,6 +205,9 @@ class CoreNotificationService:
             各渠道发送结果
         """
         try:
+            # 记录所有通知的处理过程
+            logger.info(f"🔍 开始处理通知: {content.type.value}, 优先级: {content.priority.value}")
+            
             # 特别记录交易信号的处理过程
             if content.type == NotificationType.TRADING_SIGNAL:
                 symbol = content.metadata.get('symbol', 'Unknown')
@@ -217,7 +220,7 @@ class CoreNotificationService:
                 if content.type == NotificationType.TRADING_SIGNAL:
                     logger.warning(f"❌ 交易信号被规则拦截: {content.metadata.get('symbol')} - 不满足发送条件")
                 else:
-                    logger.debug(f"跳过通知: {content.type.value} - 不满足发送条件")
+                    logger.warning(f"❌ 通知被规则拦截: {content.type.value} - 不满足发送条件")
                 return {}
             
             # 应用过滤规则
@@ -225,16 +228,16 @@ class CoreNotificationService:
                 if content.type == NotificationType.TRADING_SIGNAL:
                     logger.warning(f"❌ 交易信号被过滤器拦截: {content.metadata.get('symbol')}")
                 else:
-                    logger.debug(f"跳过通知: {content.type.value} - 被过滤器拦截")
+                    logger.warning(f"❌ 通知被过滤器拦截: {content.type.value}")
                 return {}
             
             # 检查是否需要批量处理
             if self._should_batch_process(content):
+                logger.info(f"📦 通知加入批量队列: {content.type.value}")
                 return await self._add_to_batch(content)
             
             # 立即发送
-            if content.type == NotificationType.TRADING_SIGNAL:
-                logger.info(f"✅ 交易信号通过所有检查，准备发送: {content.metadata.get('symbol')}")
+            logger.info(f"✅ 通知通过所有检查，准备立即发送: {content.type.value}")
             
             return await self._send_immediately(content)
             
@@ -245,32 +248,35 @@ class CoreNotificationService:
     def _should_send_notification(self, content: NotificationContent) -> bool:
         """检查是否应该发送通知"""
         rule = self.notification_rules.get(content.type)
-        if not rule or not rule.enabled:
-            logger.debug(f"通知规则未启用: {content.type.value}")
+        if not rule:
+            logger.warning(f"❌ 未找到通知规则: {content.type.value}")
+            return False
+        if not rule.enabled:
+            logger.warning(f"❌ 通知规则未启用: {content.type.value}")
             return False
         
         # 检查优先级
         if content.priority.value < rule.min_priority.value:
-            logger.debug(f"通知优先级不足: {content.priority.name} ({content.priority.value}) < {rule.min_priority.name} ({rule.min_priority.value})")
+            logger.warning(f"❌ 通知优先级不足: {content.priority.name} ({content.priority.value}) < {rule.min_priority.name} ({rule.min_priority.value})")
             return False
         
         # 检查冷却时间 - 交易信号按交易对独立检查
         if content.type == NotificationType.TRADING_SIGNAL:
             symbol = content.metadata.get('symbol', 'Unknown')
             if not self._check_symbol_cooldown(content.type, symbol, rule.cooldown_minutes):
-                logger.debug(f"交易信号冷却时间未到: {content.type.value} - {symbol}")
+                logger.warning(f"❌ 交易信号冷却时间未到: {content.type.value} - {symbol}")
                 return False
         else:
             if not self._check_cooldown(content.type, rule.cooldown_minutes):
-                logger.debug(f"通知冷却时间未到: {content.type.value}")
+                logger.warning(f"❌ 通知冷却时间未到: {content.type.value}")
                 return False
         
         # 检查频率限制
         if not self._check_rate_limit(content.type):
-            logger.debug(f"通知频率限制: {content.type.value}")
+            logger.warning(f"❌ 通知频率限制: {content.type.value}")
             return False
         
-        logger.debug(f"通知检查通过: {content.type.value}")
+        logger.info(f"✅ 通知检查通过: {content.type.value}")
         return True
     
     def _check_cooldown(self, notification_type: NotificationType, cooldown_minutes: int) -> bool:
@@ -405,6 +411,13 @@ class CoreNotificationService:
         # 确定发送渠道
         channels = formatted_content.channels or self._get_default_channels(content.type)
         
+        logger.info(f"🔍 准备发送到渠道: {[ch.value for ch in channels]}")
+        
+        # 检查是否有可用的渠道
+        if not channels:
+            logger.warning(f"❌ 没有可用的通知渠道: {content.type.value}")
+            return {}
+        
         # 并发发送到各个渠道
         tasks = []
         for channel in channels:
@@ -419,6 +432,7 @@ class CoreNotificationService:
         results = {}
         for channel_name, task in tasks:
             try:
+                logger.info(f"🔍 正在发送到 {channel_name}...")
                 success = await task
                 results[channel_name] = success
                 if success:
@@ -906,8 +920,10 @@ class CoreNotificationService:
                 self.notification_config.get('feishu_webhook')
             )
             
+            logger.info(f"🔍 飞书配置检查: webhook_url={'已配置' if webhook_url else '未配置'}")
+            
             if not webhook_url:
-                logger.warning("飞书webhook未配置")
+                logger.warning("❌ 飞书webhook未配置")
                 return False
             
             # 根据优先级添加标识
@@ -927,6 +943,8 @@ class CoreNotificationService:
                 }
             }
             
+            logger.info(f"🔍 发送飞书消息: {message[:100]}...")
+            
             response = await safe_http_request(
                 'POST',
                 webhook_url,
@@ -934,7 +952,15 @@ class CoreNotificationService:
                 timeout=10
             )
             
-            return response and response.get('code') == 0
+            logger.info(f"🔍 飞书响应: {response}")
+            
+            success = response and response.get('code') == 0
+            if success:
+                logger.info("✅ 飞书消息发送成功")
+            else:
+                logger.warning(f"❌ 飞书消息发送失败: {response}")
+            
+            return success
             
         except Exception as e:
             logger.error(f"发送飞书通知失败: {e}")

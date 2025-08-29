@@ -539,16 +539,16 @@ async def lifespan(app: FastAPI):
             if existing_job:
                 logger.warning("⚠️ Kronos持仓分析任务已存在，跳过重复添加")
             else:
-                # 每10分钟执行一次Kronos持仓分析和推送
+                # 每60分钟执行一次Kronos持仓分析和推送
                 scheduler.add_job(
                     kronos_position_service.run_scheduled_analysis,
                     'interval',
-                    minutes=10,
+                    minutes=60,
                     id='kronos_position_analysis',
                     name='Kronos持仓分析和风险评估',
                     max_instances=1  # 确保同时只有一个实例运行
                 )
-                logger.info("✅ Kronos持仓分析定时任务已启动 (每10分钟)")
+                logger.info("✅ Kronos持仓分析定时任务已启动 (每60分钟)")
             
             # 将服务存储到应用状态
             app.state.kronos_position_service = kronos_position_service

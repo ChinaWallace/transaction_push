@@ -666,6 +666,13 @@ class KronosPositionAnalysisService:
         try:
             # 确保通知服务已初始化
             await self._ensure_notification_service()
+            
+            # 检查通知服务是否正确初始化
+            if self.notification_service is None:
+                self.logger.error("❌ 通知服务初始化失败")
+                return False
+            
+            self.logger.info(f"🔍 通知服务已初始化: {type(self.notification_service).__name__}")
             # 获取报告数据
             total_positions = report.get("total_positions", 0)
             total_equity = report.get("total_equity", 0)
@@ -859,7 +866,11 @@ class KronosPositionAnalysisService:
                 message=message
             )
             
+            self.logger.info(f"🔍 准备发送通知: 类型={notification_content.type.value}, 优先级={notification_content.priority.value}, 标题={title[:50]}...")
+            
             results = await self.notification_service.send_notification(notification_content)
+            
+            self.logger.info(f"🔍 通知发送结果: {results}")
             
             # 检查是否有任何渠道发送成功
             success = any(results.values()) if isinstance(results, dict) else bool(results)
