@@ -52,11 +52,61 @@ def get_database_config():
             "connect_args": {"check_same_thread": False}
         }
 
-# 创建数据库引擎
-engine = create_engine(
-    settings.database_url,
-    **get_database_config()
-)
+# 创建数据库引擎 - 带故障转移
+def create_database_engine():
+    """创建数据库引擎，支持MySQL到SQLite的故障转移"""
+    try:
+        # 首先尝试使用配置的数据库URL
+        engine = create_engine(
+            settings.database_url,
+            **get_database_config()
+        )
+        
+        # 测试连接
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        
+        logger.info(f"✅ Database engine created successfully: {settings.database_url.split('@')[0]}@***")
+        return engine
+        
+    except Exception as e:
+        logger.warning(f"⚠️ Primary database connection failed: {e}")
+        
+        # 如果主数据库连接失败，尝试使用SQLite作为后备
+        if "mysql" in settings.database_url.lower():
+            logger.info("🔄 Falling back to SQLite database...")
+            try:
+                sqlite_url = "sqlite:///./trading_data.db"
+                sqlite_config = {
+                    "poolclass": StaticPool,
+                    "pool_pre_ping": True,
+                    "pool_recycle": 3600,
+                    "echo": settings.database_echo,
+                    "connect_args": {"check_same_thread": False}
+                }
+                
+                fallback_engine = create_engine(sqlite_url, **sqlite_config)
+                
+                # 测试SQLite连接
+                with fallback_engine.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+                
+                logger.info("✅ SQLite fallback database connected successfully")
+                return fallback_engine
+                
+            except Exception as sqlite_error:
+                logger.error(f"❌ SQLite fallback also failed: {sqlite_error}")
+                raise
+        else:
+            # 如果已经是SQLite或其他数据库，直接抛出异常
+            raise
+
+try:
+    engine = create_database_engine()
+except Exception as e:
+    logger.error(f"❌ All database connections failed: {e}")
+    logger.warning("⚠️ Application will run without database persistence")
+    engine = None
 
 # 添加连接池事件监听器
 @event.listens_for(engine, "connect")
@@ -79,14 +129,17 @@ def receive_checkin(dbapi_connection, connection_record):
     logger.debug("数据库连接已检入")
 
 # 创建线程安全的会话工厂
-SessionLocal = scoped_session(
-    sessionmaker(
-        autocommit=False, 
-        autoflush=False, 
-        bind=engine,
-        expire_on_commit=False  # 避免在commit后对象过期
+if engine:
+    SessionLocal = scoped_session(
+        sessionmaker(
+            autocommit=False, 
+            autoflush=False, 
+            bind=engine,
+            expire_on_commit=False  # 避免在commit后对象过期
+        )
     )
-)
+else:
+    SessionLocal = None
 
 # 创建基础模型类
 Base = declarative_base()
@@ -134,6 +187,10 @@ def get_db_session():
 
 def create_tables():
     """创建数据库表"""
+    if not engine:
+        logger.warning("⚠️ No database engine available, skipping table creation")
+        return
+        
     try:
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")
@@ -159,14 +216,20 @@ class DatabaseManager:
         self.engine = engine
         self.session_factory = SessionLocal
         self._lock = threading.Lock()
+        self.available = engine is not None and SessionLocal is not None
     
     def get_session(self) -> Session:
         """获取数据库会话"""
+        if not self.available:
+            raise RuntimeError("Database not available")
         return self.session_factory()
     
     @contextmanager
     def session_scope(self):
         """提供事务性会话作用域"""
+        if not self.available:
+            raise RuntimeError("Database not available")
+            
         session = self.session_factory()
         try:
             yield session
@@ -195,6 +258,9 @@ class DatabaseManager:
     
     def health_check(self) -> bool:
         """数据库健康检查"""
+        if not self.available:
+            return False
+            
         try:
             with self.session_scope() as session:
                 session.execute(text("SELECT 1"))
@@ -205,6 +271,9 @@ class DatabaseManager:
     
     def get_pool_status(self) -> dict:
         """获取连接池状态"""
+        if not self.available or not self.engine:
+            return {"status": "unavailable"}
+            
         pool = self.engine.pool
         return {
             "pool_size": pool.size(),
@@ -216,6 +285,10 @@ class DatabaseManager:
     
     def close_all_connections(self):
         """关闭所有连接"""
+        if not self.available or not self.engine:
+            logger.info("📊 No database connections to close")
+            return
+            
         try:
             self.engine.dispose()
             logger.info("所有数据库连接已关闭")
@@ -242,4 +315,12 @@ class DatabaseManager:
 
 
 # 创建数据库管理器实例
-db_manager = DatabaseManager()
+try:
+    db_manager = DatabaseManager()
+    if db_manager.available:
+        logger.info("✅ Database manager initialized successfully")
+    else:
+        logger.warning("⚠️ Database manager initialized but database not available")
+except Exception as e:
+    logger.error(f"❌ Failed to create database manager: {e}")
+    db_manager = None

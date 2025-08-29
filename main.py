@@ -13,8 +13,22 @@ from contextlib import asynccontextmanager
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from datetime import datetime
-from app.core.database import create_tables, db_manager
-from app.utils.db_monitor import get_db_monitor
+
+# 安全导入数据库模块
+try:
+    from app.core.database import create_tables, db_manager
+    from app.utils.db_monitor import get_db_monitor
+    DATABASE_AVAILABLE = True
+    logger = get_logger(__name__)
+    logger.debug("✅ Database module imported successfully")
+except Exception as e:
+    logger = get_logger(__name__)
+    logger.warning(f"⚠️ Database module import failed: {e}")
+    logger.info("💡 Application will run in memory-only mode")
+    DATABASE_AVAILABLE = False
+    db_manager = None
+    create_tables = None
+    get_db_monitor = None
 
 # 导入所有模型以确保表定义被注册
 import app.models  # 这会导入所有模型定义
@@ -406,32 +420,55 @@ async def lifespan(app: FastAPI):
     cleanup_tasks = []
     
     try:
-        # 尝试创建数据库表 - 允许失败
-        try:
-            create_tables()
-            logger.info("✅ Database tables created successfully")
-        except Exception as e:
-            logger.warning(f"⚠️ Database table creation failed: {e}")
-            logger.info("💡 Application will continue without database persistence")
-        
-        # 测试数据库连接和连接池 - 允许在数据库不可用时继续运行
-        try:
-            db_monitor = get_db_monitor()
-            if db_manager.health_check():
-                logger.info("✅ Database connection healthy")
-                
-                # 显示连接池状态
-                pool_stats = db_monitor.get_pool_stats()
-                logger.info(f"📊 Connection pool stats: {pool_stats}")
-                
-                app.state.database_available = True
-                app.state.db_monitor = db_monitor
-            else:
-                logger.warning("⚠️ Database connection failed - running in memory mode")
-                app.state.database_available = False
-        except Exception as e:
-            logger.warning(f"⚠️ Database health check failed: {e} - running in memory mode")
+        # 检查数据库模块是否可用
+        if not DATABASE_AVAILABLE:
+            logger.warning("⚠️ Database module not available - running in memory mode")
             app.state.database_available = False
+        else:
+            # 尝试创建数据库表 - 允许失败
+            try:
+                if create_tables:
+                    create_tables()
+                    logger.info("✅ Database tables created successfully")
+                else:
+                    logger.warning("⚠️ create_tables function not available")
+            except Exception as e:
+                logger.warning(f"⚠️ Database table creation failed: {e}")
+                logger.info("💡 Application will continue without database persistence")
+            
+            # 测试数据库连接和连接池 - 允许在数据库不可用时继续运行
+            try:
+                # 验证数据库管理器是否可用
+                logger.debug("🔍 开始数据库健康检查...")
+                
+                # 检查 db_manager 是否已正确导入和初始化
+                if db_manager is None:
+                    logger.warning("⚠️ Database manager is None - running in memory mode")
+                    app.state.database_available = False
+                else:
+                    logger.debug("✅ Database manager is available, performing health check...")
+                    if get_db_monitor:
+                        db_monitor = get_db_monitor()
+                        
+                        if db_manager.health_check():
+                            logger.info("✅ Database connection healthy")
+                            
+                            # 显示连接池状态
+                            pool_stats = db_monitor.get_pool_stats()
+                            logger.info(f"📊 Connection pool stats: {pool_stats}")
+                            
+                            app.state.database_available = True
+                            app.state.db_monitor = db_monitor
+                        else:
+                            logger.warning("⚠️ Database connection failed - running in memory mode")
+                            app.state.database_available = False
+                    else:
+                        logger.warning("⚠️ get_db_monitor function not available - running in memory mode")
+                        app.state.database_available = False
+                        
+            except Exception as e:
+                logger.warning(f"⚠️ Database health check failed: {e} - running in memory mode")
+                app.state.database_available = False
         
         # 启动调度器
         scheduler = SchedulerService()
@@ -695,8 +732,7 @@ async def lifespan(app: FastAPI):
         
         # 4. 清理数据库连接
         try:
-            if hasattr(app.state, 'database_available') and app.state.database_available:
-                from app.core.database import db_manager
+            if hasattr(app.state, 'database_available') and app.state.database_available and db_manager:
                 await db_manager.close_all_connections()
                 logger.info("✅ Database connections closed")
         except Exception as e:
@@ -743,9 +779,9 @@ async def lifespan(app: FastAPI):
         
         # 清理数据库连接
         try:
-            from app.core.database import db_manager
-            db_manager.close_all_connections()
-            logger.info("✅ Database connections closed")
+            if db_manager:
+                db_manager.close_all_connections()
+                logger.info("✅ Database connections closed")
         except Exception as e:
             logger.error(f"⚠️ Database cleanup error: {e}")
         
@@ -814,9 +850,12 @@ def create_app() -> FastAPI:
     async def health_check():
         try:
             # 检查数据库连接和连接池
-            db_healthy = db_manager.health_check()
-            db_monitor = get_db_monitor()
-            pool_stats = db_monitor.get_pool_stats() if db_healthy else {}
+            db_healthy = False
+            pool_stats = {}
+            if DATABASE_AVAILABLE and db_manager and get_db_monitor:
+                db_healthy = db_manager.health_check()
+                db_monitor = get_db_monitor()
+                pool_stats = db_monitor.get_pool_stats() if db_healthy else {}
             
             # TODO: 检查币安API连接
             api_healthy = True  # 暂时设为True
