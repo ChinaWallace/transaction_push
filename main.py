@@ -39,6 +39,7 @@ from app.api.database import router as database_router
 from app.api.http_pool import router as http_pool_router
 from app.api.trading_pairs import router as trading_pairs_router
 from app.api.unified_data import router as unified_data_router
+from app.api.ml_config import router as ml_config_router
 from app.services.scheduler_service import SchedulerService
 from app.services.ml_enhanced_service import MLEnhancedService
 from app.services.negative_funding_monitor_service import NegativeFundingMonitorService
@@ -795,6 +796,7 @@ def create_app() -> FastAPI:
     app.include_router(http_pool_router, prefix="/api/http-pool", tags=["HTTP连接池管理"])
     app.include_router(trading_pairs_router, prefix="/api/trading-pairs", tags=["交易对管理"])
     app.include_router(unified_data_router, prefix="/api", tags=["统一数据服务"])
+    app.include_router(ml_config_router, prefix="/api/ml-config", tags=["ML配置管理"])
     app.include_router(news_router, prefix="/api/news", tags=["新闻分析"])
     
     # 根路径

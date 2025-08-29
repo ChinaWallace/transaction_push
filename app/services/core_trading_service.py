@@ -15,6 +15,7 @@ import pandas as pd
 
 from app.core.config import get_settings
 from app.core.logging import get_logger, trading_logger
+from app.core.ml_weight_config import get_ml_weight_config, MLMode
 from app.services.kronos_integrated_decision_service import (
     get_kronos_integrated_service, 
     KronosEnhancedDecision,
@@ -223,13 +224,19 @@ class CoreTradingService:
         self.session_timeout_hours = 24
         self.portfolio_snapshot_interval = 3600  # 1小时
         
-        # 分析权重配置 - 加重Kronos权重
+        # 获取ML权重配置管理器
+        self.ml_config = get_ml_weight_config()
+        
+        # 分析权重配置 - 使用动态权重管理
+        base_weights = self.ml_config.get_weights()
         self.analysis_weights = {
-            'kronos': 0.55,     # Kronos AI预测权重55% (提升)
-            'technical': 0.25,  # 技术分析权重25%
-            'ml': 0.15,         # ML预测权重15%
-            'position': 0.05    # 持仓分析权重5%
+            'kronos': 0.50,                                    # Kronos AI预测权重50%
+            'technical': base_weights.get('traditional', 0.40), # 技术分析权重(动态)
+            'ml': base_weights.get('ml', 0.05),                # ML预测权重(动态)
+            'position': 0.05                                   # 持仓分析权重5%
         }
+        
+        logger.info(f"🔧 交易权重配置: ML模式={self.ml_config.current_mode.value}, 权重={self.analysis_weights}")
         
         # 信号强度阈值
         self.strength_thresholds = {

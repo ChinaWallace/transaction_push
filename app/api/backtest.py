@@ -40,7 +40,7 @@ class BacktestRequest(BaseModel):
     initial_balance: float = Field(default=10000.0, description="初始资金")
     strategy_type: str = Field(default="supertrend", description="策略类型")
     use_ml: bool = Field(default=True, description="是否使用ML增强")
-    ml_weight: float = Field(default=0.3, description="ML权重")
+    ml_weight: float = Field(default=0.1, description="ML权重")
     
     @validator('start_date', 'end_date')
     def validate_date(cls, v):

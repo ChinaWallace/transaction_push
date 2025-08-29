@@ -577,10 +577,10 @@ class IntelligentTradingNotificationService:
         
         # 质量检查 - 降低门槛，抓住更多机会
         if opportunity.level == OpportunityLevel.PREMIUM:
-            # 顶级机会：Kronos支持 OR 高置信度
+            # 顶级机会：主要依赖传统分析置信度，Kronos作为辅助
             has_kronos_support = (hasattr(opportunity, 'ml_signal_strength') and 
-                                opportunity.ml_signal_strength > 0.5)  # 降低阈值
-            return has_kronos_support or opportunity.confidence > 80  # 降低阈值
+                                opportunity.ml_signal_strength > 0.7)  # 提高阈值，减少ML影响
+            return opportunity.confidence > 75 or has_kronos_support  # 优先传统分析
         
         elif opportunity.level == OpportunityLevel.HIGH:
             # 高质量机会：降低门槛

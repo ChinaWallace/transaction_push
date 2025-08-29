@@ -153,7 +153,7 @@ class BacktestRequestSchema(BaseBacktestSchema):
     initial_balance: float = Field(default=10000.0, gt=0, description="初始资金")
     strategy_type: str = Field(default="supertrend", description="策略类型")
     use_ml: bool = Field(default=True, description="是否使用ML增强")
-    ml_weight: float = Field(default=0.3, ge=0.0, le=1.0, description="ML权重")
+    ml_weight: float = Field(default=0.1, ge=0.0, le=1.0, description="ML权重")
     risk_config: Optional[RiskManagementConfigSchema] = Field(None, description="风险管理配置")
     
     @validator('symbol')

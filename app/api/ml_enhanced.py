@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.core.logging import get_logger
 from app.core.config import get_settings
+from app.core.ml_weight_config import get_ml_weight_config
 from app.services.ml_enhanced_service import MLEnhancedService, PredictionSignal, AnomalyType
 from app.schemas.base import BaseResponse
 
@@ -447,10 +448,12 @@ def _generate_combined_recommendation(traditional_analysis: Dict, ml_prediction,
         (建议文本, 置信度分数)
     """
     try:
-        # 传统信号权重
-        traditional_weight = 0.4
-        # ML信号权重
-        ml_weight = 0.6
+        # 使用动态权重配置
+        ml_config = get_ml_weight_config()
+        traditional_weight = ml_config.get_traditional_weight_for_api()
+        ml_weight = ml_config.get_ml_weight_for_api()
+        
+        logger.debug(f"🔧 动态权重: 传统={traditional_weight}, ML={ml_weight}, 模式={ml_config.current_mode.value}")
         
         # 获取传统信号强度
         traditional_signal = traditional_analysis.get("overall_signal", "hold")

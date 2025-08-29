@@ -678,20 +678,58 @@ class OKXService:
         return 8  # 默认8小时
     
     async def get_open_interest(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """获取持仓量"""
+        """获取持仓量和24小时变化"""
         try:
+            # 获取当前持仓量
             params = {'instId': symbol}
-            result = await self._make_request('GET', '/api/v5/public/open-interest', params=params)
+            current_result = await self._make_request('GET', '/api/v5/public/open-interest', params=params)
             
-            if result:
-                data = result[0]
-                return {
-                    'symbol': symbol,
-                    'open_interest': float(data.get('oi', '0')),
-                    'open_interest_currency': float(data.get('oiCcy', '0')),
-                    'update_time': datetime.now()
+            if not current_result or len(current_result) == 0:
+                logger.warning(f"无法获取{symbol}的当前持仓量数据")
+                return None
+            
+            current_data = current_result[0]
+            current_oi = float(current_data.get('oi', '0'))
+            current_oiCcy = float(current_data.get('oiCcy', '0'))
+            
+            # 尝试获取24小时前的持仓量数据来计算变化
+            oiCcy24h = 0.0
+            try:
+                # 获取24小时的持仓量历史数据
+                history_params = {
+                    'instId': symbol,
+                    'period': '1H',  # 1小时周期
+                    'limit': '25'    # 获取25个数据点（约24小时）
                 }
-            return None
+                
+                history_result = await self._make_request(
+                    'GET', 
+                    '/api/v5/rubik/stat/contracts/open-interest-history', 
+                    params=history_params
+                )
+                
+                if history_result and len(history_result) >= 2:
+                    # 最新数据
+                    latest_oi = float(history_result[0][2]) if len(history_result[0]) > 2 else current_oiCcy
+                    # 24小时前数据（取最后一个数据点）
+                    old_oi = float(history_result[-1][2]) if len(history_result[-1]) > 2 else current_oiCcy
+                    
+                    # 计算24小时变化
+                    oiCcy24h = latest_oi - old_oi
+                    
+                    logger.debug(f"{symbol} 持仓量变化计算: 当前={latest_oi:.2f}, 24h前={old_oi:.2f}, 变化={oiCcy24h:.2f}")
+                
+            except Exception as e:
+                logger.warning(f"获取{symbol}持仓量历史数据失败，使用默认值: {e}")
+                oiCcy24h = 0.0
+            
+            return {
+                'symbol': symbol,
+                'oi': current_oi,  # 持仓量（张数）
+                'oiCcy': current_oiCcy,  # 持仓量（币数）
+                'oiCcy24h': oiCcy24h,  # 24小时变化（币数）
+                'update_time': datetime.now()
+            }
             
         except Exception as e:
             logger.error(f"获取{symbol}持仓量失败: {e}")
