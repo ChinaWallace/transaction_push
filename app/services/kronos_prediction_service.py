@@ -35,6 +35,32 @@ class KronosPrediction:
     confidence: float
     prediction_horizon: int  # 预测时间范围（小时）
     raw_prediction: Optional[Dict] = None
+    
+    # 智能通知服务需要的额外属性
+    signal: str = "hold"  # 交易信号: buy, sell, strong_buy, strong_sell, hold
+    volatility: float = 0.0  # 波动率
+    trend_direction: str = "sideways"  # 趋势方向: bullish, bearish, sideways
+    
+    def __post_init__(self):
+        """初始化后处理，根据价格变化计算信号和趋势"""
+        if self.price_change_pct > 0.05:  # 5%以上上涨
+            self.signal = "strong_buy"
+            self.trend_direction = "bullish"
+        elif self.price_change_pct > 0.02:  # 2%以上上涨
+            self.signal = "buy"
+            self.trend_direction = "bullish"
+        elif self.price_change_pct < -0.05:  # 5%以上下跌
+            self.signal = "strong_sell"
+            self.trend_direction = "bearish"
+        elif self.price_change_pct < -0.02:  # 2%以上下跌
+            self.signal = "sell"
+            self.trend_direction = "bearish"
+        else:
+            self.signal = "hold"
+            self.trend_direction = "sideways"
+        
+        # 根据价格变化幅度估算波动率
+        self.volatility = abs(self.price_change_pct) * 0.5  # 简单估算
 
 
 class KronosPredictionService:
@@ -619,6 +645,24 @@ class KronosPredictionService:
             'model_config': self.kronos_config,
             'cache_size': len(self.prediction_cache)
         }
+    
+    def get_cached_prediction(self, symbol: str) -> Optional[KronosPrediction]:
+        """获取缓存的预测结果"""
+        try:
+            # 查找最新的缓存结果
+            for cache_key, (cached_result, cache_time) in self.prediction_cache.items():
+                if symbol in cache_key:
+                    # 检查缓存是否过期
+                    if (datetime.now() - cache_time).seconds < self.cache_ttl:
+                        self.logger.debug(f"🔍 获取缓存的Kronos预测: {symbol}")
+                        return cached_result
+            
+            self.logger.debug(f"🔍 未找到有效缓存: {symbol}")
+            return None
+            
+        except Exception as e:
+            self.logger.warning(f"获取缓存预测失败 {symbol}: {e}")
+            return None
     
     def clear_cache(self):
         """清空预测缓存"""

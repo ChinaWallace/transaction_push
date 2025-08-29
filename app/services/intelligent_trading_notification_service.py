@@ -129,10 +129,11 @@ class IntelligentTradingNotificationService:
             # 筛选高质量机会
             premium_opportunities = [op for op in opportunities if op.level == OpportunityLevel.PREMIUM]
             high_opportunities = [op for op in opportunities if op.level == OpportunityLevel.HIGH]
+            medium_opportunities = [op for op in opportunities if op.level == OpportunityLevel.MEDIUM]
             
-            # 推送通知
+            # 推送通知（包含中等级别机会）
             notification_results = await self._send_opportunity_notifications(
-                premium_opportunities, high_opportunities, force_scan
+                premium_opportunities, high_opportunities, medium_opportunities, force_scan
             )
             
             # 记录统计
@@ -193,13 +194,29 @@ class IntelligentTradingNotificationService:
                     self.kronos_service = await get_kronos_service()
                 
                 # 获取Kronos预测 - 使用更稳定的方法
+                if self.kronos_service is None:
+                    # 延迟初始化Kronos服务
+                    try:
+                        self.kronos_service = await get_kronos_service()
+                    except Exception as e:
+                        logger.warning(f"初始化Kronos服务失败: {e}")
+                        self.kronos_service = None
+                
                 if self.kronos_service:
                     # 先尝试从缓存获取
-                    kronos_prediction = await self.kronos_service.get_cached_prediction(symbol)
+                    kronos_prediction = self.kronos_service.get_cached_prediction(symbol)
                     
                     # 如果缓存没有，则生成新预测
                     if not kronos_prediction:
-                        kronos_prediction = await self.kronos_service.predict_price(symbol)
+                        # 获取历史数据用于Kronos预测
+                        from app.services.okx_service import OKXService
+                        okx_service = OKXService()
+                        kline_data = await okx_service.get_kline_data(symbol, '1h', 100)
+                        
+                        if kline_data and len(kline_data) >= 50:
+                            import pandas as pd
+                            historical_df = pd.DataFrame(kline_data)
+                            kronos_prediction = await self.kronos_service.get_prediction(symbol, historical_df)
                     
                     # 基于Kronos预测检测市场异常
                     if kronos_prediction:
@@ -301,6 +318,17 @@ class IntelligentTradingNotificationService:
                                   anomalies: List[str]) -> OpportunityLevel:
         """评估机会等级 - 优化Kronos权重"""
         score = 0
+        symbol = getattr(recommendation, 'symbol', 'UNKNOWN')
+        
+        logger.info(f"🔍 评估机会等级 {symbol}:")
+        logger.info(f"  - 传统分析置信度: {recommendation.confidence}%")
+        logger.info(f"  - 风险收益比: {recommendation.risk_reward_ratio}")
+        if kronos_prediction:
+            logger.info(f"  - Kronos置信度: {kronos_prediction.confidence:.2f}")
+            logger.info(f"  - Kronos信号: {kronos_prediction.signal}")
+            logger.info(f"  - 预测价格变化: {kronos_prediction.price_change_pct:.2%}")
+        else:
+            logger.info(f"  - Kronos预测: 无")
         
         # Kronos预测权重提升到50分 (核心决策依据)
         if kronos_prediction:
@@ -330,8 +358,8 @@ class IntelligentTradingNotificationService:
             elif price_change >= 0.03:  # 预测3%以上变化
                 score += 5
         else:
-            # 没有Kronos预测时，严重扣分
-            score -= 20
+            # 没有Kronos预测时，轻微扣分（允许基于传统分析推送）
+            score -= 5
         
         # 传统信号强度 (25分，权重降低)
         if recommendation.confidence > 85:
@@ -378,15 +406,19 @@ class IntelligentTradingNotificationService:
         else:
             score -= 5  # 高风险扣分
         
-        # 等级判定 - 调整阈值，更重视Kronos预测
-        if score >= 80:
-            return OpportunityLevel.PREMIUM
-        elif score >= 60:
-            return OpportunityLevel.HIGH
-        elif score >= 35:
-            return OpportunityLevel.MEDIUM
+        # 等级判定 - 降低阈值，更容易触发通知
+        level = None
+        if score >= 60:
+            level = OpportunityLevel.PREMIUM
+        elif score >= 40:
+            level = OpportunityLevel.HIGH
+        elif score >= 15:  # 大幅降低medium阈值
+            level = OpportunityLevel.MEDIUM
         else:
-            return OpportunityLevel.LOW
+            level = OpportunityLevel.LOW
+        
+        logger.info(f"  - 总评分: {score} -> 等级: {level.value}")
+        return level
     
     def _calculate_win_probability(self, recommendation, kronos_prediction) -> float:
         """计算胜率"""
@@ -488,6 +520,7 @@ class IntelligentTradingNotificationService:
     async def _send_opportunity_notifications(self, 
                                            premium_ops: List[TradingOpportunity],
                                            high_ops: List[TradingOpportunity],
+                                           medium_ops: List[TradingOpportunity] = None,
                                            force_send: bool = False) -> Dict[str, Any]:
         """发送机会通知"""
         sent_count = 0
@@ -499,9 +532,24 @@ class IntelligentTradingNotificationService:
         for op in premium_ops:
             if self._should_send_notification(op, force_send):
                 message = self._format_premium_opportunity_message(op)
-                await self.notification_service.send_notification(
-                    message, priority="urgent"
+                
+                # 创建NotificationContent对象
+                from app.services.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+                notification_content = NotificationContent(
+                    type=NotificationType.TRADING_SIGNAL,
+                    priority=NotificationPriority.HIGH,
+                    title=f"🎯 顶级交易机会 - {op.symbol}",
+                    message=message,
+                    metadata={
+                        'symbol': op.symbol,
+                        'action': op.action.value,
+                        'confidence': float(op.confidence),
+                        'expected_profit': float(op.expected_profit_usdt),
+                        'urgency': op.urgency
+                    }
                 )
+                
+                await self.notification_service.send_notification(notification_content)
                 self.last_notification_time[op.symbol] = datetime.now()
                 self._update_signal_history(op)
                 sent_count += 1
@@ -515,19 +563,68 @@ class IntelligentTradingNotificationService:
         # 批量推送高质量机会（最多3个）
         if high_ops_to_send:
             message = self._format_batch_opportunities_message(high_ops_to_send[:3])
-            await self.notification_service.send_notification(
-                message, priority="high"
+            
+            # 创建NotificationContent对象
+            from app.services.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+            notification_content = NotificationContent(
+                type=NotificationType.TRADING_SIGNAL,
+                priority=NotificationPriority.NORMAL,
+                title=f"📊 高质量交易机会 ({len(high_ops_to_send[:3])}个)",
+                message=message,
+                metadata={
+                    'batch_size': len(high_ops_to_send[:3]),
+                    'symbols': [op.symbol for op in high_ops_to_send[:3]]
+                }
             )
+            
+            await self.notification_service.send_notification(notification_content)
             for op in high_ops_to_send[:3]:
                 self.last_notification_time[op.symbol] = datetime.now()
                 self._update_signal_history(op)
             sent_count += len(high_ops_to_send[:3])
         
+        # 中等质量机会 - 有限制推送
+        if medium_ops:
+            medium_ops_to_send = []
+            for op in medium_ops:
+                if self._should_send_notification(op, force_send):
+                    medium_ops_to_send.append(op)
+            
+            # 批量推送中等机会（最多2个，避免过多通知）
+            if medium_ops_to_send:
+                message = self._format_batch_opportunities_message(medium_ops_to_send[:2], "中等质量")
+                
+                # 创建NotificationContent对象
+                from app.services.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+                notification_content = NotificationContent(
+                    type=NotificationType.TRADING_SIGNAL,
+                    priority=NotificationPriority.LOW,
+                    title=f"📊 中等质量交易机会 ({len(medium_ops_to_send[:2])}个)",
+                    message=message,
+                    metadata={
+                        'batch_size': len(medium_ops_to_send[:2]),
+                        'symbols': [op.symbol for op in medium_ops_to_send[:2]]
+                    }
+                )
+                
+                await self.notification_service.send_notification(notification_content)
+                for op in medium_ops_to_send[:2]:
+                    self.last_notification_time[op.symbol] = datetime.now()
+                    self._update_signal_history(op)
+                sent_count += len(medium_ops_to_send[:2])
+        
         return {'sent_count': sent_count}
     
     def _should_send_notification(self, opportunity: TradingOpportunity, force_send: bool) -> bool:
         """判断是否应该发送通知 - 币圈优化版：快速响应，智能去重"""
+        logger.info(f"🔔 检查是否推送通知 {opportunity.symbol}:")
+        logger.info(f"  - 等级: {opportunity.level.value}")
+        logger.info(f"  - 操作: {opportunity.action.value}")
+        logger.info(f"  - 置信度: {opportunity.confidence}%")
+        logger.info(f"  - 强制推送: {force_send}")
+        
         if force_send:
+            logger.info(f"  ✅ 强制推送模式，直接发送")
             return True
         
         level_key = opportunity.level.value.lower()
@@ -576,26 +673,40 @@ class IntelligentTradingNotificationService:
             return False
         
         # 质量检查 - 降低门槛，抓住更多机会
+        result = False
+        reason = ""
+        
         if opportunity.level == OpportunityLevel.PREMIUM:
             # 顶级机会：主要依赖传统分析置信度，Kronos作为辅助
             has_kronos_support = (hasattr(opportunity, 'ml_signal_strength') and 
                                 opportunity.ml_signal_strength > 0.7)  # 提高阈值，减少ML影响
-            return opportunity.confidence > 75 or has_kronos_support  # 优先传统分析
+            result = opportunity.confidence > 75 or has_kronos_support  # 优先传统分析
+            reason = f"顶级机会: 置信度{opportunity.confidence}% > 75% 或 Kronos支持{has_kronos_support}"
         
         elif opportunity.level == OpportunityLevel.HIGH:
             # 高质量机会：降低门槛
-            return (opportunity.confidence > (self.min_confidence - 5) and  # 70%
-                   opportunity.risk_reward_ratio > (self.min_risk_reward - 0.5) and  # 1.5:1
-                   opportunity.expected_profit_usdt > (self.min_expected_profit - 20))  # 30 USDT
+            conf_ok = opportunity.confidence > (self.min_confidence - 5)  # 70%
+            risk_ok = opportunity.risk_reward_ratio > (self.min_risk_reward - 0.5)  # 1.5:1
+            profit_ok = opportunity.expected_profit_usdt > (self.min_expected_profit - 20)  # 30 USDT
+            result = conf_ok and risk_ok and profit_ok
+            reason = f"高质量机会: 置信度{conf_ok}({opportunity.confidence}%>70%), 风险比{risk_ok}({opportunity.risk_reward_ratio:.1f}>1.5), 收益{profit_ok}({opportunity.expected_profit_usdt:.0f}>30)"
         
         elif opportunity.level == OpportunityLevel.MEDIUM:
             # 中等机会：适中门槛
-            return (opportunity.confidence > (self.min_confidence - 10) and  # 65%
-                   opportunity.risk_reward_ratio > (self.min_risk_reward - 1))  # 1:1
+            conf_ok = opportunity.confidence > (self.min_confidence - 10)  # 65%
+            risk_ok = opportunity.risk_reward_ratio > (self.min_risk_reward - 1)  # 1:1
+            result = conf_ok and risk_ok
+            reason = f"中等机会: 置信度{conf_ok}({opportunity.confidence}%>65%), 风险比{risk_ok}({opportunity.risk_reward_ratio:.1f}>1.0)"
         
         else:
             # 低质量机会：基础门槛
-            return opportunity.confidence > (self.min_confidence - 15)  # 60%
+            result = opportunity.confidence > (self.min_confidence - 15)  # 60%
+            reason = f"低质量机会: 置信度{opportunity.confidence}% > 60%"
+        
+        logger.info(f"  - 质量检查: {reason}")
+        logger.info(f"  {'✅ 通过' if result else '❌ 未通过'} 质量检查")
+        
+        return result
     
     def _format_premium_opportunity_message(self, op: TradingOpportunity) -> str:
         """格式化顶级机会消息"""
@@ -625,9 +736,9 @@ class IntelligentTradingNotificationService:
 
         return message
     
-    def _format_batch_opportunities_message(self, opportunities: List[TradingOpportunity]) -> str:
+    def _format_batch_opportunities_message(self, opportunities: List[TradingOpportunity], level_name: str = "高质量") -> str:
         """格式化批量机会消息"""
-        message = f"""📊 【高质量交易机会】
+        message = f"""📊 【{level_name}交易机会】
 
 ⏰ 扫描时间: {datetime.now().strftime('%H:%M')}
 🎯 发现 {len(opportunities)} 个优质机会:
@@ -679,6 +790,36 @@ class IntelligentTradingNotificationService:
             "today": "今日内"
         }
         return urgency_map.get(urgency, urgency)
+    
+    def _update_signal_history(self, opportunity: TradingOpportunity):
+        """更新信号历史记录"""
+        try:
+            level_key = opportunity.level.value.lower()
+            signal_key = f"{opportunity.symbol}_{opportunity.action.value}_{level_key}"
+            current_time = datetime.now()
+            
+            # 更新信号历史
+            self.signal_history[signal_key] = current_time
+            
+            # 记录置信度用于后续比较
+            setattr(self, f'last_{signal_key}_confidence', opportunity.confidence)
+            
+            # 记录操作类型用于方向反转检测
+            setattr(self, f'last_{opportunity.symbol}_action', opportunity.action.value)
+            
+            # 清理过期的历史记录（保留24小时内的记录）
+            cutoff_time = current_time - timedelta(hours=24)
+            expired_keys = [
+                key for key, timestamp in self.signal_history.items() 
+                if timestamp < cutoff_time
+            ]
+            for key in expired_keys:
+                del self.signal_history[key]
+            
+            logger.debug(f"📝 更新信号历史: {signal_key} -> {current_time}")
+            
+        except Exception as e:
+            logger.error(f"❌ 更新信号历史失败: {e}")
     
     async def get_current_opportunities(self) -> List[Dict[str, Any]]:
         """获取当前有效的交易机会"""
@@ -817,18 +958,28 @@ class IntelligentTradingNotificationService:
             # 多渠道推送
             success_count = 0
             
-            for channel in urgency_config['channels']:
-                try:
-                    success = await self.notification_service.send_notification(
-                        message=message,
-                        priority="high",
-                        subject=f"🚨 强交易信号: {opportunity.symbol}",
-                        channel=channel
-                    )
-                    if success:
-                        success_count += 1
-                except Exception as e:
-                    logger.error(f"发送{channel}通知失败: {e}")
+            # 创建NotificationContent对象
+            from app.services.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+            notification_content = NotificationContent(
+                type=NotificationType.TRADING_SIGNAL,
+                priority=NotificationPriority.URGENT,
+                title=f"🚨 强交易信号: {opportunity.symbol}",
+                message=message,
+                metadata={
+                    'symbol': opportunity.symbol,
+                    'action': opportunity.action.value,
+                    'confidence': float(opportunity.confidence),
+                    'urgency': 'immediate',
+                    'expected_profit': float(opportunity.expected_profit_usdt)
+                }
+            )
+            
+            try:
+                await self.notification_service.send_notification(notification_content)
+                success_count = 1
+            except Exception as e:
+                logger.error(f"发送立即通知失败: {e}")
+                success_count = 0
             
             # 记录通知时间
             self.last_notification_time[opportunity.symbol] = datetime.now()
@@ -865,6 +1016,84 @@ class IntelligentTradingNotificationService:
 ⚠️ 请及时关注市场变化！"""
 
         return message
+    
+    def _format_premium_opportunity_message(self, op: TradingOpportunity) -> str:
+        """格式化顶级机会消息"""
+        action_emoji = "🚀" if op.action.value in ['buy', 'strong_buy'] else "📉"
+        urgency_emoji = "⚡" if op.urgency == "immediate" else "🔔"
+        
+        message = f"""{urgency_emoji} 【顶级交易机会】{action_emoji}
+
+💎 交易对: {op.symbol}
+🎯 操作: {self._get_action_text(op.action)}
+📊 置信度: {op.confidence:.1f}%
+💰 预期收益: {op.expected_profit_usdt:.0f} USDT
+📈 风险收益比: 1:{op.risk_reward_ratio:.1f}
+🎲 胜率: {op.win_probability:.1%}
+
+💡 交易参数:
+• 入场价: {op.entry_price:.4f}
+• 止损价: {op.stop_loss_price:.4f}
+• 止盈价: {op.take_profit_price:.4f}
+• 建议仓位: {op.position_size_usdt:.0f} USDT
+• 杠杆倍数: {op.leverage:.0f}x
+
+🔥 关键因素:
+{chr(10).join(f"• {factor}" for factor in op.key_factors[:4])}
+
+⏰ 有效期: {op.urgency}
+📅 时间: {op.timestamp.strftime('%H:%M:%S')}"""
+
+        return message
+    
+    def _format_batch_opportunities_message(self, ops: List[TradingOpportunity], quality: str = "高质量") -> str:
+        """格式化批量机会消息"""
+        message = f"📊 【{quality}交易机会汇总】\n\n"
+        
+        for i, op in enumerate(ops, 1):
+            action_emoji = "🚀" if op.action.value in ['buy', 'strong_buy'] else "📉"
+            
+            message += f"{i}. {action_emoji} {op.symbol}\n"
+            message += f"   🎯 {self._get_action_text(op.action)} | 📊 {op.confidence:.0f}%\n"
+            message += f"   💰 {op.expected_profit_usdt:.0f}U | 📈 1:{op.risk_reward_ratio:.1f}\n"
+            
+            # 显示最重要的因素
+            if op.key_factors:
+                message += f"   🔥 {op.key_factors[0]}\n"
+            
+            message += "\n"
+        
+        message += f"⏰ 时间: {datetime.now().strftime('%H:%M:%S')}\n"
+        message += "💡 详细参数请查看完整分析报告"
+        
+        return message
+    
+    def _get_action_text(self, action: TradingAction) -> str:
+        """获取操作文本"""
+        action_map = {
+            TradingAction.STRONG_BUY: "强烈买入",
+            TradingAction.BUY: "买入",
+            TradingAction.HOLD: "持有",
+            TradingAction.SELL: "卖出",
+            TradingAction.STRONG_SELL: "强烈卖出"
+        }
+        return action_map.get(action, action.value)
+    
+    def _format_opportunity_summary(self, op: TradingOpportunity) -> Dict[str, Any]:
+        """格式化机会摘要"""
+        return {
+            'symbol': op.symbol,
+            'level': op.level.value,
+            'action': op.action.value,
+            'confidence': op.confidence,
+            'expected_profit_usdt': op.expected_profit_usdt,
+            'risk_reward_ratio': op.risk_reward_ratio,
+            'win_probability': op.win_probability,
+            'urgency': op.urgency,
+            'key_factors': op.key_factors[:3],
+            'timestamp': op.timestamp.isoformat(),
+            'valid_until': op.valid_until.isoformat()
+        }
 
 
     def _update_signal_history(self, opportunity: TradingOpportunity):
