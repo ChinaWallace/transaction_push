@@ -79,20 +79,20 @@ class IntelligentTradingNotificationService:
         self.notification_service = None  # Will be initialized async
         self.kronos_service = None  # 延迟初始化
         
-        # 机会筛选阈值
-        self.min_confidence = 75.0          # 最低置信度75%
-        self.min_risk_reward = 2.0          # 最低风险收益比2:1
-        self.min_expected_profit = 50.0     # 最低预期盈利50 USDT
+        # 机会筛选阈值 - 降低门槛，增加推送机会
+        self.min_confidence = 60.0          # 最低置信度60%（降低15%）
+        self.min_risk_reward = 1.5          # 最低风险收益比1.5:1（降低0.5）
+        self.min_expected_profit = 30.0     # 最低预期盈利30 USDT（降低20）
         
-        # 推送频率控制 - 币圈专用：快速响应，抓住机会
+        # 推送频率控制 - 移除所有冷却时间限制，实时推送
         self.last_notification_time = {}
         self.notification_intervals = {
-            'premium': timedelta(minutes=5),    # 顶级机会5分钟间隔，快速响应
-            'high': timedelta(minutes=15),      # 高质量机会15分钟间隔
-            'medium': timedelta(minutes=30),    # 中等机会30分钟间隔
-            'low': timedelta(hours=1)           # 低质量机会1小时间隔
+            'premium': timedelta(seconds=0),    # 顶级机会无冷却，立即推送
+            'high': timedelta(seconds=0),       # 高质量机会无冷却，立即推送
+            'medium': timedelta(seconds=0),     # 中等机会无冷却，立即推送
+            'low': timedelta(seconds=0)         # 低质量机会无冷却，立即推送
         }
-        self.min_notification_interval = timedelta(minutes=30)  # 默认间隔缩短
+        self.min_notification_interval = timedelta(seconds=0)  # 移除默认间隔限制
         
         # 移除每日限制 - 币圈机会不等人，全天候监控
         # 改用智能过滤：相同交易对的相同信号类型才限制
@@ -634,74 +634,75 @@ class IntelligentTradingNotificationService:
         signal_key = f"{opportunity.symbol}_{opportunity.action.value}_{level_key}"
         last_signal_time = self.signal_history.get(signal_key)
         
-        # 相同信号的最小间隔（避免重复推送相同内容）
+        # 相同信号的最小间隔（移除所有冷却限制）
         same_signal_interval = {
-            'premium': timedelta(minutes=10),   # 相同顶级信号10分钟间隔
-            'high': timedelta(minutes=20),      # 相同高质量信号20分钟间隔
-            'medium': timedelta(minutes=45),    # 相同中等信号45分钟间隔
-            'low': timedelta(hours=2)           # 相同低质量信号2小时间隔
+            'premium': timedelta(seconds=0),    # 相同顶级信号无冷却
+            'high': timedelta(seconds=0),       # 相同高质量信号无冷却
+            'medium': timedelta(seconds=0),     # 相同中等信号无冷却
+            'low': timedelta(seconds=0)         # 相同低质量信号无冷却
         }
         
-        if last_signal_time:
-            required_same_signal_interval = same_signal_interval.get(level_key, timedelta(hours=1))
-            if current_time - last_signal_time < required_same_signal_interval:
-                # 除非置信度显著提升（+10%以上）
-                if opportunity.confidence > getattr(self, f'last_{signal_key}_confidence', 0) + 10:
-                    logger.info(f"{opportunity.symbol} 置信度显著提升，允许重新推送")
-                else:
-                    return False
+        # 移除相同信号的时间限制检查 - 允许所有信号立即推送
+        # if last_signal_time:
+        #     required_same_signal_interval = same_signal_interval.get(level_key, timedelta(hours=1))
+        #     if current_time - last_signal_time < required_same_signal_interval:
+        #         # 除非置信度显著提升（+10%以上）
+        #         if opportunity.confidence > getattr(self, f'last_{signal_key}_confidence', 0) + 10:
+        #             logger.info(f"{opportunity.symbol} 置信度显著提升，允许重新推送")
+        #         else:
+        #             return False
         
-        # 检查不同交易对的时间间隔（更宽松）
-        required_interval = self.notification_intervals.get(level_key, self.min_notification_interval)
-        last_time = self.last_notification_time.get(opportunity.symbol)
+        # 移除不同交易对的时间间隔检查 - 允许所有机会立即推送
+        # required_interval = self.notification_intervals.get(level_key, self.min_notification_interval)
+        # last_time = self.last_notification_time.get(opportunity.symbol)
+        # 
+        # if last_time and current_time - last_time < required_interval:
+        #     # 顶级机会的特殊处理
+        #     if opportunity.level == OpportunityLevel.PREMIUM:
+        #         # 如果是不同方向的信号（如从买入变卖出），立即推送
+        #         last_action = getattr(self, f'last_{opportunity.symbol}_action', None)
+        #         if (last_action and 
+        #             ((last_action in ['buy', 'strong_buy'] and opportunity.action.value in ['sell', 'strong_sell']) or
+        #              (last_action in ['sell', 'strong_sell'] and opportunity.action.value in ['buy', 'strong_buy']))):
+        #             logger.info(f"{opportunity.symbol} 信号方向反转，立即推送")
+        #             return True
+        #         
+        #         # 极高置信度（90%+）可以忽略时间限制
+        #         if opportunity.confidence > 90:
+        #             logger.info(f"顶级机会 {opportunity.symbol} 极高置信度 {opportunity.confidence}%，忽略时间限制")
+        #             return True
+        #     return False
         
-        if last_time and current_time - last_time < required_interval:
-            # 顶级机会的特殊处理
-            if opportunity.level == OpportunityLevel.PREMIUM:
-                # 如果是不同方向的信号（如从买入变卖出），立即推送
-                last_action = getattr(self, f'last_{opportunity.symbol}_action', None)
-                if (last_action and 
-                    ((last_action in ['buy', 'strong_buy'] and opportunity.action.value in ['sell', 'strong_sell']) or
-                     (last_action in ['sell', 'strong_sell'] and opportunity.action.value in ['buy', 'strong_buy']))):
-                    logger.info(f"{opportunity.symbol} 信号方向反转，立即推送")
-                    return True
-                
-                # 极高置信度（90%+）可以忽略时间限制
-                if opportunity.confidence > 90:
-                    logger.info(f"顶级机会 {opportunity.symbol} 极高置信度 {opportunity.confidence}%，忽略时间限制")
-                    return True
-            return False
-        
-        # 质量检查 - 降低门槛，抓住更多机会
+        # 质量检查 - 大幅降低门槛，确保更多信号能够推送
         result = False
         reason = ""
         
         if opportunity.level == OpportunityLevel.PREMIUM:
-            # 顶级机会：主要依赖传统分析置信度，Kronos作为辅助
+            # 顶级机会：降低门槛，优先推送
             has_kronos_support = (hasattr(opportunity, 'ml_signal_strength') and 
-                                opportunity.ml_signal_strength > 0.7)  # 提高阈值，减少ML影响
-            result = opportunity.confidence > 75 or has_kronos_support  # 优先传统分析
-            reason = f"顶级机会: 置信度{opportunity.confidence}% > 75% 或 Kronos支持{has_kronos_support}"
+                                opportunity.ml_signal_strength > 0.6)  # 降低Kronos阈值
+            result = opportunity.confidence > 65 or has_kronos_support  # 大幅降低置信度要求
+            reason = f"顶级机会: 置信度{opportunity.confidence}% > 65% 或 Kronos支持{has_kronos_support}"
         
         elif opportunity.level == OpportunityLevel.HIGH:
-            # 高质量机会：降低门槛
-            conf_ok = opportunity.confidence > (self.min_confidence - 5)  # 70%
-            risk_ok = opportunity.risk_reward_ratio > (self.min_risk_reward - 0.5)  # 1.5:1
-            profit_ok = opportunity.expected_profit_usdt > (self.min_expected_profit - 20)  # 30 USDT
+            # 高质量机会：大幅降低门槛
+            conf_ok = opportunity.confidence > (self.min_confidence - 15)  # 60%
+            risk_ok = opportunity.risk_reward_ratio > (self.min_risk_reward - 1.0)  # 1:1
+            profit_ok = opportunity.expected_profit_usdt > (self.min_expected_profit - 30)  # 20 USDT
             result = conf_ok and risk_ok and profit_ok
-            reason = f"高质量机会: 置信度{conf_ok}({opportunity.confidence}%>70%), 风险比{risk_ok}({opportunity.risk_reward_ratio:.1f}>1.5), 收益{profit_ok}({opportunity.expected_profit_usdt:.0f}>30)"
+            reason = f"高质量机会: 置信度{conf_ok}({opportunity.confidence}%>60%), 风险比{risk_ok}({opportunity.risk_reward_ratio:.1f}>1.0), 收益{profit_ok}({opportunity.expected_profit_usdt:.0f}>20)"
         
         elif opportunity.level == OpportunityLevel.MEDIUM:
-            # 中等机会：适中门槛
-            conf_ok = opportunity.confidence > (self.min_confidence - 10)  # 65%
-            risk_ok = opportunity.risk_reward_ratio > (self.min_risk_reward - 1)  # 1:1
+            # 中等机会：降低门槛，增加推送机会
+            conf_ok = opportunity.confidence > (self.min_confidence - 20)  # 55%
+            risk_ok = opportunity.risk_reward_ratio > (self.min_risk_reward - 1.5)  # 0.5:1
             result = conf_ok and risk_ok
-            reason = f"中等机会: 置信度{conf_ok}({opportunity.confidence}%>65%), 风险比{risk_ok}({opportunity.risk_reward_ratio:.1f}>1.0)"
+            reason = f"中等机会: 置信度{conf_ok}({opportunity.confidence}%>55%), 风险比{risk_ok}({opportunity.risk_reward_ratio:.1f}>0.5)"
         
         else:
-            # 低质量机会：基础门槛
-            result = opportunity.confidence > (self.min_confidence - 15)  # 60%
-            reason = f"低质量机会: 置信度{opportunity.confidence}% > 60%"
+            # 低质量机会：进一步降低门槛
+            result = opportunity.confidence > (self.min_confidence - 25)  # 50%
+            reason = f"低质量机会: 置信度{opportunity.confidence}% > 50%"
         
         logger.info(f"  - 质量检查: {reason}")
         logger.info(f"  {'✅ 通过' if result else '❌ 未通过'} 质量检查")
@@ -844,7 +845,116 @@ class IntelligentTradingNotificationService:
             
         except Exception as e:
             logger.error(f"获取当前机会失败: {e}")
-            return []   
+            return []
+    
+    async def debug_signal_analysis(self, symbols: List[str] = None) -> Dict[str, Any]:
+        """调试信号分析 - 帮助诊断为什么没有推送交易信号"""
+        try:
+            if symbols is None:
+                symbols = await self._get_active_symbols()
+            
+            logger.info(f"🔍 开始调试信号分析，检查 {len(symbols)} 个交易对")
+            
+            debug_results = {
+                'timestamp': datetime.now().isoformat(),
+                'total_symbols': len(symbols),
+                'analysis_results': [],
+                'summary': {
+                    'total_opportunities': 0,
+                    'by_level': {'premium': 0, 'high': 0, 'medium': 0, 'low': 0},
+                    'notification_eligible': 0,
+                    'notification_blocked_reasons': {}
+                }
+            }
+            
+            # 分析每个交易对
+            for symbol in symbols[:5]:  # 限制为前5个，避免过多日志
+                try:
+                    logger.info(f"🔍 调试分析 {symbol}...")
+                    
+                    # 获取交易建议
+                    recommendation = await self.unified_service.get_trading_recommendation(symbol)
+                    
+                    # 获取Kronos预测
+                    kronos_prediction = None
+                    try:
+                        if self.kronos_service is None:
+                            self.kronos_service = await get_kronos_service()
+                        if self.kronos_service:
+                            kronos_prediction = await self.kronos_service.get_prediction(symbol, None)
+                    except Exception as e:
+                        logger.warning(f"Kronos预测失败 {symbol}: {e}")
+                    
+                    # 评估机会等级
+                    market_anomalies = self._detect_market_anomalies(kronos_prediction) if kronos_prediction else []
+                    opportunity_level = self._evaluate_opportunity_level(
+                        recommendation, kronos_prediction, market_anomalies
+                    )
+                    
+                    # 创建机会对象用于测试
+                    test_opportunity = TradingOpportunity(
+                        symbol=symbol,
+                        level=opportunity_level,
+                        action=recommendation.action,
+                        confidence=recommendation.confidence,
+                        position_size_usdt=recommendation.position_size_usdt,
+                        leverage=recommendation.leverage,
+                        entry_price=recommendation.entry_price,
+                        stop_loss_price=recommendation.stop_loss_price,
+                        take_profit_price=recommendation.take_profit_price,
+                        expected_profit_usdt=recommendation.expected_profit_usdt,
+                        risk_reward_ratio=recommendation.risk_reward_ratio,
+                        win_probability=0.6,
+                        ml_signal_strength=kronos_prediction.confidence if kronos_prediction else 0.0,
+                        market_anomalies=market_anomalies,
+                        key_factors=[],
+                        reasoning=recommendation.reasoning,
+                        urgency="normal",
+                        valid_until=datetime.now() + timedelta(hours=4),
+                        timestamp=datetime.now()
+                    )
+                    
+                    # 检查是否应该推送通知
+                    should_notify = self._should_send_notification(test_opportunity, force_send=False)
+                    
+                    # 记录分析结果
+                    analysis_result = {
+                        'symbol': symbol,
+                        'confidence': recommendation.confidence,
+                        'action': recommendation.action.value,
+                        'level': opportunity_level.value,
+                        'risk_reward_ratio': recommendation.risk_reward_ratio,
+                        'expected_profit': recommendation.expected_profit_usdt,
+                        'kronos_available': kronos_prediction is not None,
+                        'kronos_confidence': kronos_prediction.confidence if kronos_prediction else 0,
+                        'should_notify': should_notify,
+                        'anomalies_count': len(market_anomalies)
+                    }
+                    
+                    debug_results['analysis_results'].append(analysis_result)
+                    debug_results['summary']['total_opportunities'] += 1
+                    debug_results['summary']['by_level'][opportunity_level.value] += 1
+                    
+                    if should_notify:
+                        debug_results['summary']['notification_eligible'] += 1
+                    
+                    logger.info(f"  📊 {symbol}: {opportunity_level.value} 级别, 置信度 {recommendation.confidence}%, {'✅会推送' if should_notify else '❌不推送'}")
+                    
+                except Exception as e:
+                    logger.error(f"调试分析 {symbol} 失败: {e}")
+                    continue
+            
+            # 记录汇总信息
+            logger.info(f"🔍 调试分析完成:")
+            logger.info(f"  📊 总机会: {debug_results['summary']['total_opportunities']}")
+            logger.info(f"  🎯 各等级: {debug_results['summary']['by_level']}")
+            logger.info(f"  📢 可推送: {debug_results['summary']['notification_eligible']}")
+            
+            return debug_results
+            
+        except Exception as e:
+            logger.error(f"调试信号分析失败: {e}")
+            return {'error': str(e), 'timestamp': datetime.now().isoformat()}   
     def _detect_strong_signal(self, opportunity: TradingOpportunity, market_data: Dict[str, Any]) -> SignalUrgency:
         """
         检测强信号并确定紧急程度

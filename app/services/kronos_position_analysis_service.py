@@ -48,9 +48,9 @@ class KronosPositionAnalysisService:
             'enable_notifications': True,
             'min_position_value': 100,  # 最小持仓价值(USDT)
             'high_risk_threshold': 0.15,  # 15%风险阈值
-            'notification_cooldown_minutes': 30,  # 通知冷却时间改为30分钟
-            'urgent_notification_cooldown_minutes': 10,  # 紧急情况冷却时间10分钟
-            'high_risk_notification_cooldown_minutes': 15,  # 高风险情况冷却时间15分钟
+            'notification_cooldown_minutes': 0,  # 移除通知冷却时间限制
+            'urgent_notification_cooldown_minutes': 0,  # 移除紧急情况冷却时间限制
+            'high_risk_notification_cooldown_minutes': 0,  # 移除高风险情况冷却时间限制
         }
         
         # 通知历史

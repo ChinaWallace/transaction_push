@@ -580,8 +580,7 @@ class NegativeFundingMonitorService:
             enhanced: 是否为增强模式（包含价格预测和仓位建议）
         """
         if not opportunities:
-            negative_threshold_pct = abs(settings.strategy_config['funding_rate']['negative_threshold'] * 100)
-            return f"📊 当前无显著负费率机会（阈值: -{negative_threshold_pct:.1f}%）\n⏰ 下次检查: 1小时后"
+            return f"📊 当前无显著负费率机会（筛选阈值: -0.1%以下）\n⏰ 下次检查: 20分钟后"
         
         # 分离不同类型的机会
         surge_opportunities = [opp for opp in opportunities if opp['is_surge']]
@@ -694,7 +693,8 @@ class NegativeFundingMonitorService:
             message += "• 建议分散投资，单币种不超过总资金20%\n"
             message += "• 密切监控费率变化，及时调整仓位\n\n"
         
-        message += "⏰ 下次检查: 1小时后"
+        message += "⏰ 下次检查: 20分钟后\n"
+        message += f"📋 筛选标准: 负费率 ≤ -0.1%"
         
         return message
     
@@ -772,9 +772,12 @@ class NegativeFundingMonitorService:
             if not all_funding_rates:
                 return {'success': False, 'error': '未获取到费率数据'}
             
-            # 2. 筛选出有负费率的币种进行详细分析
-            negative_funding_rates = [r for r in all_funding_rates if r['funding_rate'] < 0]
-            logger.info(f"📊 发现 {len(negative_funding_rates)} 个负费率币种，开始详细分析...")
+            # 2. 筛选出负费率低于-0.1%的币种进行详细分析
+            significant_negative_threshold = -0.001  # -0.1%
+            negative_funding_rates = [r for r in all_funding_rates if r['funding_rate'] <= significant_negative_threshold]
+            
+            total_negative_count = len([r for r in all_funding_rates if r['funding_rate'] < 0])
+            logger.info(f"📊 发现 {total_negative_count} 个负费率币种，其中 {len(negative_funding_rates)} 个低于-0.1%，开始详细分析...")
             
             funding_rates = negative_funding_rates  # 直接使用负费率数据
             

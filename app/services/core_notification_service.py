@@ -135,61 +135,61 @@ class CoreNotificationService:
     def _initialize_notification_rules(self) -> Dict[NotificationType, NotificationRule]:
         """初始化通知规则"""
         return {
-            # 交易信号 - 降低最低优先级要求，支持更多强信号
+            # 交易信号 - 无冷却时间限制
             NotificationType.TRADING_SIGNAL: NotificationRule(
                 type=NotificationType.TRADING_SIGNAL,
-                min_priority=NotificationPriority.NORMAL,  # 从HIGH降低到NORMAL
-                cooldown_minutes=5,  # 强信号冷却时间5分钟
+                min_priority=NotificationPriority.NORMAL,
+                cooldown_minutes=0,  # 移除冷却时间限制
                 filter_func=self._filter_trading_signal,
                 format_func=self._format_trading_signal
             ),
             
-            # 持仓分析 - 中等优先级，由持仓分析服务控制冷却时间
+            # 持仓分析 - 无冷却时间限制
             NotificationType.POSITION_ANALYSIS: NotificationRule(
                 type=NotificationType.POSITION_ANALYSIS,
                 min_priority=NotificationPriority.NORMAL,
-                cooldown_minutes=0,  # 不在通知服务层面进行冷却检查，由持仓分析服务控制
+                cooldown_minutes=0,  # 无冷却时间限制
                 format_func=self._format_position_analysis
             ),
             
-            # 费率监控 - 立即推送
+            # 费率监控 - 无冷却时间限制
             NotificationType.FUNDING_RATE: NotificationRule(
                 type=NotificationType.FUNDING_RATE,
                 min_priority=NotificationPriority.NORMAL,
-                cooldown_minutes=30,
+                cooldown_minutes=0,  # 移除冷却时间限制
                 format_func=self._format_funding_rate
             ),
             
-            # 网格机会 - 批量推送
+            # 网格机会 - 无冷却时间限制
             NotificationType.GRID_OPPORTUNITY: NotificationRule(
                 type=NotificationType.GRID_OPPORTUNITY,
                 min_priority=NotificationPriority.NORMAL,
-                cooldown_minutes=120,
+                cooldown_minutes=0,  # 移除冷却时间限制
                 format_func=self._format_grid_opportunity
             ),
             
-            # Kronos预测 - 高优先级，立即推送
+            # Kronos预测 - 无冷却时间限制
             NotificationType.KRONOS_PREDICTION: NotificationRule(
                 type=NotificationType.KRONOS_PREDICTION,
                 min_priority=NotificationPriority.HIGH,
-                cooldown_minutes=15,
+                cooldown_minutes=0,  # 移除冷却时间限制
                 filter_func=self._filter_kronos_prediction,
                 format_func=self._format_kronos_prediction
             ),
             
-            # ML预测 - 批量推送
+            # ML预测 - 无冷却时间限制
             NotificationType.ML_PREDICTION: NotificationRule(
                 type=NotificationType.ML_PREDICTION,
                 min_priority=NotificationPriority.NORMAL,
-                cooldown_minutes=30,
+                cooldown_minutes=0,  # 移除冷却时间限制
                 format_func=self._format_ml_prediction
             ),
             
-            # 系统警报 - 添加过滤器，过滤系统启动状态信息
+            # 系统警报 - 无冷却时间限制
             NotificationType.SYSTEM_ALERT: NotificationRule(
                 type=NotificationType.SYSTEM_ALERT,
                 min_priority=NotificationPriority.HIGH,
-                cooldown_minutes=5,
+                cooldown_minutes=0,  # 移除冷却时间限制
                 filter_func=self._filter_system_alert,
             ),
         }

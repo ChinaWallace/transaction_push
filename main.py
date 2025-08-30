@@ -511,11 +511,11 @@ async def lifespan(app: FastAPI):
         # 添加负费率监控定时任务
         funding_monitor = NegativeFundingMonitorService()
         
-        # 每30分钟检查一次负费率机会（使用增强版分析）
+        # 每20分钟检查一次负费率机会（使用增强版分析）
         scheduler.add_job(
             lambda: funding_monitor.run_monitoring_cycle(enable_enhanced_analysis=True),
             'interval',
-            minutes=30,
+            minutes=20,
             id='negative_funding_monitor',
             name='负费率吃利息机会监控（增强版）'
         )
@@ -958,7 +958,10 @@ def create_app() -> FastAPI:
                 
                 # 快速检查前20个热门币种
                 hot_symbols = await funding_monitor.get_top_volume_symbols(limit=20)
-                funding_rates = await funding_monitor.get_batch_funding_rates(hot_symbols[:15], batch_size=5)
+                
+                # 使用OKX服务获取费率数据
+                async with funding_monitor.okx_service:
+                    funding_rates = await funding_monitor.okx_service.get_batch_funding_rates(hot_symbols[:15])
                 
                 # 只分析负费率币种
                 negative_rates = [r for r in funding_rates if r['funding_rate'] < 0]
@@ -999,6 +1002,46 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.error(f"获取负费率机会失败: {e}")
             raise HTTPException(status_code=500, detail="获取负费率机会失败")
+    
+    # 手动触发负费率监控
+    @app.post("/test-funding-monitor", summary="手动触发负费率监控")
+    async def test_funding_monitor():
+        """手动触发负费率监控，用于测试推送功能"""
+        try:
+            if hasattr(app.state, 'funding_monitor'):
+                funding_monitor = app.state.funding_monitor
+                logger.info("🧪 手动触发负费率监控测试...")
+                
+                # 运行完整的监控周期
+                result = await funding_monitor.run_monitoring_cycle(enable_enhanced_analysis=True)
+                
+                if result['success']:
+                    return {
+                        "status": "success",
+                        "message": f"监控完成，发现 {result.get('negative_funding_count', 0)} 个负费率机会",
+                        "data": {
+                            "total_symbols_checked": result.get('total_symbols_checked', 0),
+                            "opportunities_count": result.get('negative_funding_count', 0),
+                            "duration_seconds": result.get('duration_seconds', 0),
+                            "analysis_time": result.get('analysis_time')
+                        },
+                        "timestamp": datetime.now().isoformat()
+                    }
+                else:
+                    return {
+                        "status": "error",
+                        "message": f"监控失败: {result.get('error', '未知错误')}",
+                        "timestamp": datetime.now().isoformat()
+                    }
+            else:
+                return {
+                    "status": "error",
+                    "message": "负费率监控服务未启动",
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            logger.error(f"手动触发负费率监控失败: {e}")
+            raise HTTPException(status_code=500, detail=f"监控失败: {str(e)}")
     
     # 快速市场概览
     @app.get("/market-overview", summary="快速市场概览")
@@ -1078,6 +1121,44 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.error(f"获取实时Kronos持仓分析失败: {e}")
             raise HTTPException(status_code=500, detail="获取实时Kronos持仓分析失败")
+    
+    # 调试交易信号分析
+    @app.get("/debug-trading-signals", summary="调试交易信号分析")
+    async def debug_trading_signals():
+        """调试交易信号分析，帮助诊断为什么没有推送交易信号"""
+        try:
+            from app.services.intelligent_trading_notification_service import get_intelligent_notification_service
+            
+            intelligent_service = await get_intelligent_notification_service()
+            debug_results = await intelligent_service.debug_signal_analysis()
+            
+            return {
+                "status": "success",
+                "message": "交易信号调试分析完成",
+                "debug_results": debug_results
+            }
+        except Exception as e:
+            logger.error(f"调试交易信号分析失败: {e}")
+            raise HTTPException(status_code=500, detail="调试交易信号分析失败")
+    
+    # 强制扫描交易机会
+    @app.post("/force-scan-opportunities", summary="强制扫描交易机会")
+    async def force_scan_opportunities():
+        """强制扫描交易机会并推送通知"""
+        try:
+            from app.services.intelligent_trading_notification_service import get_intelligent_notification_service
+            
+            intelligent_service = await get_intelligent_notification_service()
+            scan_results = await intelligent_service.scan_and_notify_opportunities(force_scan=True)
+            
+            return {
+                "status": "success",
+                "message": "强制扫描交易机会完成",
+                "scan_results": scan_results
+            }
+        except Exception as e:
+            logger.error(f"强制扫描交易机会失败: {e}")
+            raise HTTPException(status_code=500, detail="强制扫描交易机会失败")
     
     return app
 
