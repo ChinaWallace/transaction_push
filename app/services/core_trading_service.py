@@ -475,27 +475,157 @@ class CoreTradingService:
             confidences.append(ml_confidence * self.analysis_weights['ml'])
             reasoning_parts.append(f"ML: {ml_action} ({ml_confidence:.2f})")
         
-        # 综合决策
+        # 优化的综合决策逻辑
         if not signals:
             final_action = "HOLD"
             final_confidence = 0.5
         else:
-            # 简单投票机制
-            buy_votes = sum(1 for s in signals if s in ['BUY', 'LONG'])
-            sell_votes = sum(1 for s in signals if s in ['SELL', 'SHORT'])
+            # 特殊处理：Kronos极高置信度时的决策优化
+            kronos_confidence = kronos_result.final_confidence if kronos_result else 0
+            kronos_action = kronos_result.final_action if kronos_result else "HOLD"
             
-            if buy_votes > sell_votes:
-                final_action = "BUY"
-            elif sell_votes > buy_votes:
-                final_action = "SELL"
+            # 当Kronos置信度>=90%时，给予绝对优先权
+            if kronos_confidence >= 0.90:
+                if "买入" in kronos_action or "BUY" in kronos_action.upper():
+                    final_action = "BUY"
+                    # 极高置信度时，即使技术分析冲突也保持高置信度
+                    final_confidence = max(0.75, kronos_confidence * 0.9)  # 至少75%置信度
+                    self.logger.info(f"🔥 Kronos极高置信度({kronos_confidence:.2f})主导决策: {final_action}")
+                elif "卖出" in kronos_action or "SELL" in kronos_action.upper():
+                    final_action = "SELL"
+                    final_confidence = max(0.75, kronos_confidence * 0.9)
+                    self.logger.info(f"🔥 Kronos极高置信度({kronos_confidence:.2f})主导决策: {final_action}")
+                else:
+                    # Kronos建议观望时使用常规逻辑
+                    final_action, final_confidence = self._regular_decision_logic(signals, confidences)
+            
+            # 当Kronos置信度>=80%时，给予高权重
+            elif kronos_confidence >= 0.80:
+                if "买入" in kronos_action or "BUY" in kronos_action.upper():
+                    final_action = "BUY"
+                    # 动态调整权重：Kronos 70%, 其他 30%
+                    kronos_weight = 0.7
+                    other_weight = 0.3
+                    final_confidence = (kronos_confidence * kronos_weight + 
+                                      sum(confidences[1:]) * other_weight) if len(confidences) > 1 else kronos_confidence * 0.85
+                    self.logger.info(f"🎯 Kronos高置信度({kronos_confidence:.2f})主导决策: {final_action}")
+                elif "卖出" in kronos_action or "SELL" in kronos_action.upper():
+                    final_action = "SELL"
+                    kronos_weight = 0.7
+                    other_weight = 0.3
+                    final_confidence = (kronos_confidence * kronos_weight + 
+                                      sum(confidences[1:]) * other_weight) if len(confidences) > 1 else kronos_confidence * 0.85
+                    self.logger.info(f"🎯 Kronos高置信度({kronos_confidence:.2f})主导决策: {final_action}")
+                else:
+                    final_action, final_confidence = self._regular_decision_logic(signals, confidences)
+            
+            # 常规决策逻辑
             else:
-                final_action = "HOLD"
-            
-            # 加权平均置信度
-            final_confidence = sum(confidences) / len(confidences) if confidences else 0.5
+                final_action, final_confidence = self._regular_decision_logic(signals, confidences)
         
         # 确定信号强度
         signal_strength = self._determine_signal_strength(final_confidence)
+        
+        # 提取技术指标详情
+        technical_indicators = {}
+        key_factors = []
+        
+        if technical_result and 'recommendation' in technical_result:
+            recommendation = technical_result['recommendation']
+            
+            # 提取详细的技术指标数据
+            if hasattr(recommendation, 'key_levels') and recommendation.key_levels:
+                # 提取支撑阻力位
+                technical_indicators['support_levels'] = recommendation.key_levels.get('support', [])
+                technical_indicators['resistance_levels'] = recommendation.key_levels.get('resistance', [])
+            
+            # 总是尝试获取详细的技术指标数据
+            try:
+                # 获取详细的技术分析数据
+                self.logger.info(f"🔍 开始获取技术指标数据: {symbol}")
+                market_analysis = await self.traditional_service.analyze_market(symbol)
+                self.logger.info(f"✅ 技术分析结果: {market_analysis is not None}")
+                
+                if market_analysis and hasattr(market_analysis, 'traditional_signals'):
+                    traditional_signals = market_analysis.traditional_signals
+                    self.logger.info(f"📊 技术指标数量: {len(traditional_signals.get('technical_indicators', {}))}")
+                    
+                    # 提取各种技术指标
+                    if traditional_signals and 'technical_indicators' in traditional_signals:
+                        tech_indicators = traditional_signals['technical_indicators']
+                        technical_indicators.update({
+                            'rsi_14': tech_indicators.get('rsi_14'),
+                            'macd_line': tech_indicators.get('macd_line'),
+                            'macd_signal': tech_indicators.get('macd_signal'),
+                            'macd_histogram': tech_indicators.get('macd_histogram'),
+                            'bb_upper': tech_indicators.get('bb_upper'),
+                            'bb_middle': tech_indicators.get('bb_middle'),
+                            'bb_lower': tech_indicators.get('bb_lower'),
+                            'kdj_k': tech_indicators.get('kdj_k'),
+                            'kdj_d': tech_indicators.get('kdj_d'),
+                            'kdj_j': tech_indicators.get('kdj_j'),
+                            'atr_14': tech_indicators.get('atr_14'),
+                            'williams_r': tech_indicators.get('williams_r'),
+                            'ma5': tech_indicators.get('ma5'),
+                            'ma10': tech_indicators.get('ma10'),
+                            'ma20': tech_indicators.get('ma20'),
+                            'ma30': tech_indicators.get('ma30'),
+                            'ma60': tech_indicators.get('ma60'),
+                            'ema12': tech_indicators.get('ema12'),
+                            'ema26': tech_indicators.get('ema26')
+                        })
+                        
+                        # 提取信号状态
+                        if 'signals' in traditional_signals:
+                            signals = traditional_signals['signals']
+                            technical_indicators.update({
+                                'rsi_signal': signals.get('rsi_signal'),
+                                'macd_signal': signals.get('macd_signal'),
+                                'bb_signal': signals.get('bb_signal'),
+                                'kdj_signal': signals.get('kdj_signal'),
+                                'ma_signal': signals.get('ma_signal'),
+                                'trend_signal': signals.get('trend_signal'),
+                                'volume_signal': signals.get('volume_signal')
+                            })
+                        
+                        self.logger.debug(f"✅ 成功获取 {symbol} 技术指标: {len(technical_indicators)} 个")
+                    else:
+                        self.logger.warning(f"⚠️ {symbol} traditional_signals 中没有 technical_indicators")
+                else:
+                    self.logger.warning(f"⚠️ {symbol} 未获取到 market_analysis 或 traditional_signals")
+            except Exception as e:
+                self.logger.warning(f"❌ 获取详细技术指标失败 {symbol}: {e}")
+            
+            if hasattr(recommendation, 'reasoning') and recommendation.reasoning:
+                # 从reasoning中提取技术指标信息
+                reasoning_text = recommendation.reasoning
+                if 'RSI' in reasoning_text:
+                    key_factors.append("RSI技术指标")
+                if 'MACD' in reasoning_text:
+                    key_factors.append("MACD趋势指标")
+                if 'MA' in reasoning_text or '均线' in reasoning_text:
+                    key_factors.append("移动平均线")
+                if '布林' in reasoning_text or 'Bollinger' in reasoning_text:
+                    key_factors.append("布林带指标")
+                if '成交量' in reasoning_text or 'volume' in reasoning_text:
+                    key_factors.append("成交量分析")
+                if '突破' in reasoning_text or 'breakout' in reasoning_text:
+                    key_factors.append("价格突破")
+        
+        # 添加Kronos因素
+        if kronos_result:
+            key_factors.append("Kronos AI预测")
+            if hasattr(kronos_result, 'key_factors'):
+                key_factors.extend(kronos_result.key_factors)
+        
+        # 添加ML因素
+        if ml_result:
+            key_factors.append("机器学习预测")
+        
+        # 计算风险管理参数
+        stop_loss_price, take_profit_price, position_size_usdt = self._calculate_risk_management_params(
+            current_price, final_action, final_confidence
+        )
         
         # 创建交易信号
         signal = TradingSignal(
@@ -509,7 +639,13 @@ class CoreTradingService:
             ml_result=ml_result,
             position_result=position_result,
             entry_price=current_price,
+            stop_loss_price=stop_loss_price,
+            take_profit_price=take_profit_price,
+            position_size_usdt=position_size_usdt,
+            leverage=self._calculate_leverage(final_confidence),
             reasoning=" | ".join(reasoning_parts),
+            key_factors=key_factors,
+            technical_indicators=technical_indicators,
             confidence_breakdown={
                 'kronos': kronos_result.final_confidence if kronos_result else 0,
                 'technical': technical_result.get('confidence', 0) if technical_result else 0,
@@ -518,6 +654,70 @@ class CoreTradingService:
         )
         
         return signal
+
+    def _regular_decision_logic(self, signals: List[str], confidences: List[float]) -> Tuple[str, float]:
+        """常规决策逻辑"""
+        # 投票机制
+        buy_votes = sum(1 for s in signals if s in ['BUY', 'LONG', '买入', '强烈买入'])
+        sell_votes = sum(1 for s in signals if s in ['SELL', 'SHORT', '卖出', '强烈卖出'])
+        
+        if buy_votes > sell_votes:
+            final_action = "BUY"
+        elif sell_votes > buy_votes:
+            final_action = "SELL"
+        else:
+            final_action = "HOLD"
+        
+        # 加权平均置信度
+        final_confidence = sum(confidences) / len(confidences) if confidences else 0.5
+        
+        return final_action, final_confidence
+
+    def _calculate_risk_management_params(self, current_price: float, action: str, confidence: float) -> Tuple[float, float, float]:
+        """计算风险管理参数 - 日内短线优化"""
+        if not current_price or current_price <= 0:
+            return 0, 0, 100  # 默认值
+        
+        # 日内短线风险管理参数
+        if action.upper() in ['BUY', 'LONG']:
+            # 买入信号的止损止盈
+            stop_loss_pct = 0.015 if confidence >= 0.7 else 0.02   # 1.5%-2% 止损
+            take_profit_pct = 0.03 if confidence >= 0.7 else 0.025  # 2.5%-3% 止盈
+            
+            stop_loss_price = current_price * (1 - stop_loss_pct)
+            take_profit_price = current_price * (1 + take_profit_pct)
+            
+        elif action.upper() in ['SELL', 'SHORT']:
+            # 卖出信号的止损止盈
+            stop_loss_pct = 0.015 if confidence >= 0.7 else 0.02
+            take_profit_pct = 0.03 if confidence >= 0.7 else 0.025
+            
+            stop_loss_price = current_price * (1 + stop_loss_pct)
+            take_profit_price = current_price * (1 - take_profit_pct)
+            
+        else:
+            return 0, 0, 100
+        
+        # 根据置信度计算仓位大小
+        if confidence >= 0.8:
+            position_size_usdt = 200  # 高置信度
+        elif confidence >= 0.6:
+            position_size_usdt = 150  # 中等置信度
+        elif confidence >= 0.4:
+            position_size_usdt = 100  # 低置信度
+        else:
+            position_size_usdt = 50   # 极低置信度
+        
+        return stop_loss_price, take_profit_price, position_size_usdt
+    
+    def _calculate_leverage(self, confidence: float) -> float:
+        """根据置信度计算建议杠杆 - 日内短线保守"""
+        if confidence >= 0.8:
+            return 3.0  # 高置信度最多3倍
+        elif confidence >= 0.6:
+            return 2.0  # 中等置信度2倍
+        else:
+            return 1.0  # 低置信度不加杠杆
 
     def _determine_signal_strength(self, confidence: float) -> SignalStrength:
         """根据置信度确定信号强度"""
@@ -581,10 +781,36 @@ class CoreTradingService:
                 metadata['leverage'] = signal.leverage
             
             # 添加技术分析数据
-            if hasattr(signal, 'technical_analysis'):
-                metadata['technical_analysis'] = signal.technical_analysis
+            technical_data = {}
+            
+            # 优先使用 technical_indicators
+            if hasattr(signal, 'technical_indicators') and signal.technical_indicators:
+                technical_data.update(signal.technical_indicators)
+                self.logger.info(f"📊 传递技术指标数据: {len(signal.technical_indicators)} 个指标")
+            
+            # 补充其他技术分析数据
+            if hasattr(signal, 'technical_analysis') and signal.technical_analysis:
+                technical_data.update(signal.technical_analysis)
+            
+            if technical_data:
+                metadata['technical_analysis'] = technical_data
+                self.logger.info(f"✅ 最终技术分析数据: {list(technical_data.keys())}")
+            else:
+                self.logger.warning("⚠️ 没有技术分析数据传递到通知")
             if hasattr(signal, 'market_conditions'):
                 metadata['market_conditions'] = signal.market_conditions
+            
+            # 添加分析置信度分解
+            if hasattr(signal, 'confidence_breakdown') and signal.confidence_breakdown:
+                # 置信度已经是0-1的小数，需要转换为百分比显示
+                kronos_conf = signal.confidence_breakdown.get('kronos', 0)
+                technical_conf = signal.confidence_breakdown.get('technical', 0)
+                ml_conf = signal.confidence_breakdown.get('ml', 0)
+                
+                # 如果值已经是百分比形式（>1），直接使用；否则转换为百分比
+                metadata['kronos_confidence'] = kronos_conf if kronos_conf > 1 else kronos_conf * 100
+                metadata['technical_confidence'] = technical_conf if technical_conf > 1 else technical_conf * 100
+                metadata['ml_confidence'] = ml_conf if ml_conf > 1 else ml_conf * 100
             
             # 构建标题
             symbol = metadata['symbol']

@@ -596,7 +596,130 @@ class CoreNotificationService:
         )
         return await self.send_notification(content)
     
+    # ========== 格式化函数 ==========
+    
+    def _format_trading_signal(self, content: NotificationContent) -> NotificationContent:
+        """格式化交易信号通知 - 详细版本包含止损位和技术分析"""
+        data = content.metadata
+        symbol = data.get('symbol', 'Unknown')
+        action = data.get('action', 'Unknown')
+        confidence = data.get('confidence', 0)
+        current_price = data.get('current_price') or data.get('entry_price')
+        
+        # 格式化置信度
+        if confidence > 1:
+            confidence_display = f"{confidence:.1f}%"
+        else:
+            confidence_display = f"{confidence:.1%}"
+        
+        # 获取风险管理信息
+        stop_loss = data.get('stop_loss') or data.get('stop_loss_price')
+        take_profit = data.get('take_profit') or data.get('take_profit_price')
+        position_size = data.get('position_size') or data.get('position_size_usdt', 100)
+        leverage = data.get('leverage', 1)
+        
+        # 获取技术分析详情
+        key_factors = data.get('key_factors', [])
+        reasoning = data.get('reasoning', '')
+        
+        # 构建详细消息
+        symbol_name = symbol.replace('-USDT-SWAP', '')
+        action_emoji = "🟢" if action.upper() in ['BUY', 'LONG'] else "🔴" if action.upper() in ['SELL', 'SHORT'] else "🟡"
+        
+        message_parts = [
+            f"🎯 【日内短线信号】{symbol_name}",
+            "=" * 35,
+            f"{action_emoji} 交易方向: {action.upper()}",
+            f"📊 信号置信度: {confidence_display}",
+            f"💰 当前价格: ${current_price:.4f}" if current_price else "💰 价格: 获取中..."
+        ]
+        
+        # 风险管理详情
+        if stop_loss or take_profit:
+            message_parts.extend(["", "🛡️ 风险管理:"])
+            if current_price:
+                if stop_loss:
+                    loss_pct = abs((current_price - stop_loss) / current_price * 100)
+                    message_parts.append(f"  🔻 止损: ${stop_loss:.4f} (-{loss_pct:.1f}%)")
+                if take_profit:
+                    profit_pct = abs((take_profit - current_price) / current_price * 100)
+                    message_parts.append(f"  🎯 止盈: ${take_profit:.4f} (+{profit_pct:.1f}%)")
+                
+                # 计算风险收益比
+                if stop_loss and take_profit:
+                    risk = abs(current_price - stop_loss)
+                    reward = abs(take_profit - current_price)
+                    rr_ratio = reward / risk if risk > 0 else 0
+                    message_parts.append(f"  ⚖️ 风险收益比: 1:{rr_ratio:.1f}")
+        
+        # 仓位建议
+        message_parts.extend([
+            "",
+            "💼 仓位建议:",
+            f"  💵 建议金额: ${position_size:.0f} USDT",
+            f"  📊 建议杠杆: {leverage}x"
+        ])
+        
+        # 技术分析详情
+        if key_factors:
+            message_parts.extend(["", "📈 技术分析:"])
+            for factor in key_factors[:4]:  # 显示前4个关键因素
+                message_parts.append(f"  ✓ {factor}")
+        
+        # 决策依据
+        if reasoning:
+            message_parts.extend(["", "🧠 AI分析:", f"  {reasoning}"])
+        
+        # 时效性提醒
+        message_parts.extend([
+            "",
+            f"⏰ 信号时间: {content.timestamp.strftime('%H:%M:%S')}",
+            "⚡ 日内短线 - 建议快进快出",
+            "",
+            "⚠️ 风险提示:",
+            "• 严格执行止损，控制风险",
+            "• 日内短线，及时止盈",
+            "• 仅供参考，请独立决策"
+        ])
+        
+        # 更新消息内容
+        content.message = "\n".join(message_parts)
+        return content
+    
     # ========== 过滤函数 ==========
+    
+    def _filter_trading_signal(self, content: NotificationContent) -> bool:
+        """过滤交易信号 - 只推送高质量信号"""
+        data = content.metadata
+        
+        # 基本信息检查
+        symbol = data.get('symbol')
+        action = data.get('action', '').upper()
+        confidence = data.get('confidence', 0)
+        
+        if not symbol or action in ['HOLD', '持有', '观望']:
+            return False
+        
+        # 置信度检查 - 日内短线降低要求
+        min_confidence = 0.35  # 35%
+        if confidence < min_confidence:
+            logger.debug(f"交易信号置信度过低: {symbol} {confidence:.2f} < {min_confidence}")
+            return False
+        
+        # 检查是否有基本的风险管理信息
+        has_risk_management = (
+            data.get('stop_loss') or 
+            data.get('stop_loss_price') or 
+            data.get('take_profit') or 
+            data.get('take_profit_price')
+        )
+        
+        # 如果没有风险管理信息，要求更高的置信度
+        if not has_risk_management and confidence < 0.6:
+            logger.debug(f"无风险管理信息且置信度不足: {symbol} {confidence:.2f}")
+            return False
+        
+        return True
     
     def _filter_trading_signal(self, content: NotificationContent) -> bool:
         """过滤交易信号"""
@@ -774,22 +897,141 @@ class CoreNotificationService:
             f"⏰ 信号时间: {content.timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
         ])
         
+        # 添加技术分析详情
+        if data.get('technical_analysis') or data.get('key_factors'):
+            message_parts.append("")
+            message_parts.append("📊 技术分析详情:")
+            
+            # 显示关键因素
+            key_factors = data.get('key_factors', [])
+            if key_factors:
+                for factor in key_factors[:5]:  # 最多显示5个关键因素
+                    message_parts.append(f"  ✓ {factor}")
+            
+            # 显示技术指标
+            technical_analysis = data.get('technical_analysis', {})
+            logger.info(f"🔍 通知格式化 - 技术分析数据: {bool(technical_analysis)}")
+            if technical_analysis:
+                logger.info(f"📊 技术分析键值: {list(technical_analysis.keys())}")
+                # RSI指标
+                if 'rsi_14' in technical_analysis and technical_analysis['rsi_14'] is not None:
+                    try:
+                        rsi_value = float(technical_analysis['rsi_14'])
+                        rsi_signal = technical_analysis.get('rsi_signal', '')
+                        rsi_status = "超买" if rsi_value > 70 else "超卖" if rsi_value < 30 else "中性"
+                        message_parts.append(f"  📈 RSI(14): {rsi_value:.1f} [{rsi_status}] {rsi_signal}")
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"RSI数据类型错误: {technical_analysis['rsi_14']} - {e}")
+                
+                # MACD指标
+                macd_line = technical_analysis.get('macd_line')
+                macd_signal_line = technical_analysis.get('macd_signal')
+                macd_histogram = technical_analysis.get('macd_histogram')
+                try:
+                    if macd_line is not None and macd_signal_line is not None:
+                        macd_line_float = float(macd_line)
+                        macd_signal_float = float(macd_signal_line)
+                        macd_trend = "↗️" if macd_line_float > macd_signal_float else "↘️"
+                        macd_signal_text = technical_analysis.get('macd_signal_text', '')  # 避免与macd_signal冲突
+                        message_parts.append(f"  📊 MACD: {macd_trend} {macd_signal_text}")
+                        if macd_histogram is not None:
+                            macd_histogram_float = float(macd_histogram)
+                            message_parts.append(f"      DIF: {macd_line_float:.4f} | DEA: {macd_signal_float:.4f}")
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"MACD数据类型错误: line={macd_line}, signal={macd_signal_line} - {e}")
+                
+                # 布林带指标
+                bb_upper = technical_analysis.get('bb_upper')
+                bb_middle = technical_analysis.get('bb_middle') 
+                bb_lower = technical_analysis.get('bb_lower')
+                try:
+                    if bb_upper is not None and bb_middle is not None and bb_lower is not None:
+                        bb_upper_float = float(bb_upper)
+                        bb_middle_float = float(bb_middle)
+                        bb_lower_float = float(bb_lower)
+                        bb_signal = technical_analysis.get('bb_signal', '')
+                        current_price = float(data.get('current_price', 0))
+                        if current_price > 0:
+                            bb_position = "上轨" if current_price > bb_upper_float else "下轨" if current_price < bb_lower_float else "中轨"
+                            message_parts.append(f"  📏 布林带: 价格位于{bb_position} {bb_signal}")
+                            message_parts.append(f"      上轨: {bb_upper_float:.4f} | 中轨: {bb_middle_float:.4f} | 下轨: {bb_lower_float:.4f}")
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"布林带数据类型错误: upper={bb_upper}, middle={bb_middle}, lower={bb_lower} - {e}")
+                
+                # KDJ指标
+                kdj_k = technical_analysis.get('kdj_k')
+                kdj_d = technical_analysis.get('kdj_d')
+                kdj_j = technical_analysis.get('kdj_j')
+                try:
+                    if kdj_k is not None and kdj_d is not None:
+                        kdj_k_float = float(kdj_k)
+                        kdj_d_float = float(kdj_d)
+                        kdj_signal = technical_analysis.get('kdj_signal', '')
+                        kdj_status = "超买" if kdj_k_float > 80 or kdj_d_float > 80 else "超卖" if kdj_k_float < 20 or kdj_d_float < 20 else "中性"
+                        message_parts.append(f"  🎯 KDJ: K={kdj_k_float:.1f} D={kdj_d_float:.1f} [{kdj_status}] {kdj_signal}")
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"KDJ数据类型错误: K={kdj_k}, D={kdj_d} - {e}")
+                
+                # 移动平均线
+                ma5 = technical_analysis.get('ma5')
+                ma20 = technical_analysis.get('ma20')
+                ma60 = technical_analysis.get('ma60')
+                try:
+                    if ma5 is not None and ma20 is not None:
+                        ma5_float = float(ma5)
+                        ma20_float = float(ma20)
+                        ma_trend = "多头排列" if ma5_float > ma20_float else "空头排列"
+                        ma_signal = technical_analysis.get('ma_signal', '')
+                        message_parts.append(f"  📊 均线: {ma_trend} {ma_signal}")
+                        if ma60 is not None:
+                            ma60_float = float(ma60)
+                            message_parts.append(f"      MA5: {ma5_float:.4f} | MA20: {ma20_float:.4f} | MA60: {ma60_float:.4f}")
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"移动平均线数据类型错误: MA5={ma5}, MA20={ma20}, MA60={ma60} - {e}")
+                
+                # 威廉指标
+                williams_r = technical_analysis.get('williams_r')
+                try:
+                    if williams_r is not None:
+                        williams_r_float = float(williams_r)
+                        wr_status = "超买" if williams_r_float > -20 else "超卖" if williams_r_float < -80 else "中性"
+                        message_parts.append(f"  📉 威廉%R: {williams_r_float:.1f} [{wr_status}]")
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"威廉指标数据类型错误: {williams_r} - {e}")
+                
+                # ATR波动率
+                atr_14 = technical_analysis.get('atr_14')
+                try:
+                    if atr_14 is not None:
+                        atr_14_float = float(atr_14)
+                        message_parts.append(f"  📊 ATR(14): {atr_14_float:.4f} (波动率参考)")
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"ATR数据类型错误: {atr_14} - {e}")
+        
+        # 添加综合分析评分
+        if data.get('kronos_confidence') or data.get('technical_confidence') or data.get('ml_confidence'):
+            message_parts.append("")
+            message_parts.append("🔍 分析评分:")
+            
+            if data.get('kronos_confidence'):
+                kronos_conf = data['kronos_confidence']
+                message_parts.append(f"  🤖 Kronos AI: {kronos_conf:.1f}%")
+            
+            if data.get('technical_confidence'):
+                tech_conf = data['technical_confidence']
+                message_parts.append(f"  📊 技术分析: {tech_conf:.1f}%")
+            
+            if data.get('ml_confidence'):
+                ml_conf = data['ml_confidence']
+                message_parts.append(f"  🧠 机器学习: {ml_conf:.1f}%")
+        
         # 添加分析理由
-        if reasoning:
+        if reasoning and len(reasoning.strip()) > 10:
             message_parts.extend([
                 "",
                 "📋 分析理由:",
                 f"  {reasoning[:300]}{'...' if len(reasoning) > 300 else ''}"
             ])
-        
-        # 添加关键因素
-        if key_factors:
-            message_parts.extend([
-                "",
-                "🔍 关键因素:"
-            ])
-            for i, factor in enumerate(key_factors[:5], 1):  # 最多显示5个
-                message_parts.append(f"  {i}. {factor}")
         
         # 添加风险提示
         message_parts.extend([

@@ -179,7 +179,8 @@ class KronosIntegratedDecisionService:
             import pandas as pd
             
             okx_service = OKXService()
-            historical_data_raw = await okx_service.get_kline_data(symbol, "1H", 200)
+            # 日内短线交易优化：使用15分钟数据，获取更多数据点用于短线分析
+            historical_data_raw = await okx_service.get_kline_data(symbol, "15m", 300)
             
             if historical_data_raw is not None and len(historical_data_raw) > 0:
                 # 将OKX返回的字典列表转换为DataFrame

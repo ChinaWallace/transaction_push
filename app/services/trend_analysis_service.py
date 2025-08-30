@@ -129,7 +129,8 @@ class TrendAnalysisService:
         else:
             self.exchange_service = BinanceService()
         self.supertrend_indicator = SuperTrendIndicator(period=10, multiplier=3.0)
-        self.timeframes = ['1d', '4h', '1h', '15m']
+        # 日内短线交易优化：专注5分钟和15分钟级别
+        self.timeframes = ['15m', '5m']
     
     async def analyze_symbol(self, symbol: str, 
                            custom_data: Optional[Dict[str, List[dict]]] = None) -> Dict[str, Any]:

@@ -80,16 +80,16 @@ class Settings(BaseSettings):
     smtp_password: Optional[str] = Field(default=None, description="SMTP密码")
     smtp_from: Optional[str] = Field(default=None, description="发件人地址")
     
-    # 监控参数配置 - 针对数字货币高波动性优化
-    open_interest_threshold: float = Field(default=1.03, description="持仓量变化阈值(降低以捕捉更多信号)")
-    volume_multiplier: float = Field(default=2.5, description="成交量异常倍数(降低以提高敏感度)")
-    funding_rate_interval: int = Field(default=30, description="费率监控间隔(分钟) - 优化为30分钟")
-    trend_analysis_interval: int = Field(default=5, description="趋势分析间隔(分钟) - 优化为5分钟")
-    open_interest_interval: int = Field(default=3, description="持仓量监控间隔(分钟) - 优化为3分钟")
-    volume_monitor_interval: int = Field(default=15, description="交易量监控间隔(分钟) - 优化为15分钟")
-    position_analysis_interval: int = Field(default=30, description="持仓分析间隔(分钟) - 优化为30分钟")
-    grid_opportunities_interval: int = Field(default=60, description="网格机会分析间隔(分钟) - 优化为1小时")
-    market_opportunities_interval: int = Field(default=120, description="市场机会分析间隔(分钟) - 优化为2小时")
+    # 监控参数配置 - 日内短线交易优化
+    open_interest_threshold: float = Field(default=1.02, description="持仓量变化阈值(日内短线敏感度)")
+    volume_multiplier: float = Field(default=2.0, description="成交量异常倍数(短线交易敏感度)")
+    funding_rate_interval: int = Field(default=20, description="费率监控间隔(分钟) - 日内短线优化")
+    trend_analysis_interval: int = Field(default=3, description="趋势分析间隔(分钟) - 日内短线高频")
+    open_interest_interval: int = Field(default=2, description="持仓量监控间隔(分钟) - 日内短线高频")
+    volume_monitor_interval: int = Field(default=5, description="交易量监控间隔(分钟) - 日内短线优化")
+    position_analysis_interval: int = Field(default=15, description="持仓分析间隔(分钟) - 日内短线优化")
+    grid_opportunities_interval: int = Field(default=30, description="网格机会分析间隔(分钟) - 日内短线优化")
+    market_opportunities_interval: int = Field(default=60, description="市场机会分析间隔(分钟) - 日内短线优化")
     
     # 策略配置
     strategy_config: Dict[str, Any] = Field(default_factory=lambda: {
@@ -121,8 +121,8 @@ class Settings(BaseSettings):
             'top_p': 0.9,
             'sample_count': 3  # 减少采样次数，避免内存和张量问题
         },
-        'confidence_threshold': 0.35,  # 大幅降低阈值，抓住更多机会
-        'update_interval_minutes': 15,  # 缩短更新间隔到15分钟
+        'confidence_threshold': 0.25,  # 日内短线：进一步降低阈值，抓住更多短线机会
+        'update_interval_minutes': 5,   # 日内短线：缩短更新间隔到5分钟
         'cache_predictions': True,
         'use_gpu': False,  # 强制使用CPU避免CUDA张量问题
         'target_symbols': [
@@ -135,8 +135,8 @@ class Settings(BaseSettings):
         # 强信号通知配置 - 优化整合后
         'notification_config': {
             'enable_strong_signal_notification': True,  # 启用强信号通知
-            'strong_signal_threshold': 0.45,  # 优化后阈值 (平衡质量和数量)
-            'medium_signal_threshold': 0.35,  # 中等信号阈值
+            'strong_signal_threshold': 0.35,  # 日内短线：降低强信号阈值
+            'medium_signal_threshold': 0.25,  # 日内短线：降低中等信号阈值
             'notification_channels': ['feishu', 'wechat'],  # 通知渠道
             'notification_priority': 'high',  # 通知优先级
             'batch_notification': False,      # 关闭批量通知，立即推送
@@ -152,11 +152,11 @@ class Settings(BaseSettings):
         'market_scan_config': {
             'enable_market_scan': True,  # 启用市场机会扫描
             'enable_profit_scan': True,  # 启用收益机会扫描
-            'strong_signal_threshold': 0.45,  # 大幅降低强信号扫描阈值
-            'profit_opportunity_threshold': 5.0,  # 收益机会阈值5%
+            'strong_signal_threshold': 0.35,  # 日内短线：降低强信号扫描阈值
+            'profit_opportunity_threshold': 2.0,  # 日内短线：降低收益机会阈值到2%
             'scan_intervals': {
-                'strong_signal_minutes': 10,  # 强信号扫描间隔缩短到10分钟
-                'profit_scan_minutes': 5,     # 收益机会扫描5分钟一次
+                'strong_signal_minutes': 3,   # 日内短线：强信号扫描间隔缩短到3分钟
+                'profit_scan_minutes': 2,     # 日内短线：收益机会扫描2分钟一次
                 'grid_trading_hours': 1       # 网格交易扫描间隔缩短到1小时
             },
             'top_volume_limit': 100,  # 扫描交易量前100的币种
@@ -169,7 +169,7 @@ class Settings(BaseSettings):
                     'grid_trading': 'medium'
                 },
                 'auto_notify_high_return': True,  # 自动推送高收益机会
-                'high_return_threshold': 8.0     # 8%以上收益自动推送
+                'high_return_threshold': 3.0     # 日内短线：3%以上收益自动推送
             }
         }
     }, description="Kronos金融预测模型配置 - 专门分析ETH和SOL，增强收益机会扫描，币圈高频交易优化")

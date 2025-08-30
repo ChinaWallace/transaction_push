@@ -71,7 +71,15 @@ def main():
         print("\n❌ 依赖安装失败，请检查requirements.txt")
         return False
     
-    # 4. 下载Kronos模型
+    # 4. 安装Windows服务依赖 (如果是Windows系统)
+    if platform.system().lower() == "windows":
+        print("\n🪟 检测到Windows系统，安装服务支持...")
+        if run_command("pip install pywin32", "安装Windows服务支持"):
+            print("✅ Windows服务支持安装成功!")
+        else:
+            print("⚠️  Windows服务支持安装失败，但不影响基本功能")
+    
+    # 5. 下载Kronos模型
     if os.path.exists("scripts/download_kronos_models.py"):
         if run_command("python scripts/download_kronos_models.py", "下载Kronos模型"):
             print("\n✅ Kronos模型下载完成!")
@@ -80,7 +88,12 @@ def main():
     else:
         print("\n⚠️  未找到Kronos模型下载脚本")
     
-    print("\n🎉 安装完成! 现在可以运行: python main.py")
+    print("\n🎉 安装完成!")
+    print("\n🚀 接下来你可以:")
+    print("   1. 直接运行: python main.py")
+    print("   2. 后台运行: 双击 start_service.bat")
+    print("   3. 安装服务: 以管理员身份运行 scripts\\install_service.bat")
+    print("\n💡 推荐使用 start_service.bat 来选择运行方式")
     return True
 
 if __name__ == "__main__":

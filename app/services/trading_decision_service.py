@@ -14,6 +14,7 @@ import pandas as pd
 
 from app.core.logging import get_logger, trading_logger
 from app.core.config import get_settings
+from app.core.technical_analysis_config import get_technical_config
 from app.services.ml_enhanced_service import MLEnhancedService, PredictionSignal
 # from app.services.trend_analysis_service import TrendAnalysisService  # 已禁用，有问题
 from app.services.binance_service import BinanceService
@@ -127,6 +128,9 @@ class TradingDecisionService:
             self.trend_service = None
             self.ml_enabled = False
         
+        # 技术分析配置
+        self.tech_config = get_technical_config()
+        
         # 风险管理参数
         self.max_position_percent = 25.0  # 单个交易对最大仓位25%
         self.max_leverage = 3.0           # 最大杠杆3倍（保守）
@@ -189,6 +193,9 @@ class TradingDecisionService:
             market_regime, trend_strength = self._analyze_market_regime(
                 traditional_analysis, volatility_score
             )
+            
+            # 将详细技术指标合并到traditional_signals中
+            traditional_analysis.update(market_signals)  # 包含所有技术指标数据
             
             return MarketAnalysis(
                 symbol=symbol,
@@ -291,72 +298,264 @@ class TradingDecisionService:
             raise TradingToolError(f"获取交易建议失败: {e}")
     
     async def _get_market_signals(self, symbol: str, exchange) -> Dict[str, Any]:
-        """获取市场信号 - 完全基于OKX数据"""
+        """获取市场信号 - 完全基于OKX数据，包含完整技术分析指标"""
         signals = {
             'confidence': 50.0,
             'trend': 'neutral',
             'volatility': 'medium',
             'volume_anomaly': False,
-            'funding_rate_signal': 'neutral'
+            'funding_rate_signal': 'neutral',
+            'technical_indicators': {}  # 存储所有技术指标
         }
         
         try:
-            # 获取基础数据 - 只使用OKX数据
+            # 获取基础数据 - 扩展到50根K线以支持更多指标
             klines = await exchange.get_kline_data(symbol, '1H', 50)
             funding_rate = await exchange.get_funding_rate(symbol)
             
-            if klines and len(klines) >= 20:
-                # 简单技术分析
-                closes = [k['close'] for k in klines[-20:]]
-                highs = [k['high'] for k in klines[-20:]]
-                lows = [k['low'] for k in klines[-20:]]
-                volumes = [k['volume'] for k in klines[-20:]]
+            if klines and len(klines) >= 30:
+                # 提取OHLCV数据
+                closes = [k['close'] for k in klines]
+                highs = [k['high'] for k in klines]
+                lows = [k['low'] for k in klines]
+                volumes = [k['volume'] for k in klines]
+                opens = [k['open'] for k in klines]
                 
-                # 多重趋势分析
-                sma_short = sum(closes[-5:]) / 5
-                sma_medium = sum(closes[-10:]) / 10
-                sma_long = sum(closes[-20:]) / 20
                 current_price = closes[-1]
                 
-                # 增强趋势判断逻辑
+                # ========== 移动平均线分析 (MA) ==========
+                sma_5 = sum(closes[-5:]) / 5
+                sma_10 = sum(closes[-10:]) / 10
+                sma_20 = sum(closes[-20:]) / 20
+                sma_30 = sum(closes[-30:]) / 30
+                
+                # EMA指数移动平均
+                ema_12 = self._calculate_ema(closes, 12)
+                ema_26 = self._calculate_ema(closes, 26)
+                
+                signals['technical_indicators']['sma_5'] = sma_5
+                signals['technical_indicators']['sma_10'] = sma_10
+                signals['technical_indicators']['sma_20'] = sma_20
+                signals['technical_indicators']['ema_12'] = ema_12
+                signals['technical_indicators']['ema_26'] = ema_26
+                
+                # ========== RSI相对强弱指数 ==========
+                rsi_14 = self._calculate_rsi(closes, 14)
+                signals['technical_indicators']['rsi_14'] = rsi_14
+                
+                # ========== MACD指标 ==========
+                macd_line, macd_signal, macd_histogram = self._calculate_macd(closes)
+                signals['technical_indicators']['macd_line'] = macd_line
+                signals['technical_indicators']['macd_signal'] = macd_signal
+                signals['technical_indicators']['macd_histogram'] = macd_histogram
+                
+                # ========== 布林带 (Bollinger Bands) ==========
+                bb_upper, bb_middle, bb_lower = self._calculate_bollinger_bands(closes, 20, 2)
+                signals['technical_indicators']['bb_upper'] = bb_upper
+                signals['technical_indicators']['bb_middle'] = bb_middle
+                signals['technical_indicators']['bb_lower'] = bb_lower
+                
+                # ========== KDJ随机指标 ==========
+                k_value, d_value, j_value = self._calculate_kdj(highs, lows, closes, 9, 3, 3)
+                signals['technical_indicators']['kdj_k'] = k_value
+                signals['technical_indicators']['kdj_d'] = d_value
+                signals['technical_indicators']['kdj_j'] = j_value
+                
+                # ========== ATR平均真实波幅 ==========
+                atr_14 = self._calculate_atr(highs, lows, closes, 14)
+                signals['technical_indicators']['atr_14'] = atr_14
+                
+                # ========== 威廉指标 %R ==========
+                williams_r = self._calculate_williams_r(highs, lows, closes, 14)
+                signals['technical_indicators']['williams_r'] = williams_r
+                
+                # ========== 综合技术分析评分系统 ==========
+                config = self.tech_config.get_config()
+                weights = config.indicator_weights
+                
                 trend_score = 0
+                bullish_signals = 0
+                bearish_signals = 0
                 
-                # 均线排列
-                if sma_short > sma_medium > sma_long:
-                    trend_score += 30
+                # 1. 均线排列分析 (动态权重)
+                ma_weight = weights.get('moving_averages', 25)
+                ma_score = 0
+                if sma_5 > sma_10 > sma_20 > sma_30:
+                    ma_score = ma_weight
+                    bullish_signals += 1
                     signals['trend'] = 'bullish'
-                elif sma_short < sma_medium < sma_long:
-                    trend_score += 30
+                elif sma_5 < sma_10 < sma_20 < sma_30:
+                    ma_score = ma_weight
+                    bearish_signals += 1
                     signals['trend'] = 'bearish'
+                elif sma_5 > sma_10 > sma_20:  # 部分多头排列
+                    ma_score = ma_weight * 0.6
+                    bullish_signals += 0.6
+                elif sma_5 < sma_10 < sma_20:  # 部分空头排列
+                    ma_score = ma_weight * 0.6
+                    bearish_signals += 0.6
                 
-                # 价格相对位置
-                if current_price > sma_short * 1.01:
-                    trend_score += 15
-                elif current_price < sma_short * 0.99:
-                    trend_score += 15
+                # EMA交叉确认
+                if ema_12 > ema_26:
+                    ma_score += ma_weight * 0.2
+                    bullish_signals += 0.3
+                elif ema_12 < ema_26:
+                    ma_score += ma_weight * 0.2
+                    bearish_signals += 0.3
                 
-                # 近期价格动量
-                recent_change = (closes[-1] - closes[-5]) / closes[-5]
-                if abs(recent_change) > 0.02:  # 2%以上变化
-                    trend_score += 20
-                    if recent_change > 0 and signals['trend'] == 'bullish':
-                        trend_score += 10
-                    elif recent_change < 0 and signals['trend'] == 'bearish':
-                        trend_score += 10
+                trend_score += ma_score
                 
-                # 突破检测
+                # 2. RSI超买超卖分析 (动态权重)
+                rsi_weight = weights.get('rsi', 20)
+                rsi_score = 0
+                if rsi_14 > config.rsi_overbought:  # 超买
+                    rsi_score = rsi_weight * 0.75
+                    bearish_signals += 0.8
+                    signals['technical_indicators']['rsi_signal'] = 'overbought'
+                elif rsi_14 < config.rsi_oversold:  # 超卖
+                    rsi_score = rsi_weight * 0.75
+                    bullish_signals += 0.8
+                    signals['technical_indicators']['rsi_signal'] = 'oversold'
+                elif 40 < rsi_14 < 60:  # 中性区域
+                    rsi_score = rsi_weight * 0.25
+                    signals['technical_indicators']['rsi_signal'] = 'neutral'
+                elif rsi_14 > 50:  # 偏强
+                    rsi_score = rsi_weight * 0.4
+                    bullish_signals += 0.4
+                    signals['technical_indicators']['rsi_signal'] = 'bullish'
+                else:  # 偏弱
+                    rsi_score = rsi_weight * 0.4
+                    bearish_signals += 0.4
+                    signals['technical_indicators']['rsi_signal'] = 'bearish'
+                
+                trend_score += rsi_score
+                
+                # 3. MACD趋势分析 (动态权重)
+                macd_weight = weights.get('macd', 20)
+                macd_score = 0
+                if macd_line > macd_signal and macd_histogram > 0:  # 金叉且柱状图为正
+                    macd_score = macd_weight
+                    bullish_signals += 1
+                    signals['technical_indicators']['macd_signal'] = 'golden_cross'
+                elif macd_line < macd_signal and macd_histogram < 0:  # 死叉且柱状图为负
+                    macd_score = macd_weight
+                    bearish_signals += 1
+                    signals['technical_indicators']['macd_signal'] = 'death_cross'
+                elif macd_line > 0 and macd_signal > 0:  # 零轴上方
+                    macd_score = macd_weight * 0.5
+                    bullish_signals += 0.5
+                    signals['technical_indicators']['macd_signal'] = 'above_zero'
+                elif macd_line < 0 and macd_signal < 0:  # 零轴下方
+                    macd_score = macd_weight * 0.5
+                    bearish_signals += 0.5
+                    signals['technical_indicators']['macd_signal'] = 'below_zero'
+                
+                trend_score += macd_score
+                
+                # 4. 布林带位置分析 (动态权重)
+                bb_weight = weights.get('bollinger_bands', 15)
+                bb_score = 0
+                bb_position = (current_price - bb_lower) / (bb_upper - bb_lower) if bb_upper != bb_lower else 0.5
+                
+                if bb_position > 0.8:  # 接近上轨
+                    bb_score = bb_weight * 0.67
+                    bearish_signals += 0.6
+                    signals['technical_indicators']['bb_signal'] = 'near_upper'
+                elif bb_position < 0.2:  # 接近下轨
+                    bb_score = bb_weight * 0.67
+                    bullish_signals += 0.6
+                    signals['technical_indicators']['bb_signal'] = 'near_lower'
+                elif current_price > bb_upper:  # 突破上轨
+                    bb_score = bb_weight
+                    bullish_signals += 0.8
+                    signals['technical_indicators']['bb_signal'] = 'breakout_upper'
+                elif current_price < bb_lower:  # 跌破下轨
+                    bb_score = bb_weight
+                    bearish_signals += 0.8
+                    signals['technical_indicators']['bb_signal'] = 'breakdown_lower'
+                
+                trend_score += bb_score
+                
+                # 5. KDJ随机指标 (动态权重)
+                kdj_weight = weights.get('kdj', 10)
+                kdj_score = 0
+                if k_value > config.kdj_overbought and d_value > config.kdj_overbought:  # 超买
+                    kdj_score = kdj_weight * 0.8
+                    bearish_signals += 0.5
+                    signals['technical_indicators']['kdj_signal'] = 'overbought'
+                elif k_value < config.kdj_oversold and d_value < config.kdj_oversold:  # 超卖
+                    kdj_score = kdj_weight * 0.8
+                    bullish_signals += 0.5
+                    signals['technical_indicators']['kdj_signal'] = 'oversold'
+                elif k_value > d_value and j_value > k_value:  # 金叉
+                    kdj_score = kdj_weight
+                    bullish_signals += 0.6
+                    signals['technical_indicators']['kdj_signal'] = 'golden_cross'
+                elif k_value < d_value and j_value < k_value:  # 死叉
+                    kdj_score = kdj_weight
+                    bearish_signals += 0.6
+                    signals['technical_indicators']['kdj_signal'] = 'death_cross'
+                
+                trend_score += kdj_score
+                
+                # 6. 威廉指标确认 (动态权重)
+                wr_weight = weights.get('williams_r', 5)
+                wr_score = 0
+                if williams_r > config.williams_overbought:  # 超买
+                    wr_score = wr_weight * 0.6
+                    bearish_signals += 0.3
+                elif williams_r < config.williams_oversold:  # 超卖
+                    wr_score = wr_weight * 0.6
+                    bullish_signals += 0.3
+                elif williams_r > -50:  # 偏强
+                    wr_score = wr_weight * 0.4
+                    bullish_signals += 0.2
+                else:  # 偏弱
+                    wr_score = wr_weight * 0.4
+                    bearish_signals += 0.2
+                
+                trend_score += wr_score
+                
+                # 7. 价格突破分析 (动态权重)
+                breakout_weight = weights.get('breakout', 5)
                 recent_high = max(highs[-5:])
                 recent_low = min(lows[-5:])
-                range_20 = max(highs) - min(lows)
                 
                 if current_price > recent_high * 1.005:  # 突破近期高点
-                    trend_score += 25
-                    signals['trend'] = 'bullish'
+                    trend_score += breakout_weight
+                    bullish_signals += 0.5
+                    signals['technical_indicators']['breakout'] = 'upward'
                 elif current_price < recent_low * 0.995:  # 跌破近期低点
-                    trend_score += 25
-                    signals['trend'] = 'bearish'
+                    trend_score += breakout_weight
+                    bearish_signals += 0.5
+                    signals['technical_indicators']['breakout'] = 'downward'
                 
-                signals['confidence'] = min(95.0, signals['confidence'] + trend_score)
+                # ========== 综合趋势判断 ==========
+                signal_ratio = bullish_signals / (bullish_signals + bearish_signals) if (bullish_signals + bearish_signals) > 0 else 0.5
+                
+                if signal_ratio > 0.65:
+                    signals['trend'] = 'bullish'
+                elif signal_ratio < 0.35:
+                    signals['trend'] = 'bearish'
+                else:
+                    signals['trend'] = 'neutral'
+                
+                # 计算最终置信度
+                base_confidence = min(95.0, 50.0 + trend_score)
+                
+                # 信号一致性加成
+                consistency_bonus = 0
+                if bullish_signals > bearish_signals * 2:  # 多头信号占绝对优势
+                    consistency_bonus = 15
+                elif bearish_signals > bullish_signals * 2:  # 空头信号占绝对优势
+                    consistency_bonus = 15
+                elif abs(bullish_signals - bearish_signals) < 0.5:  # 信号分歧较大
+                    consistency_bonus = -10
+                
+                signals['confidence'] = min(95.0, base_confidence + consistency_bonus)
+                signals['technical_indicators']['bullish_signals'] = bullish_signals
+                signals['technical_indicators']['bearish_signals'] = bearish_signals
+                signals['technical_indicators']['signal_ratio'] = signal_ratio
                 
                 # 波动性分析
                 price_changes = [abs(closes[i] - closes[i-1]) / closes[i-1] for i in range(1, len(closes))]
@@ -400,6 +599,152 @@ class TradingDecisionService:
             logger.warning(f"获取{symbol}市场信号失败: {e}")
         
         return signals
+    
+    def _calculate_ema(self, prices: List[float], period: int) -> float:
+        """计算指数移动平均线 (EMA)"""
+        if len(prices) < period:
+            return sum(prices) / len(prices)
+        
+        multiplier = 2 / (period + 1)
+        ema = prices[0]
+        
+        for price in prices[1:]:
+            ema = (price * multiplier) + (ema * (1 - multiplier))
+        
+        return ema
+    
+    def _calculate_rsi(self, prices: List[float], period: int = 14) -> float:
+        """计算相对强弱指数 (RSI)"""
+        if len(prices) < period + 1:
+            return 50.0
+        
+        gains = []
+        losses = []
+        
+        for i in range(1, len(prices)):
+            change = prices[i] - prices[i-1]
+            if change > 0:
+                gains.append(change)
+                losses.append(0)
+            else:
+                gains.append(0)
+                losses.append(abs(change))
+        
+        if len(gains) < period:
+            return 50.0
+        
+        avg_gain = sum(gains[-period:]) / period
+        avg_loss = sum(losses[-period:]) / period
+        
+        if avg_loss == 0:
+            return 100.0
+        
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        return rsi
+    
+    def _calculate_macd(self, prices: List[float], fast: int = 12, slow: int = 26, signal: int = 9) -> Tuple[float, float, float]:
+        """计算MACD指标"""
+        if len(prices) < slow:
+            return 0.0, 0.0, 0.0
+        
+        ema_fast = self._calculate_ema(prices, fast)
+        ema_slow = self._calculate_ema(prices, slow)
+        
+        macd_line = ema_fast - ema_slow
+        
+        # 简化的信号线计算
+        macd_values = []
+        for i in range(slow, len(prices)):
+            ema_f = self._calculate_ema(prices[:i+1], fast)
+            ema_s = self._calculate_ema(prices[:i+1], slow)
+            macd_values.append(ema_f - ema_s)
+        
+        if len(macd_values) >= signal:
+            macd_signal = self._calculate_ema(macd_values, signal)
+        else:
+            macd_signal = macd_line
+        
+        macd_histogram = macd_line - macd_signal
+        
+        return macd_line, macd_signal, macd_histogram
+    
+    def _calculate_bollinger_bands(self, prices: List[float], period: int = 20, std_dev: float = 2) -> Tuple[float, float, float]:
+        """计算布林带"""
+        if len(prices) < period:
+            avg = sum(prices) / len(prices)
+            return avg, avg, avg
+        
+        recent_prices = prices[-period:]
+        middle = sum(recent_prices) / period
+        
+        variance = sum((p - middle) ** 2 for p in recent_prices) / period
+        std = variance ** 0.5
+        
+        upper = middle + (std * std_dev)
+        lower = middle - (std * std_dev)
+        
+        return upper, middle, lower
+    
+    def _calculate_kdj(self, highs: List[float], lows: List[float], closes: List[float], 
+                      k_period: int = 9, k_smooth: int = 3, d_smooth: int = 3) -> Tuple[float, float, float]:
+        """计算KDJ随机指标"""
+        if len(closes) < k_period:
+            return 50.0, 50.0, 50.0
+        
+        # 计算RSV (Raw Stochastic Value)
+        recent_high = max(highs[-k_period:])
+        recent_low = min(lows[-k_period:])
+        current_close = closes[-1]
+        
+        if recent_high == recent_low:
+            rsv = 50.0
+        else:
+            rsv = (current_close - recent_low) / (recent_high - recent_low) * 100
+        
+        # 简化的K、D、J计算
+        # 在实际应用中，这里应该使用移动平均
+        k_value = rsv  # 简化处理
+        d_value = k_value  # 简化处理
+        j_value = 3 * k_value - 2 * d_value
+        
+        return k_value, d_value, j_value
+    
+    def _calculate_atr(self, highs: List[float], lows: List[float], closes: List[float], period: int = 14) -> float:
+        """计算平均真实波幅 (ATR)"""
+        if len(closes) < 2:
+            return 0.0
+        
+        true_ranges = []
+        for i in range(1, len(closes)):
+            high_low = highs[i] - lows[i]
+            high_close = abs(highs[i] - closes[i-1])
+            low_close = abs(lows[i] - closes[i-1])
+            
+            true_range = max(high_low, high_close, low_close)
+            true_ranges.append(true_range)
+        
+        if len(true_ranges) < period:
+            return sum(true_ranges) / len(true_ranges)
+        
+        return sum(true_ranges[-period:]) / period
+    
+    def _calculate_williams_r(self, highs: List[float], lows: List[float], closes: List[float], period: int = 14) -> float:
+        """计算威廉指标 (%R)"""
+        if len(closes) < period:
+            return -50.0
+        
+        recent_high = max(highs[-period:])
+        recent_low = min(lows[-period:])
+        current_close = closes[-1]
+        
+        if recent_high == recent_low:
+            return -50.0
+        
+        williams_r = ((recent_high - current_close) / (recent_high - recent_low)) * -100
+        
+        return williams_r
     
     def _find_current_position(self, symbol: str, positions: List[Dict]) -> Optional[Dict]:
         """查找当前持仓"""

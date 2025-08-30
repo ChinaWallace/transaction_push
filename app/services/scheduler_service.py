@@ -103,6 +103,13 @@ class SchedulerService:
         """检查调度器是否运行中"""
         return self.running and self.scheduler.running
     
+    def _convert_confidence_to_percent(self, confidence: float) -> float:
+        """统一的置信度转换方法 - 修复重复乘100问题"""
+        if confidence <= 1:
+            return confidence * 100  # 0.85 -> 85%
+        else:
+            return confidence  # 已经是百分比格式
+    
     async def _setup_scheduled_jobs(self):
         """设置定时任务"""
         try:
@@ -126,24 +133,35 @@ class SchedulerService:
                 max_instances=1
             )
             
-            # 🤖 Kronos核心信号分析 - 每10分钟执行一次 (整合原趋势分析+市场扫描)
-            # 这是最重要的任务，提供完整的技术分析和AI预测
+            # 🎯 完整交易决策分析 - 暂时禁用定时任务，避免重复推送
+            # 使用传统分析+ML的综合交易决策服务，提供完整的交易决策分析，包括：
+            # - 传统技术分析 (SuperTrend, RSI, MACD等)
+            # - ML机器学习预测
+            # - 具体的看涨看跌理由
+            # - 仓位建议和止损点位  
+            # - 风险收益比和预期收益
+            # - 交易参数和风险等级
+            # self.scheduler.add_job(
+            #     self._enhanced_kronos_analysis_job,
+            #     trigger=IntervalTrigger(minutes=10),  # 每10分钟扫描交易机会
+            #     id="enhanced_kronos_analysis", 
+            #     name="完整交易决策分析 (传统+ML)",
+            #     max_instances=1
+            # )
+            # 🎯 核心交易服务 - 每30分钟执行一次 (日内短线优化)
+            # 使用核心交易服务进行完整的交易决策分析，包括：
+            # - Kronos AI预测 + 传统技术分析 + ML预测
+            # - 详细的止损止盈位置
+            # - 具体的技术指标分析
+            # - 仓位建议和风险管理
             self.scheduler.add_job(
-                self._enhanced_kronos_analysis_job,
-                trigger=IntervalTrigger(minutes=10),  # 缩短到10分钟，更频繁地扫描信号
-                id="enhanced_kronos_analysis",
-                name="Kronos增强信号分析 (核心任务)",
+                self._core_trading_analysis_job,
+                trigger=IntervalTrigger(minutes=30),  # 每30分钟执行一次
+                id="core_trading_analysis", 
+                name="核心交易服务分析 (详细推送)",
                 max_instances=1
             )
-            
-            # 🚀 智能交易机会扫描 - 每8分钟执行一次 (专门用于交易信号推送)
-            self.scheduler.add_job(
-                self._intelligent_trading_opportunities_job,
-                trigger=IntervalTrigger(minutes=8),  # 独立的交易机会扫描任务
-                id="intelligent_trading_opportunities",
-                name="智能交易机会扫描 (信号推送)",
-                max_instances=1
-            )
+            logger.info("✅ 核心交易服务定时任务已启用 - 每30分钟执行一次")
             
             # 综合监控报告 - 每天早上9点执行
             self.scheduler.add_job(
@@ -279,101 +297,210 @@ class SchedulerService:
         except Exception as e:
             logger.error(f"Volume anomaly monitoring job failed: {e}")
     
-    async def _enhanced_kronos_analysis_job(self):
-        """Kronos增强信号分析任务 - 核心任务 (使用统一的核心交易服务，避免重复推送)"""
+    async def _core_trading_analysis_job(self):
+        """核心交易服务分析任务 - 每30分钟执行一次的详细推送"""
         try:
-            monitor_logger.info("🤖 执行Kronos增强信号分析 (核心任务)...")
+            monitor_logger.info("🎯 执行核心交易服务分析 (详细推送)...")
             
-            # 检查Kronos是否启用
-            if not settings.kronos_config.get('enable_kronos_prediction', False):
-                monitor_logger.info("📴 Kronos预测功能已禁用，跳过分析")
-                return
+            # 使用核心交易服务进行完整的交易决策分析
+            from app.services.core_trading_service import get_core_trading_service, AnalysisType
+            from app.services.core_notification_service import get_core_notification_service
             
-            # 🔄 使用统一的核心交易服务，避免与启动分析重复
-            try:
-                from app.services.core_trading_service import get_core_trading_service, AnalysisType, SignalStrength
-                core_trading_service = await get_core_trading_service()
-            except ImportError:
-                monitor_logger.warning("⚠️ 核心交易服务不可用，跳过分析")
-                return
+            core_trading_service = await get_core_trading_service()
+            notification_service = await get_core_notification_service()
             
             # 分析核心币种 - 使用配置中的target_symbols
             core_symbols = settings.kronos_config.get('target_symbols', [])
             if not core_symbols:
-                monitor_logger.warning("⚠️ 未配置Kronos核心分析币种")
-                return
+                monitor_logger.warning("⚠️ 未配置核心分析币种，使用默认币种")
+                core_symbols = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
             
             monitor_logger.info(f"📊 开始分析 {len(core_symbols)} 个核心币种: {[s.replace('-USDT-SWAP', '') for s in core_symbols]}")
             
-            # 🚀 使用核心交易服务进行批量分析 - 避免重复推送
+            # 🚀 执行完整的交易决策分析
             analysis_start_time = datetime.now()
-            analysis_results = await core_trading_service.batch_analyze_symbols(
-                symbols=core_symbols,
-                analysis_type=AnalysisType.INTEGRATED,  # 使用集成分析
-                max_concurrent=3
-            )
-            analysis_duration = (datetime.now() - analysis_start_time).total_seconds()
-            
-            # 统计分析结果
-            successful_analyses = sum(1 for result in analysis_results.values() if result is not None)
             strong_signals = []
-            medium_signals = []
             notifications_sent = 0
             
-            for symbol, signal in analysis_results.items():
-                if signal:
-                    if signal.signal_strength in [SignalStrength.STRONG, SignalStrength.VERY_STRONG]:
+            for symbol in core_symbols:
+                try:
+                    # 使用集成分析 - 包含Kronos AI预测 + 传统技术分析 + ML预测
+                    trading_signal = await core_trading_service.analyze_symbol(
+                        symbol=symbol,
+                        analysis_type=AnalysisType.INTEGRATED,  # 使用综合分析
+                        force_update=False  # 定时任务不强制更新，使用缓存提高效率
+                    )
+                    
+                    if not trading_signal:
+                        monitor_logger.warning(f"⚠️ {symbol} 分析失败，跳过")
+                        continue
+                    
+                    # 检查是否是强信号 (非HOLD且置信度>50% - 适合30分钟推送频率)
+                    if (trading_signal.final_action.upper() not in ['HOLD', '持有', '观望', '等待'] and 
+                        trading_signal.final_confidence > 0.50):
+                        
+                        # 转换置信度格式 - 修复重复乘100的问题
+                        if trading_signal.final_confidence <= 1:
+                            confidence_percent = trading_signal.final_confidence * 100  # 0.85 -> 85%
+                        else:
+                            confidence_percent = trading_signal.final_confidence  # 已经是百分比格式
+                        
                         strong_signals.append({
                             "symbol": symbol,
-                            "action": signal.final_action,
-                            "confidence": signal.final_confidence,
-                            "strength": signal.signal_strength.value,
-                            "kronos_confidence": signal.kronos_result.kronos_confidence if signal.kronos_result else 0
+                            "action": trading_signal.final_action,
+                            "confidence": confidence_percent,
+                            "signal_strength": trading_signal.signal_strength.value if hasattr(trading_signal.signal_strength, 'value') else str(trading_signal.signal_strength),
+                            "reasoning": trading_signal.reasoning,
+                            "kronos_confidence": self._convert_confidence_to_percent(trading_signal.confidence_breakdown.get('kronos', 0)),
+                            "technical_confidence": self._convert_confidence_to_percent(trading_signal.confidence_breakdown.get('technical', 0)),
+                            "ml_confidence": self._convert_confidence_to_percent(trading_signal.confidence_breakdown.get('ml', 0))
                         })
                         
-                        # 🔥 发送强信号通知 (使用核心服务的通知，避免重复)
+                        # 使用核心交易服务的推送方法
                         try:
-                            success = await core_trading_service.send_trading_signal_notification(signal)
+                            success = await core_trading_service.send_trading_signal_notification(trading_signal)
                             if success:
                                 notifications_sent += 1
+                                monitor_logger.info(f"✅ 发送 {symbol} 核心交易信号通知成功")
+                            else:
+                                monitor_logger.warning(f"❌ 发送 {symbol} 核心交易信号通知失败")
+                                
                         except Exception as e:
-                            logger.warning(f"发送 {symbol} 信号通知失败: {e}")
+                            logger.warning(f"发送 {symbol} 交易信号通知失败: {e}")
+                    else:
+                        confidence_percent = trading_signal.final_confidence * 100 if trading_signal.final_confidence <= 1 else trading_signal.final_confidence
+                        monitor_logger.debug(f"📊 {symbol}: {trading_signal.final_action} (置信度: {confidence_percent:.1f}%) - 不符合推送条件")
                     
-                    elif signal.signal_strength == SignalStrength.MODERATE:
-                        medium_signals.append({
-                            "symbol": symbol,
-                            "action": signal.final_action,
-                            "confidence": signal.final_confidence
-                        })
+                except Exception as e:
+                    monitor_logger.warning(f"❌ 分析 {symbol} 失败: {e}")
+                    continue
             
-            # 📊 记录中等信号 (不推送，仅记录)
-            if medium_signals:
-                medium_symbols = [s['symbol'].replace('-USDT-SWAP', '') for s in medium_signals]
-                monitor_logger.info(f"📊 发现 {len(medium_signals)} 个中等信号: {medium_symbols}")
+            analysis_duration = (datetime.now() - analysis_start_time).total_seconds()
             
             # 📈 统计和性能记录
-            monitor_logger.info(f"✅ Kronos增强分析完成:")
-            monitor_logger.info(f"   📊 分析成功: {successful_analyses}/{len(core_symbols)} 个币种")
-            monitor_logger.info(f"   🔥 强信号: {len(strong_signals)} 个")
-            monitor_logger.info(f"   📊 中等信号: {len(medium_signals)} 个")
+            monitor_logger.info(f"✅ 核心交易服务分析完成:")
+            monitor_logger.info(f"   📊 分析币种: {len(core_symbols)} 个")
+            monitor_logger.info(f"   🎯 发现强信号: {len(strong_signals)} 个")
             monitor_logger.info(f"   📢 通知发送: {notifications_sent} 条")
             monitor_logger.info(f"   ⏱️ 分析耗时: {analysis_duration:.2f}秒")
             
             # 记录强信号详情
-            for signal in strong_signals[:3]:  # 只记录前3个
+            for i, signal in enumerate(strong_signals[:3], 1):
                 symbol_name = signal['symbol'].replace('-USDT-SWAP', '')
                 action = signal['action']
                 confidence = signal['confidence']
-                strength = signal['strength']
+                signal_strength = signal['signal_strength']
                 kronos_conf = signal.get('kronos_confidence', 0)
+                technical_conf = signal.get('technical_confidence', 0)
+                ml_conf = signal.get('ml_confidence', 0)
                 
-                if kronos_conf > 0:
-                    monitor_logger.info(f"   🚀 {symbol_name}: {action} (综合: {confidence:.2f}, Kronos: {kronos_conf:.2f}, 强度: {strength})")
-                else:
-                    monitor_logger.info(f"   🚀 {symbol_name}: {action} (置信度: {confidence:.2f}, 强度: {strength})")
+                monitor_logger.info(f"   {i}. 🎯 {symbol_name}: {action} (综合: {confidence:.1f}%)")
+                monitor_logger.info(f"      🤖 Kronos: {kronos_conf:.1f}% | 📊 技术: {technical_conf:.1f}% | 🧠 ML: {ml_conf:.1f}%")
+                monitor_logger.info(f"      🔥 信号强度: {signal_strength}")
             
         except Exception as e:
-            logger.error(f"❌ Kronos增强信号分析失败: {e}")
+            logger.error(f"❌ 核心交易服务分析失败: {e}")
+
+    async def _enhanced_kronos_analysis_job(self):
+        """完整交易决策分析任务 - 核心任务 (使用Kronos+传统+ML的综合决策服务)"""
+        try:
+            monitor_logger.info("🎯 执行完整交易决策分析 (Kronos+传统+ML综合)...")
+            
+            # 使用增强的核心交易服务，集成Kronos分析
+            from app.services.core_trading_service import get_core_trading_service, AnalysisType
+            from app.services.core_notification_service import get_core_notification_service
+            
+            core_trading_service = await get_core_trading_service()
+            notification_service = await get_core_notification_service()
+            
+            # 分析核心币种 - 使用配置中的target_symbols
+            core_symbols = settings.kronos_config.get('target_symbols', [])
+            if not core_symbols:
+                monitor_logger.warning("⚠️ 未配置核心分析币种，使用默认币种")
+                core_symbols = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+            
+            monitor_logger.info(f"📊 开始分析 {len(core_symbols)} 个核心币种: {[s.replace('-USDT-SWAP', '') for s in core_symbols]}")
+            
+            # 🚀 执行完整的交易决策分析
+            analysis_start_time = datetime.now()
+            strong_signals = []
+            notifications_sent = 0
+            
+            for symbol in core_symbols:
+                try:
+                    # 使用集成分析 - 包含Kronos、传统技术分析、ML预测
+                    trading_signal = await core_trading_service.analyze_symbol(
+                        symbol=symbol,
+                        analysis_type=AnalysisType.INTEGRATED,  # 使用综合分析
+                        force_update=False  # 定时任务不强制更新，使用缓存提高效率
+                    )
+                    
+                    if not trading_signal:
+                        monitor_logger.warning(f"⚠️ {symbol} 分析失败，跳过")
+                        continue
+                    
+                    # 检查是否是强信号 (非HOLD且置信度>65%)
+                    if (trading_signal.final_action.upper() not in ['HOLD', '持有', '观望', '等待'] and 
+                        trading_signal.final_confidence > 0.65):
+                        
+                        # 转换置信度格式
+                        confidence_percent = trading_signal.final_confidence * 100 if trading_signal.final_confidence <= 1 else trading_signal.final_confidence
+                        
+                        strong_signals.append({
+                            "symbol": symbol,
+                            "action": trading_signal.final_action,
+                            "confidence": confidence_percent,
+                            "signal_strength": trading_signal.signal_strength.value if hasattr(trading_signal.signal_strength, 'value') else str(trading_signal.signal_strength),
+                            "reasoning": trading_signal.reasoning,
+                            "kronos_confidence": self._convert_confidence_to_percent(trading_signal.confidence_breakdown.get('kronos', 0)),
+                            "technical_confidence": self._convert_confidence_to_percent(trading_signal.confidence_breakdown.get('technical', 0)),
+                            "ml_confidence": self._convert_confidence_to_percent(trading_signal.confidence_breakdown.get('ml', 0))
+                        })
+                        
+                        # 使用核心交易服务的推送方法
+                        try:
+                            success = await core_trading_service.send_trading_signal_notification(trading_signal)
+                            if success:
+                                notifications_sent += 1
+                                monitor_logger.info(f"✅ 发送 {symbol} 综合交易信号通知成功")
+                            else:
+                                monitor_logger.warning(f"❌ 发送 {symbol} 综合交易信号通知失败")
+                                
+                        except Exception as e:
+                            logger.warning(f"发送 {symbol} 交易信号通知失败: {e}")
+                    else:
+                        confidence_percent = trading_signal.final_confidence * 100 if trading_signal.final_confidence <= 1 else trading_signal.final_confidence
+                        monitor_logger.debug(f"📊 {symbol}: {trading_signal.final_action} (置信度: {confidence_percent:.1f}%) - 不符合推送条件")
+                    
+                except Exception as e:
+                    monitor_logger.warning(f"❌ 分析 {symbol} 失败: {e}")
+                    continue
+            
+            analysis_duration = (datetime.now() - analysis_start_time).total_seconds()
+            
+            # 📈 统计和性能记录
+            monitor_logger.info(f"✅ 完整交易决策分析完成 (Kronos+技术+ML):")
+            monitor_logger.info(f"   📊 分析币种: {len(core_symbols)} 个")
+            monitor_logger.info(f"   🎯 发现强信号: {len(strong_signals)} 个")
+            monitor_logger.info(f"   📢 通知发送: {notifications_sent} 条")
+            monitor_logger.info(f"   ⏱️ 分析耗时: {analysis_duration:.2f}秒")
+            
+            # 记录强信号详情
+            for i, signal in enumerate(strong_signals[:3], 1):
+                symbol_name = signal['symbol'].replace('-USDT-SWAP', '')
+                action = signal['action']
+                confidence = signal['confidence']
+                signal_strength = signal['signal_strength']
+                kronos_conf = signal.get('kronos_confidence', 0)
+                technical_conf = signal.get('technical_confidence', 0)
+                ml_conf = signal.get('ml_confidence', 0)
+                
+                monitor_logger.info(f"   {i}. 🎯 {symbol_name}: {action} (综合: {confidence:.1f}%)")
+                monitor_logger.info(f"      🤖 Kronos: {kronos_conf:.1f}% | 📊 技术: {technical_conf:.1f}% | 🧠 ML: {ml_conf:.1f}%")
+                monitor_logger.info(f"      🔥 信号强度: {signal_strength}")
+            
+        except Exception as e:
+            logger.error(f"❌ 完整交易决策分析失败 (Kronos+技术+ML): {e}")
     
     async def _intelligent_trading_opportunities_job(self):
         """智能交易机会扫描任务 - 专门用于交易信号推送"""
