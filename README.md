@@ -458,8 +458,7 @@ MONITORED_SYMBOLS=["BTC-USDT-SWAP","ETH-USDT-SWAP","SOL-USDT-SWAP","BNB-USDT-SWA
 
 **费率监控币种**
 ```env
-# 费率监控币种（70+币种全覆盖）
-FUNDING_RATE_ONLY_SYMBOLS=["BTC-USDT-SWAP","ETH-USDT-SWAP","SOL-USDT-SWAP","BNB-USDT-SWAP","ADA-USDT-SWAP","DOT-USDT-SWAP","AVAX-USDT-SWAP","ATOM-USDT-SWAP","NEAR-USDT-SWAP","ALGO-USDT-SWAP","LINK-USDT-SWAP","UNI-USDT-SWAP","SUSHI-USDT-SWAP","CRV-USDT-SWAP","COMP-USDT-SWAP","MKR-USDT-SWAP","OP-USDT-SWAP","ARB-USDT-SWAP","LTC-USDT-SWAP","BCH-USDT-SWAP","ETC-USDT-SWAP","XRP-USDT-SWAP","DOGE-USDT-SWAP","AAVE-USDT-SWAP","SNX-USDT-SWAP","1INCH-USDT-SWAP","YFI-USDT-SWAP","LPT-USDT-SWAP","HBAR-USDT-SWAP","VET-USDT-SWAP","THETA-USDT-SWAP","ENJ-USDT-SWAP","SHIB-USDT-SWAP","APT-USDT-SWAP","SUI-USDT-SWAP","AXS-USDT-SWAP","SAND-USDT-SWAP","MANA-USDT-SWAP","GALA-USDT-SWAP","CHZ-USDT-SWAP","FIL-USDT-SWAP","AR-USDT-SWAP","PEPE-USDT-SWAP","FLOKI-USDT-SWAP","BONK-USDT-SWAP","WIF-USDT-SWAP","FET-USDT-SWAP","OCEAN-USDT-SWAP","IMX-USDT-SWAP","GMT-USDT-SWAP","APE-USDT-SWAP","DYDX-USDT-SWAP","GMX-USDT-SWAP"]
+拉取交易所所有币种获取费率信息
 ```
 
 ## 📡 API接口文档
@@ -1372,10 +1371,6 @@ python -c "from app.core.database import db_manager; print(db_manager.health_che
    - 创建新Issue并附上错误信息
    - 描述复现步骤
 
-3. **💬 社区支持**
-   - 加入项目讨论群
-   - 查看FAQ文档
-   - 搜索已知问题
 
 ## 🚀 性能指标
 
@@ -1402,7 +1397,7 @@ python -c "from app.core.database import db_manager; print(db_manager.health_che
 ### 📈 监控覆盖
 
 - **🎯 重点分析币种**: 8个 (BTC, ETH, SOL等)
-- **💰 费率监控币种**: 70+ 个主流币种
+- **💰 费率监控币种**: 200+ 个主流币种
 - **📊 技术指标**: 20+ 种专业指标
 - **⚠️ 风险维度**: 4大风险评估维度
 - **📢 通知渠道**: 4种通知方式
@@ -1410,23 +1405,14 @@ python -c "from app.core.database import db_manager; print(db_manager.health_che
 
 ## 🛣️ 发展路线图
 
-### 📅 Version 2.1 (Q1 2025)
-- [ ] 🔮 **Kronos模型升级** - 支持更多币种和更长预测周期
 - [ ] 📊 **高级图表功能** - 集成TradingView图表组件
 - [ ] 🤖 **智能止损系统** - 动态止损算法优化
-- [ ] 📱 **移动端支持** - 开发移动端应用
-
-### 📅 Version 2.2 (Q2 2025)
 - [ ] 🌐 **多交易所支持** - 支持更多主流交易所
 - [ ] 🔄 **自动交易功能** - 可选的自动执行交易
 - [ ] 📊 **高级回测系统** - 完整的策略回测平台
 - [ ] 🎯 **个性化推荐** - 基于用户行为的个性化建议
-
-### 📅 Version 3.0 (Q3 2025)
 - [ ] 🧠 **深度学习升级** - 集成更先进的AI模型
-- [ ] 🌍 **全球化支持** - 多语言和多时区支持
 - [ ] 🔗 **DeFi集成** - 支持DeFi协议分析
-- [ ] 📊 **机构级功能** - 面向机构用户的高级功能
 
 ## 🤝 贡献指南
 
@@ -1438,58 +1424,6 @@ python -c "from app.core.database import db_manager; print(db_manager.health_che
 - 📝 **文档改进** - 完善文档和示例
 - 🔧 **代码贡献** - 提交Pull Request
 
-### 📋 贡献流程
-
-1. **🍴 Fork项目**
-   ```bash
-   git clone https://github.com/your-username/trading-analysis-tool
-   cd trading-analysis-tool
-   ```
-
-2. **🌿 创建分支**
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-
-3. **💻 开发功能**
-   ```bash
-   # 安装开发依赖
-   pip install -r requirements-dev.txt
-   
-   # 运行测试
-   pytest tests/
-   
-   # 代码格式化
-   black app/
-   isort app/
-   ```
-
-4. **📝 提交代码**
-   ```bash
-   git add .
-   git commit -m "feat: add your feature description"
-   git push origin feature/your-feature-name
-   ```
-
-5. **🔄 创建PR**
-   - 访问GitHub页面创建Pull Request
-   - 填写详细的PR描述
-   - 等待代码审查
-
-### 📏 代码规范
-
-- **🐍 Python风格**: 遵循PEP 8规范
-- **📝 注释要求**: 中英文双语注释
-- **🧪 测试覆盖**: 新功能需要包含测试
-- **📚 文档更新**: 重要功能需要更新文档
-
-### 🏆 贡献者
-
-感谢所有为项目做出贡献的开发者！
-
-<a href="https://github.com/your-repo/trading-analysis-tool/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=your-repo/trading-analysis-tool" />
-</a>
 
 ## 📄 开源许可
 
@@ -1519,22 +1453,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## 📞 联系我们
-
-### 💬 社区交流
-
-- **📧 邮箱**: support@trading-tool.com
-- **💬 微信群**: 扫码加入技术交流群
-- **📱 Telegram**: [@TradingToolSupport](https://t.me/TradingToolSupport)
-- **🐛 Bug报告**: [GitHub Issues](https://github.com/your-repo/trading-analysis-tool/issues)
-
-### 🆘 技术支持
-
-- **📚 文档中心**: [docs.trading-tool.com](https://docs.trading-tool.com)
-- **❓ FAQ**: [常见问题解答](https://github.com/your-repo/trading-analysis-tool/wiki/FAQ)
-- **🎥 视频教程**: [YouTube频道](https://youtube.com/@TradingTool)
-- **📖 博客**: [技术博客](https://blog.trading-tool.com)
-
 ### ⭐ 支持项目
 
 如果这个项目对你有帮助，请考虑：
@@ -1542,18 +1460,6 @@ SOFTWARE.
 - ⭐ **给项目点星** - 在GitHub上点击Star
 - 🔄 **分享项目** - 推荐给其他交易者
 - 💰 **赞助开发** - 支持项目持续发展
-- 📝 **反馈建议** - 帮助我们改进产品
+- 📝 **反馈建议** - 帮助我改进产品
 
 ---
-
-<div align="center">
-
-**🚀 让AI驱动你的交易决策！**
-
-[![GitHub stars](https://img.shields.io/github/stars/your-repo/trading-analysis-tool?style=social)](https://github.com/your-repo/trading-analysis-tool)
-[![GitHub forks](https://img.shields.io/github/forks/your-repo/trading-analysis-tool?style=social)](https://github.com/your-repo/trading-analysis-tool)
-[![GitHub watchers](https://img.shields.io/github/watchers/your-repo/trading-analysis-tool?style=social)](https://github.com/your-repo/trading-analysis-tool)
-
-*Built with ❤️ by the Trading Analysis Tool Team*
-
-</div>
