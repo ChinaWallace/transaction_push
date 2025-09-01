@@ -925,20 +925,31 @@ class CoreNotificationService:
                 
                 # MACD指标
                 macd_line = technical_analysis.get('macd_line')
-                macd_signal_line = technical_analysis.get('macd_signal')
+                macd_signal_line = technical_analysis.get('macd_signal_line')  # 修正字段名
                 macd_histogram = technical_analysis.get('macd_histogram')
+                macd_signal_text = technical_analysis.get('macd_signal', '')  # 信号文本
+                
                 try:
                     if macd_line is not None and macd_signal_line is not None:
                         macd_line_float = float(macd_line)
                         macd_signal_float = float(macd_signal_line)
                         macd_trend = "↗️" if macd_line_float > macd_signal_float else "↘️"
-                        macd_signal_text = technical_analysis.get('macd_signal_text', '')  # 避免与macd_signal冲突
-                        message_parts.append(f"  📊 MACD: {macd_trend} {macd_signal_text}")
+                        
+                        # 格式化MACD信号文本
+                        signal_text_map = {
+                            'golden_cross': '金叉',
+                            'death_cross': '死叉',
+                            'above_zero': '零轴上方',
+                            'below_zero': '零轴下方'
+                        }
+                        formatted_signal = signal_text_map.get(macd_signal_text, macd_signal_text)
+                        
+                        message_parts.append(f"  📊 MACD: {macd_trend} {formatted_signal}")
                         if macd_histogram is not None:
                             macd_histogram_float = float(macd_histogram)
                             message_parts.append(f"      DIF: {macd_line_float:.4f} | DEA: {macd_signal_float:.4f}")
                 except (ValueError, TypeError) as e:
-                    logger.warning(f"MACD数据类型错误: line={macd_line}, signal={macd_signal_line} - {e}")
+                    logger.warning(f"⚠️ MACD数据类型错误: line={macd_line}, signal_line={macd_signal_line}, signal_text={macd_signal_text} - {e}")
                 
                 # 布林带指标
                 bb_upper = technical_analysis.get('bb_upper')

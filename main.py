@@ -6,9 +6,17 @@ Main entry point for the Python Trading Analysis Tool
 
 import uvicorn
 import asyncio
+import tracemalloc
+import warnings
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+
+# 启用 tracemalloc 以获得更好的 asyncio 调试信息
+tracemalloc.start()
+
+# 过滤 asyncio 相关的 RuntimeWarning
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*coroutine.*was never awaited.*")
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -594,12 +602,25 @@ async def lifespan(app: FastAPI):
         funding_monitor = NegativeFundingMonitorService()
         
         # 每20分钟检查一次负费率机会（使用增强版分析）
+        async def funding_monitor_task():
+            """负费率监控任务包装器"""
+            try:
+                logger.debug("🔄 开始执行负费率监控任务...")
+                result = await funding_monitor.run_monitoring_cycle(enable_enhanced_analysis=True)
+                if result.get('success'):
+                    logger.debug("✅ 负费率监控任务执行成功")
+                else:
+                    logger.warning(f"⚠️ 负费率监控任务执行异常: {result.get('error', '未知错误')}")
+            except Exception as e:
+                logger.error(f"❌ 负费率监控任务执行失败: {e}")
+        
         scheduler.add_job(
-            lambda: funding_monitor.run_monitoring_cycle(enable_enhanced_analysis=True),
+            funding_monitor_task,
             'interval',
             minutes=20,
             id='negative_funding_monitor',
-            name='负费率吃利息机会监控（增强版）'
+            name='负费率吃利息机会监控（增强版）',
+            max_instances=1  # 确保同时只有一个实例运行
         )
         logger.info("✅ Negative funding rate monitor scheduled")
         

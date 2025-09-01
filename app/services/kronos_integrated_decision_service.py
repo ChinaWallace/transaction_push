@@ -249,9 +249,15 @@ class KronosIntegratedDecisionService:
                (kronos_direction == "bearish" and technical_signal in ["bearish", "strong_bearish"]):
                 # 信号一致，增强置信度
                 original_confidence = technical_result.get('confidence', 0.5)
+                # 修复：确保original_confidence是0-1范围内的值
+                if original_confidence > 1.0:
+                    original_confidence = original_confidence / 100.0  # 转换百分比为小数
+                
                 enhanced_confidence = min(0.95, original_confidence + kronos_confidence * 0.3)
                 technical_result['confidence'] = enhanced_confidence
                 technical_result['kronos_enhanced'] = True
+                
+                self.logger.debug(f"🔧 技术分析置信度增强: {original_confidence:.3f} -> {enhanced_confidence:.3f}")
                 
             return technical_result
             
@@ -347,6 +353,11 @@ class KronosIntegratedDecisionService:
             # 提取技术分析结果
             technical_signal = technical_result.get('overall_signal', 'neutral')
             technical_confidence = technical_result.get('confidence', 0.5)
+            
+            # 修复：确保technical_confidence是0-1范围内的值
+            if technical_confidence > 1.0:
+                technical_confidence = technical_confidence / 100.0  # 转换百分比为小数
+                self.logger.debug(f"🔧 技术分析置信度格式修正: {technical_result.get('confidence', 0.5)} -> {technical_confidence:.3f}")
             
             # 提取持仓分析结果 - 安全处理可能的None值
             position_recommendation = position_analysis.get('recommendation')
@@ -520,6 +531,9 @@ class KronosIntegratedDecisionService:
         # 信号一致性加成 - 一致性越高，置信度越高
         confluence_bonus = signal_confluence * 0.2  # 最多20%加成
         combined_confidence = min(0.95, base_confidence + confluence_bonus)
+        
+        # 调试日志
+        self.logger.debug(f"🔍 置信度计算详情: Kronos={kronos_confidence:.3f}*{kronos_weight:.1f} + 技术={technical_confidence:.3f}*{technical_weight:.1f} + 一致性={confluence_bonus:.3f} = {combined_confidence:.3f}")
         
         # 决策逻辑 - 优化：考虑当前趋势和预测的一致性
         kronos_direction = "bullish" if kronos_prediction.price_change_pct > 0 else "bearish"

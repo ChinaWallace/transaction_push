@@ -261,7 +261,7 @@ class TradingDecisionService:
                 return TradingRecommendation(
                     symbol=symbol,
                     action=action,
-                    confidence=market_signals.get('confidence', 50.0),
+                    confidence=market_signals.get('confidence', 0.5),
                     
                     # 核心交易参数
                     position_size_usdt=position_params['size_usdt'],
@@ -300,7 +300,7 @@ class TradingDecisionService:
     async def _get_market_signals(self, symbol: str, exchange) -> Dict[str, Any]:
         """获取市场信号 - 完全基于OKX数据，包含完整技术分析指标"""
         signals = {
-            'confidence': 50.0,
+            'confidence': 0.5,  # 修复：使用0-1范围的值，而不是百分比
             'trend': 'neutral',
             'volatility': 'medium',
             'volume_anomaly': False,
@@ -344,9 +344,9 @@ class TradingDecisionService:
                 signals['technical_indicators']['rsi_14'] = rsi_14
                 
                 # ========== MACD指标 ==========
-                macd_line, macd_signal, macd_histogram = self._calculate_macd(closes)
+                macd_line, macd_signal_line, macd_histogram = self._calculate_macd(closes)
                 signals['technical_indicators']['macd_line'] = macd_line
-                signals['technical_indicators']['macd_signal'] = macd_signal
+                signals['technical_indicators']['macd_signal_line'] = macd_signal_line  # 数值信号线
                 signals['technical_indicators']['macd_histogram'] = macd_histogram
                 
                 # ========== 布林带 (Bollinger Bands) ==========
@@ -433,19 +433,19 @@ class TradingDecisionService:
                 # 3. MACD趋势分析 (动态权重)
                 macd_weight = weights.get('macd', 20)
                 macd_score = 0
-                if macd_line > macd_signal and macd_histogram > 0:  # 金叉且柱状图为正
+                if macd_line > macd_signal_line and macd_histogram > 0:  # 金叉且柱状图为正
                     macd_score = macd_weight
                     bullish_signals += 1
-                    signals['technical_indicators']['macd_signal'] = 'golden_cross'
-                elif macd_line < macd_signal and macd_histogram < 0:  # 死叉且柱状图为负
+                    signals['technical_indicators']['macd_signal'] = 'golden_cross'  # 信号类型文本
+                elif macd_line < macd_signal_line and macd_histogram < 0:  # 死叉且柱状图为负
                     macd_score = macd_weight
                     bearish_signals += 1
                     signals['technical_indicators']['macd_signal'] = 'death_cross'
-                elif macd_line > 0 and macd_signal > 0:  # 零轴上方
+                elif macd_line > 0 and macd_signal_line > 0:  # 零轴上方
                     macd_score = macd_weight * 0.5
                     bullish_signals += 0.5
                     signals['technical_indicators']['macd_signal'] = 'above_zero'
-                elif macd_line < 0 and macd_signal < 0:  # 零轴下方
+                elif macd_line < 0 and macd_signal_line < 0:  # 零轴下方
                     macd_score = macd_weight * 0.5
                     bearish_signals += 0.5
                     signals['technical_indicators']['macd_signal'] = 'below_zero'
@@ -540,19 +540,19 @@ class TradingDecisionService:
                 else:
                     signals['trend'] = 'neutral'
                 
-                # 计算最终置信度
-                base_confidence = min(95.0, 50.0 + trend_score)
+                # 计算最终置信度 - 修复：使用0-1范围
+                base_confidence = min(0.95, 0.5 + trend_score / 100.0)  # trend_score转换为0-1范围
                 
                 # 信号一致性加成
                 consistency_bonus = 0
                 if bullish_signals > bearish_signals * 2:  # 多头信号占绝对优势
-                    consistency_bonus = 15
+                    consistency_bonus = 0.15
                 elif bearish_signals > bullish_signals * 2:  # 空头信号占绝对优势
-                    consistency_bonus = 15
+                    consistency_bonus = 0.15
                 elif abs(bullish_signals - bearish_signals) < 0.5:  # 信号分歧较大
-                    consistency_bonus = -10
+                    consistency_bonus = -0.1
                 
-                signals['confidence'] = min(95.0, base_confidence + consistency_bonus)
+                signals['confidence'] = min(0.95, base_confidence + consistency_bonus)
                 signals['technical_indicators']['bullish_signals'] = bullish_signals
                 signals['technical_indicators']['bearish_signals'] = bearish_signals
                 signals['technical_indicators']['signal_ratio'] = signal_ratio
@@ -573,27 +573,30 @@ class TradingDecisionService:
                     
                     volume_ratio = recent_volume / avg_volume if avg_volume > 0 else 1
                     
+                    # 计算最近价格变化
+                    recent_change = (closes[-1] - closes[-2]) / closes[-2] if len(closes) >= 2 else 0
+                    
                     if volume_ratio > 1.5:  # 成交量放大
                         signals['volume_anomaly'] = True
-                        signals['confidence'] = min(95.0, signals['confidence'] + 10)
+                        signals['confidence'] = min(0.95, signals['confidence'] + 0.1)  # 修复：使用0-1范围
                         
                         # 量价配合
                         if signals['trend'] == 'bullish' and recent_change > 0:
-                            signals['confidence'] = min(95.0, signals['confidence'] + 10)
+                            signals['confidence'] = min(0.95, signals['confidence'] + 0.1)
                         elif signals['trend'] == 'bearish' and recent_change < 0:
-                            signals['confidence'] = min(95.0, signals['confidence'] + 10)
+                            signals['confidence'] = min(0.95, signals['confidence'] + 0.1)
             
             # 资金费率分析
             if funding_rate:
                 rate = funding_rate.get('funding_rate', 0)
                 if rate > 0.01:  # 高正费率，多头过热
                     signals['funding_rate_signal'] = 'bearish'
-                    signals['confidence'] = min(80.0, signals['confidence'] + 10)
+                    signals['confidence'] = min(0.8, signals['confidence'] + 0.1)  # 修复：使用0-1范围
                 elif rate < -0.005:  # 负费率，空头过热
                     signals['funding_rate_signal'] = 'bullish'
-                    signals['confidence'] = min(80.0, signals['confidence'] + 10)
+                    signals['confidence'] = min(0.8, signals['confidence'] + 0.1)
             
-            logger.debug(f"获取{symbol}市场信号成功: 趋势={signals['trend']}, 置信度={signals['confidence']:.1f}%")
+            logger.debug(f"✅ 获取{symbol}市场信号成功: 趋势={signals['trend']}, 置信度={signals['confidence']:.3f}")
             
         except Exception as e:
             logger.warning(f"获取{symbol}市场信号失败: {e}")
@@ -755,7 +758,7 @@ class TradingDecisionService:
     
     def _determine_action_from_signals(self, signals: Dict[str, Any]) -> TradingAction:
         """根据信号确定交易动作"""
-        confidence = signals.get('confidence', 50.0)
+        confidence = signals.get('confidence', 0.5)  # 修复：使用0-1范围
         trend = signals.get('trend', 'neutral')
         volatility = signals.get('volatility', 'medium')
         volume_anomaly = signals.get('volume_anomaly', False)
@@ -829,8 +832,8 @@ class TradingDecisionService:
         base_percent = 10.0  # 基础10%
         
         # 根据信号强度调整
-        confidence = signals.get('confidence', 50.0)
-        confidence_multiplier = confidence / 100.0
+        confidence = signals.get('confidence', 0.5)  # 修复：使用0-1范围
+        confidence_multiplier = confidence  # 已经是0-1范围，无需除以100
         
         # 根据交易动作调整
         if action in [TradingAction.STRONG_BUY, TradingAction.STRONG_SELL]:
@@ -886,13 +889,13 @@ class TradingDecisionService:
         """计算最优杠杆"""
         base_leverage = 2.0
         
-        confidence = signals.get('confidence', 50.0)
+        confidence = signals.get('confidence', 0.5)  # 修复：使用0-1范围
         volatility = signals.get('volatility', 'medium')
         
-        # 根据置信度调整
-        if confidence > 85:
+        # 根据置信度调整 - 修复：使用0-1范围的阈值
+        if confidence > 0.85:
             leverage_multiplier = 1.2
-        elif confidence > 70:
+        elif confidence > 0.70:
             leverage_multiplier = 1.0
         else:
             leverage_multiplier = 0.8
@@ -1027,8 +1030,8 @@ class TradingDecisionService:
         
         # 趋势分析
         trend = signals.get('trend', 'neutral')
-        confidence = signals.get('confidence', 50.0)
-        reasons.append(f"趋势: {trend} (置信度: {confidence:.1f}%)")
+        confidence = signals.get('confidence', 0.5)  # 修复：使用0-1范围
+        reasons.append(f"趋势: {trend} (置信度: {confidence*100:.1f}%)")  # 显示时转换为百分比
         
         # 波动性
         volatility = signals.get('volatility', 'medium')
@@ -1342,14 +1345,14 @@ class TradingDecisionService:
     
     def _determine_entry_timing(self, signals: Dict[str, Any], action: TradingAction) -> str:
         """确定入场时机"""
-        confidence = signals.get('confidence', 50.0)
+        confidence = signals.get('confidence', 0.5)  # 修复：使用0-1范围
         volatility = signals.get('volatility', 'medium')
         volume_anomaly = signals.get('volume_anomaly', False)
         
         if action in [TradingAction.STRONG_BUY, TradingAction.STRONG_SELL]:
             return "立即执行"
         elif action in [TradingAction.BUY, TradingAction.SELL]:
-            if confidence > 75:
+            if confidence > 0.75:  # 修复：使用0-1范围的阈值
                 return "立即执行"
             elif volatility == 'high':
                 return "等待波动减缓"
@@ -1367,7 +1370,7 @@ class TradingDecisionService:
         if action in [TradingAction.WAIT, TradingAction.HOLD]:
             return None
         
-        confidence = signals.get('confidence', 50.0)
+        confidence = signals.get('confidence', 0.5)  # 修复：使用0-1范围
         volatility = signals.get('volatility', 'medium')
         
         # 基础持仓时间
