@@ -115,21 +115,22 @@ class SchedulerService:
         try:
             # 🔄 核心监控任务组 - 高频监控
             
-            # 持仓量监控 - 每3分钟执行一次 (提高频率捕获异动)
+            # 持仓量监控 - 每30分钟执行一次 (降低频率，减少噪音)
             self.scheduler.add_job(
                 self._open_interest_job,
-                trigger=IntervalTrigger(minutes=3),
+                trigger=IntervalTrigger(minutes=30),
                 id="open_interest_monitor", 
                 name="持仓量变化监控",
                 max_instances=1
             )
             
-            # 交易量异常监控 - 每15分钟执行一次 (庄神指标)
+            # 交易量异常监控 - 每60分钟执行一次 (降低频率，目前功能不完整)
+            # 注意：当前交易量异常监控没有独立的通知功能，主要用于数据收集
             self.scheduler.add_job(
                 self._volume_anomaly_job,
-                trigger=IntervalTrigger(minutes=15),
+                trigger=IntervalTrigger(minutes=60),
                 id="volume_anomaly_monitor",
-                name="交易量异常监控 (庄神指标)",
+                name="交易量异常监控 (数据收集)",
                 max_instances=1
             )
             
@@ -282,16 +283,18 @@ class SchedulerService:
             logger.error(f"Open interest monitoring job failed: {e}")
     
     async def _volume_anomaly_job(self):
-        """交易量异常监控任务"""
+        """交易量异常监控任务 - 目前主要用于数据收集"""
         try:
-            monitor_logger.info("Executing scheduled volume anomaly monitoring")
+            monitor_logger.info("Executing scheduled volume anomaly monitoring (data collection)")
             monitor_service = self._get_monitor_service()
             
             # 使用核心监控服务的综合监控方法
             result = await monitor_service.run_comprehensive_monitoring_cycle()
             
+            # 注意：当前没有独立的交易量异常通知功能
+            # 交易量异常检测主要集成在交易决策分析中使用
             monitor_logger.info(
-                f"Volume anomaly monitoring completed: {result.get('total_opportunities', 0)} opportunities found"
+                f"Volume anomaly monitoring completed: {result.get('total_opportunities', 0)} data points collected"
             )
             
         except Exception as e:
