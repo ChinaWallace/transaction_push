@@ -51,7 +51,7 @@ async def scan_market_anomalies(
         service = await get_market_anomaly_service()
         
         # 扫描异常
-        anomalies = await service.scan_market_anomalies(
+        anomalies, total_checked = await service.scan_market_anomalies(
             symbols=symbol_list,
             min_anomaly_level=min_anomaly_level,
             only_recommended=only_recommended
@@ -62,7 +62,7 @@ async def scan_market_anomalies(
             anomalies = anomalies[:limit]
         
         # 生成汇总
-        summary = service.generate_summary(anomalies)
+        summary = service.generate_summary(anomalies, total_checked)
         
         response_data = {
             "success": True,
@@ -154,7 +154,7 @@ async def get_top_opportunities(
         service = await get_market_anomaly_service()
         
         # 扫描所有异常
-        anomalies = await service.scan_market_anomalies(
+        anomalies, total_checked = await service.scan_market_anomalies(
             min_anomaly_level=AnomalyLevel.MEDIUM,
             only_recommended=True
         )
@@ -218,13 +218,13 @@ async def get_market_summary():
         service = await get_market_anomaly_service()
         
         # 扫描异常
-        anomalies = await service.scan_market_anomalies(
+        anomalies, total_checked = await service.scan_market_anomalies(
             min_anomaly_level=AnomalyLevel.LOW,
             only_recommended=False
         )
         
         # 生成汇总
-        summary = service.generate_summary(anomalies)
+        summary = service.generate_summary(anomalies, total_checked)
         
         # 额外统计信息
         strong_up_count = sum(1 for a in anomalies if a.trend_direction.value in ['strong_up', 'up'])

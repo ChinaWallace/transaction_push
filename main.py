@@ -4,6 +4,8 @@ Python Trading Analysis Tool - 主程序入口
 Main entry point for the Python Trading Analysis Tool
 """
 
+import sys
+import os
 import uvicorn
 import asyncio
 import tracemalloc
@@ -11,6 +13,20 @@ import warnings
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+
+# Windows平台优化：避免multiprocessing和SQLAlchemy的兼容性问题
+if sys.platform == "win32":
+    # 设置环境变量避免SQLAlchemy的WMI查询问题
+    os.environ["SQLALCHEMY_WARN_20"] = "1"
+    os.environ["PROCESSOR_ARCHITECTURE"] = "AMD64"
+    
+    # 设置multiprocessing启动方法为spawn（Windows默认）
+    import multiprocessing
+    try:
+        multiprocessing.set_start_method('spawn', force=True)
+    except RuntimeError:
+        # 如果已经设置过，忽略错误
+        pass
 
 # 启用 tracemalloc 以获得更好的 asyncio 调试信息
 tracemalloc.start()
@@ -22,21 +38,36 @@ from app.core.config import get_settings
 from app.core.logging import get_logger
 from datetime import datetime
 
-# 安全导入数据库模块
-try:
-    from app.core.database import create_tables, db_manager
-    from app.utils.db_monitor import get_db_monitor
-    DATABASE_AVAILABLE = True
-    logger = get_logger(__name__)
-    logger.debug("✅ Database module imported successfully")
-except Exception as e:
-    logger = get_logger(__name__)
-    logger.warning(f"⚠️ Database module import failed: {e}")
-    logger.info("💡 Application will run in memory-only mode")
-    DATABASE_AVAILABLE = False
-    db_manager = None
-    create_tables = None
-    get_db_monitor = None
+# 安全导入数据库模块 - 延迟导入避免multiprocessing问题
+DATABASE_AVAILABLE = False
+db_manager = None
+create_tables = None
+get_db_monitor = None
+
+def _safe_import_database():
+    """安全导入数据库模块"""
+    global DATABASE_AVAILABLE, db_manager, create_tables, get_db_monitor
+    
+    if DATABASE_AVAILABLE:
+        return True
+        
+    try:
+        from app.core.database import create_tables as _create_tables, db_manager as _db_manager
+        from app.utils.db_monitor import get_db_monitor as _get_db_monitor
+        
+        create_tables = _create_tables
+        db_manager = _db_manager
+        get_db_monitor = _get_db_monitor
+        DATABASE_AVAILABLE = True
+        
+        logger.debug("✅ Database module imported successfully")
+        return True
+        
+    except Exception as e:
+        logger.warning(f"⚠️ Database module import failed: {e}")
+        logger.info("💡 Application will run in memory-only mode")
+        DATABASE_AVAILABLE = False
+        return False
 
 # 导入所有模型以确保表定义被注册
 import app.models  # 这会导入所有模型定义
@@ -56,7 +87,6 @@ from app.api.kronos_integrated import router as kronos_integrated_router
 from app.api.funding_monitor import router as funding_monitor_router
 from app.api.kronos_market_opportunities import router as kronos_market_opportunities_router
 from app.api.kronos_advanced_opportunities import router as kronos_advanced_opportunities_router
-from app.api.notification_stats import router as notification_stats_router
 from app.api.database import router as database_router
 from app.api.http_pool import router as http_pool_router
 from app.api.trading_pairs import router as trading_pairs_router
@@ -232,10 +262,6 @@ async def perform_startup_trading_analysis():
     except Exception as e:
         logger.error(f"❌ 启动完整交易决策分析失败: {e}")
         return {"status": "error", "error": str(e)}
-
-# 已移除 perform_startup_kronos_market_scan() 函数
-# 原因: 与 perform_startup_trading_analysis() 功能重复
-# 核心交易决策分析已经包含了Kronos分析和信号推送功能
 
 async def send_startup_summary_notification(app_state, successful_tasks: int, failed_tasks: int):
     """发送启动完成摘要通知"""
@@ -559,8 +585,10 @@ async def lifespan(app: FastAPI):
     cleanup_tasks = []
     
     try:
-        # 检查数据库模块是否可用
-        if not DATABASE_AVAILABLE:
+        # 安全导入数据库模块
+        database_imported = _safe_import_database()
+        
+        if not database_imported:
             logger.warning("⚠️ Database module not available - running in memory mode")
             app.state.database_available = False
         else:
@@ -614,35 +642,6 @@ async def lifespan(app: FastAPI):
         await scheduler.start()
         logger.info("✅ Scheduler started successfully")
         
-        # 暂时禁用智能交易机会扫描任务 - 避免重复推送
-        # from app.services.intelligent_trading_notification_service import IntelligentTradingNotificationService
-        # intelligent_notification_service = IntelligentTradingNotificationService()
-        logger.info("📴 智能交易机会扫描已禁用 - 使用核心交易服务的详细推送")
-        
-        # ❌ 已移除重复的Kronos市场机会扫描服务 - 已整合到调度器的趋势分析任务中
-        # 原因: 避免与调度器中的_trend_analysis_job重复分析相同币种
-        # 新的整合方案: 调度器中的趋势分析任务已增强为"Kronos核心信号分析"，每15分钟执行
-        
-        # if settings.kronos_config.get('enable_kronos_prediction', False):
-        #     from app.services.kronos_market_opportunity_service import get_kronos_market_opportunity_service
-        #     
-        #     async def kronos_strong_opportunities_scan():
-        #         """Kronos强交易机会扫描 - 每30分钟 (已移除，避免重复)"""
-        #         # 此功能已整合到调度器的_trend_analysis_job中
-        #         pass
-        #     
-        #     # 移除重复的扫描任务
-        #     # scheduler.add_job(kronos_strong_opportunities_scan, ...)
-        #     
-        #     logger.info("🔄 Kronos强交易机会扫描已整合到调度器趋势分析任务中")
-        # else:
-        #     logger.info("📴 Kronos预测已禁用")
-        
-        # 📝 优化说明: 
-        # 1. 原来的市场扫描任务(每30分钟) + 趋势分析任务(每15分钟) = 重复分析
-        # 2. 现在统一为调度器中的"Kronos核心信号分析"任务(每15分钟)
-        # 3. 提供更详细的技术分析和精准的交易建议
-        
         if settings.kronos_config.get('enable_kronos_prediction', False):
             logger.info("✅ Kronos预测已启用，核心信号分析由调度器统一管理")
         else:
@@ -651,7 +650,7 @@ async def lifespan(app: FastAPI):
         # 添加负费率监控定时任务
         funding_monitor = NegativeFundingMonitorService()
         
-        # 每20分钟检查一次负费率机会（使用增强版分析）
+        # 每60分钟检查一次负费率机会（使用增强版分析）
         async def funding_monitor_task():
             """负费率监控任务包装器"""
             try:
@@ -667,7 +666,7 @@ async def lifespan(app: FastAPI):
         scheduler.add_job(
             funding_monitor_task,
             'interval',
-            minutes=20,
+            minutes=60,
             id='negative_funding_monitor',
             name='负费率吃利息机会监控（增强版）',
             max_instances=1  # 确保同时只有一个实例运行
@@ -705,7 +704,7 @@ async def lifespan(app: FastAPI):
         
         market_anomaly_service = await get_market_anomaly_service()
         
-        # 每30分钟检查一次市场异常
+        # 每60分钟检查一次市场异常
         async def market_anomaly_task():
             """市场异常监控任务包装器"""
             try:
@@ -723,7 +722,7 @@ async def lifespan(app: FastAPI):
         scheduler.add_job(
             market_anomaly_task,
             'interval',
-            minutes=30,
+            minutes=60,
             id='market_anomaly_monitor',
             name='市场异常监控（波动率+交易量+持仓量）',
             max_instances=1  # 确保同时只有一个实例运行
@@ -792,11 +791,6 @@ async def lifespan(app: FastAPI):
         # 4. 新闻分析任务 (如果启用) - 暂时注释掉
         # if settings.news_config.get('enable_news_analysis', True):
         #     startup_tasks.append(("news_analysis", perform_startup_news_analysis()))
-        
-        # 4. Kronos市场机会扫描任务 - 已整合到核心交易决策分析中，避免重复推送
-        # 原因: perform_startup_trading_analysis() 已经包含了Kronos分析功能
-        # 不再需要单独的市场扫描任务
-        logger.info("🔄 Kronos市场扫描已整合到核心交易决策分析中，避免重复推送")
         
         # 并发执行所有启动任务
         task_names = [name for name, _ in startup_tasks]
@@ -1024,7 +1018,7 @@ def create_app() -> FastAPI:
     app.include_router(kronos_integrated_router, prefix="/api/kronos-integrated", tags=["Kronos集成决策"])
     app.include_router(kronos_market_opportunities_router, prefix="/api/kronos-opportunities", tags=["Kronos市场机会"])
     app.include_router(kronos_advanced_opportunities_router, prefix="/api/kronos-advanced", tags=["Kronos高级机会"])
-    app.include_router(notification_stats_router)
+    # app.include_router(notification_stats_router)  # 已删除
     app.include_router(database_router, prefix="/api/database", tags=["数据库管理"])
     app.include_router(http_pool_router, prefix="/api/http-pool", tags=["HTTP连接池管理"])
     app.include_router(trading_pairs_router, prefix="/api/trading-pairs", tags=["交易对管理"])
@@ -1250,7 +1244,7 @@ def create_app() -> FastAPI:
                 logger.info("🔍 快速查看市场异常...")
                 
                 # 扫描异常（只返回推荐的）
-                anomalies = await service.scan_market_anomalies(
+                anomalies, total_checked = await service.scan_market_anomalies(
                     min_anomaly_level=AnomalyLevel.MEDIUM,
                     only_recommended=True
                 )
@@ -1423,24 +1417,7 @@ def create_app() -> FastAPI:
             logger.error(f"获取实时Kronos持仓分析失败: {e}")
             raise HTTPException(status_code=500, detail="获取实时Kronos持仓分析失败")
     
-    # 调试交易信号分析
-    @app.get("/debug-trading-signals", summary="调试交易信号分析")
-    async def debug_trading_signals():
-        """调试交易信号分析，帮助诊断为什么没有推送交易信号"""
-        try:
-            from app.services.intelligent_trading_notification_service import get_intelligent_notification_service
-            
-            intelligent_service = await get_intelligent_notification_service()
-            debug_results = await intelligent_service.debug_signal_analysis()
-            
-            return {
-                "status": "success",
-                "message": "交易信号调试分析完成",
-                "debug_results": debug_results
-            }
-        except Exception as e:
-            logger.error(f"调试交易信号分析失败: {e}")
-            raise HTTPException(status_code=500, detail="调试交易信号分析失败")
+    # 调试交易信号分析端点已删除 - intelligent_trading_notification_service已移除
     
     # 强制扫描交易机会
     @app.get("/test-technical-config", summary="测试技术分析配置")
@@ -1537,23 +1514,52 @@ def create_app() -> FastAPI:
             logger.error(f"测试增强分析失败: {e}")
             return {"status": "error", "message": str(e)}
     
-    @app.post("/force-scan-opportunities", summary="强制扫描交易机会")
-    async def force_scan_opportunities():
-        """强制扫描交易机会并推送通知"""
+    # 强制扫描交易机会端点已删除 - intelligent_trading_notification_service已移除
+    
+    @app.post("/debug-funding-notification", summary="调试负费率通知")
+    async def debug_funding_notification():
+        """调试负费率通知消息格式"""
         try:
-            from app.services.intelligent_trading_notification_service import get_intelligent_notification_service
+            from app.services.negative_funding_monitor_service import NegativeFundingMonitorService
             
-            intelligent_service = await get_intelligent_notification_service()
-            scan_results = await intelligent_service.scan_and_notify_opportunities(force_scan=True)
+            funding_monitor = NegativeFundingMonitorService()
             
-            return {
-                "status": "success",
-                "message": "强制扫描交易机会完成",
-                "scan_results": scan_results
-            }
+            # 执行一次监控检查
+            result = await funding_monitor.run_monitoring_cycle(enable_enhanced_analysis=True)
+            
+            if result['success']:
+                notification_message = result.get('notification_message', '')
+                opportunities = result.get('opportunities', [])
+                
+                return {
+                    "status": "success",
+                    "message_length": len(notification_message),
+                    "opportunities_count": len(opportunities),
+                    "notification_message": notification_message,
+                    "first_100_chars": notification_message[:100],
+                    "last_100_chars": notification_message[-100:] if len(notification_message) > 100 else notification_message,
+                    "opportunities_summary": [
+                        {
+                            "symbol": opp.get('symbol_name', ''),
+                            "rate": opp.get('funding_rate_percent', 0),
+                            "score": opp.get('score', 0)
+                        } for opp in opportunities[:3]
+                    ]
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": "监控检查失败",
+                    "error": result.get('error', '未知错误')
+                }
+                
         except Exception as e:
-            logger.error(f"强制扫描交易机会失败: {e}")
-            raise HTTPException(status_code=500, detail="强制扫描交易机会失败")
+            logger.error(f"调试负费率通知失败: {e}")
+            return {
+                "status": "error", 
+                "message": str(e),
+                "traceback": str(e.__traceback__)
+            }
     
     return app
 

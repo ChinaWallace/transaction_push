@@ -211,10 +211,10 @@ class SchedulerService:
                 max_instances=1
             )
             
-            # 综合市场机会分析 - 每120分钟执行一次 (宏观分析)
+            # 综合市场机会分析 - 每60分钟执行一次 (宏观分析)
             self.scheduler.add_job(
                 self._comprehensive_market_analysis_job,
-                trigger=IntervalTrigger(minutes=120),
+                trigger=IntervalTrigger(minutes=60),
                 id="comprehensive_market_analysis",
                 name="综合市场机会分析 (宏观分析)",
                 max_instances=1
@@ -563,65 +563,6 @@ class SchedulerService:
             
         except Exception as e:
             logger.error(f"❌ 完整交易决策分析失败 (Kronos+技术+ML): {e}")
-    
-    async def _intelligent_trading_opportunities_job(self):
-        """智能交易机会扫描任务 - 专门用于交易信号推送"""
-        try:
-            monitor_logger.info("🎯 执行智能交易机会扫描...")
-            
-            # 使用智能交易通知服务
-            from app.services.intelligent_trading_notification_service import get_intelligent_notification_service
-            intelligent_service = await get_intelligent_notification_service()
-            
-            # 扫描并推送交易机会
-            scan_results = await intelligent_service.scan_and_notify_opportunities(force_scan=False)
-            
-            # 记录扫描结果
-            total_scanned = scan_results.get('total_scanned', 0)
-            total_opportunities = scan_results.get('total_opportunities', 0)
-            premium_opportunities = scan_results.get('premium_opportunities', 0)
-            high_opportunities = scan_results.get('high_opportunities', 0)
-            notifications_sent = scan_results.get('notifications_sent', 0)
-            
-            monitor_logger.info(f"✅ 智能交易机会扫描完成:")
-            monitor_logger.info(f"   📊 扫描币种: {total_scanned} 个")
-            monitor_logger.info(f"   🎯 发现机会: {total_opportunities} 个")
-            monitor_logger.info(f"   🔥 顶级机会: {premium_opportunities} 个")
-            monitor_logger.info(f"   📈 高质量机会: {high_opportunities} 个")
-            monitor_logger.info(f"   📢 推送通知: {notifications_sent} 条")
-            
-            # 记录顶级机会详情
-            top_opportunities = scan_results.get('top_opportunities', [])
-            for i, op in enumerate(top_opportunities[:3], 1):
-                symbol = op.get('symbol', '').replace('-USDT-SWAP', '')
-                action = op.get('action', '')
-                confidence = op.get('confidence', 0)
-                monitor_logger.info(f"   🚀 机会{i}: {symbol} {action} (置信度: {confidence:.1f}%)")
-            
-        except Exception as e:
-            logger.error(f"❌ 智能交易机会扫描失败: {e}")
-    
-    # 已移除 _is_medium_signal 方法
-    # 原因: 现在使用核心交易服务统一处理信号强度判断
-    
-    # 已移除 _is_strong_signal 方法
-    # 原因: 现在使用核心交易服务统一处理信号强度判断
-    
-    # 已移除 _get_detailed_technical_analysis 方法
-    # 原因: 现在使用核心交易服务统一处理技术分析
-    
-    # 已移除 _calculate_supertrend_multi_timeframe 方法
-    # 原因: 现在使用核心交易服务统一处理SuperTrend分析
-    
-    # 已移除以下方法，现在使用核心交易服务统一处理:
-    # - _calculate_precise_trade_params: 精准交易参数计算
-    # - _determine_trade_urgency: 交易紧急程度判断  
-    # - _calculate_holding_period: 持仓周期计算
-    # - _calculate_position_size_percent: 仓位百分比计算
-    # - _send_enhanced_kronos_signals: 增强版信号通知发送
-    # - _format_enhanced_signal_message: 信号消息格式化
-    # 
-    # 原因: 避免与核心交易服务重复，统一使用 core_trading_service 处理所有交易相关逻辑
     
     async def _daily_report_job(self):
         """每日监控报告任务"""

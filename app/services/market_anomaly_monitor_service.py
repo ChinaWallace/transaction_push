@@ -163,7 +163,8 @@ class MarketAnomalyMonitorService:
                 for kline in klines:
                     timestamps.append(datetime.fromtimestamp(kline['timestamp'] / 1000))
                     prices.append(float(kline['close']))
-                    volumes.append(float(kline['volume']))
+                    # 使用volume_currency字段，这是以USDT为单位的成交量
+                    volumes.append(float(kline.get('volume_currency', kline.get('volume', 0))))
                 
                 # 获取持仓量数据（如果是期货合约）
                 open_interests = []
@@ -629,7 +630,7 @@ class MarketAnomalyMonitorService:
     
     async def scan_market_anomalies(self, symbols: Optional[List[str]] = None,
                                    min_anomaly_level: AnomalyLevel = AnomalyLevel.MEDIUM,
-                                   only_recommended: bool = True) -> List[MarketAnomalyData]:
+                                   only_recommended: bool = True) -> Tuple[List[MarketAnomalyData], int]:
         """扫描市场异常"""
         try:
             logger.info("🔍 开始扫描市场异常...")
@@ -670,8 +671,8 @@ class MarketAnomalyMonitorService:
             # 按异常评分排序
             anomalies.sort(key=lambda x: x.anomaly_score, reverse=True)
             
-            logger.info(f"✅ 市场异常扫描完成: 发现{len(anomalies)}个异常")
-            return anomalies
+            logger.info(f"✅ 市场异常扫描完成: 检查{len(symbols)}个币种，发现{len(anomalies)}个异常")
+            return anomalies, len(symbols)
             
         except Exception as e:
             logger.error(f"❌ 市场异常扫描失败: {e}")
@@ -703,9 +704,9 @@ class MarketAnomalyMonitorService:
         
         return True
     
-    def generate_summary(self, anomalies: List[MarketAnomalyData]) -> AnomalySummary:
+    def generate_summary(self, anomalies: List[MarketAnomalyData], total_symbols_checked: int = None) -> AnomalySummary:
         """生成异常汇总信息"""
-        total_checked = len(anomalies) if anomalies else 0
+        total_checked = total_symbols_checked if total_symbols_checked is not None else len(anomalies)
         recommended_count = sum(1 for a in anomalies if a.is_recommended)
         
         # 按异常级别分类
@@ -761,7 +762,7 @@ class MarketAnomalyMonitorService:
         # 构建消息标题
         message = f"🚨 市场异常监控报告\n"
         message += f"⏰ 检测时间: {datetime.now().strftime('%m-%d %H:%M')}\n"
-        message += f"📊 检查币种: {summary.total_symbols_checked}个\n"
+        message += f"📊 总检查币种: {summary.total_symbols_checked}个\n"
         message += f"🔍 发现异常: {summary.anomalies_found}个\n"
         message += f"⭐ 推荐关注: {summary.recommended_count}个\n\n"
         
@@ -798,24 +799,34 @@ class MarketAnomalyMonitorService:
                 trend_icon = trend_icons.get(anomaly.trend_direction, "➖")
                 
                 message += f"{level_icon} {i}. {symbol_name} (评分: {score:.0f})\n"
-                message += f"   {trend_icon} 24h: {price_change:+.1f}% | 量比: {volume_ratio:.1f}x\n"
                 
-                # 显示主要推荐理由
+                # 限制量比显示的最大值，避免显示过大的数字
+                display_volume_ratio = min(volume_ratio, 9999.9)
+                message += f"   {trend_icon} 24h涨跌: {price_change:+.1f}% | 24h量比: {display_volume_ratio:.1f}倍\n"
+                
+                # 显示技术分析和推荐理由
+                technical_analysis = self._get_technical_analysis(anomaly)
+                if technical_analysis:
+                    message += f"   📊 技术分析: {technical_analysis}\n"
+                
                 if anomaly.recommendation_reason:
                     main_reason = anomaly.recommendation_reason[0]
                     message += f"   💡 {main_reason}\n"
                 
-                # 显示异常类型
+                # 显示异常类型 - 使用中文说明
                 anomaly_types = []
                 if anomaly.volatility_anomaly_level != AnomalyLevel.NORMAL:
-                    anomaly_types.append(f"波动率{anomaly.volatility_anomaly_level.value}")
+                    level_name = self._get_anomaly_level_chinese(anomaly.volatility_anomaly_level)
+                    anomaly_types.append(f"波动率{level_name}")
                 if anomaly.volume_anomaly_level != AnomalyLevel.NORMAL:
-                    anomaly_types.append(f"交易量{anomaly.volume_anomaly_level.value}")
+                    level_name = self._get_anomaly_level_chinese(anomaly.volume_anomaly_level)
+                    anomaly_types.append(f"交易量{level_name}")
                 if anomaly.oi_anomaly_level and anomaly.oi_anomaly_level != AnomalyLevel.NORMAL:
-                    anomaly_types.append(f"持仓量{anomaly.oi_anomaly_level.value}")
+                    level_name = self._get_anomaly_level_chinese(anomaly.oi_anomaly_level)
+                    anomaly_types.append(f"持仓量{level_name}")
                 
                 if anomaly_types:
-                    message += f"   🔍 异常: {' | '.join(anomaly_types)}\n"
+                    message += f"   🔍 异常类型: {' | '.join(anomaly_types)}\n"
                 
                 message += "\n"
         
@@ -836,15 +847,70 @@ class MarketAnomalyMonitorService:
         
         # 操作建议
         message += "💡 操作建议:\n"
-        message += "• 优先关注「强势上涨」+「交易量异常」的币种\n"
-        message += "• 「大跌放量」可能是抄底机会，但需谨慎\n"
-        message += "• 持仓量异常增加通常预示大行情\n"
-        message += "• 建议分批建仓，设置止损止盈\n\n"
+        message += "• 24h量比：当前24小时交易量 ÷ 过去7天平均交易量\n"
+        message += "• 极端异常：通常预示重大行情变化，需密切关注\n"
+        message += "• 优先关注「强势上涨」+「成交量爆发」的币种\n"
+        message += "• 「深度回调」+「成交量放大」可能是抄底机会\n"
+        message += "• 建议分批建仓，严格设置止损止盈\n\n"
         
         message += "⏰ 下次检查: 30分钟后\n"
         message += f"📋 筛选标准: {summary.recommended_count}个推荐 / {summary.anomalies_found}个异常"
         
         return message
+    
+    def _get_anomaly_level_chinese(self, level: AnomalyLevel) -> str:
+        """获取异常级别的中文描述"""
+        level_names = {
+            AnomalyLevel.EXTREME: "极端异常",
+            AnomalyLevel.HIGH: "高度异常", 
+            AnomalyLevel.MEDIUM: "中度异常",
+            AnomalyLevel.LOW: "轻度异常",
+            AnomalyLevel.NORMAL: "正常"
+        }
+        return level_names.get(level, "未知")
+    
+    def _get_technical_analysis(self, anomaly: MarketAnomalyData) -> str:
+        """获取技术分析描述"""
+        analysis_parts = []
+        
+        # 价格趋势分析
+        price_change = anomaly.price_change_24h * 100
+        if price_change > 15:
+            analysis_parts.append("强势上涨")
+        elif price_change > 5:
+            analysis_parts.append("温和上涨")
+        elif price_change > -5:
+            analysis_parts.append("横盘整理")
+        elif price_change > -15:
+            analysis_parts.append("温和下跌")
+        else:
+            analysis_parts.append("深度回调")
+        
+        # 交易量分析
+        if anomaly.volume_ratio > 5:
+            analysis_parts.append("成交量爆发")
+        elif anomaly.volume_ratio > 3:
+            analysis_parts.append("成交量放大")
+        elif anomaly.volume_ratio > 1.5:
+            analysis_parts.append("成交量活跃")
+        else:
+            analysis_parts.append("成交量萎缩")
+        
+        # 波动率分析
+        if anomaly.volatility_anomaly_level == AnomalyLevel.EXTREME:
+            analysis_parts.append("波动剧烈")
+        elif anomaly.volatility_anomaly_level == AnomalyLevel.HIGH:
+            analysis_parts.append("波动较大")
+        
+        # 持仓量分析
+        if anomaly.oi_change_24h is not None:
+            if abs(anomaly.oi_change_24h) > 0.2:  # 20%以上变化
+                if anomaly.oi_change_24h > 0:
+                    analysis_parts.append("多头增仓")
+                else:
+                    analysis_parts.append("大量平仓")
+        
+        return "，".join(analysis_parts) if analysis_parts else "数据不足"
     
     async def run_monitoring_cycle(self) -> Dict[str, Any]:
         """运行一次完整的监控周期"""
@@ -852,13 +918,13 @@ class MarketAnomalyMonitorService:
             logger.info("🚨 开始市场异常监控周期...")
             
             # 扫描异常
-            anomalies = await self.scan_market_anomalies(
+            anomalies, total_checked = await self.scan_market_anomalies(
                 min_anomaly_level=AnomalyLevel.LOW,
                 only_recommended=True
             )
             
             # 生成汇总
-            summary = self.generate_summary(anomalies)
+            summary = self.generate_summary(anomalies, total_checked)
             
             # 发送通知
             if anomalies:

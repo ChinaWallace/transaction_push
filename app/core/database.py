@@ -4,14 +4,23 @@
 Database connection and session management with connection pooling
 """
 
+import os
+import sys
+import logging
+import threading
+from typing import Generator, Optional
+from contextlib import contextmanager
+
+# 在Windows上设置环境变量以避免SQLAlchemy的WMI查询问题
+if sys.platform == "win32":
+    os.environ["SQLALCHEMY_WARN_20"] = "1"
+    # 设置平台信息以避免WMI查询
+    os.environ["PROCESSOR_ARCHITECTURE"] = "AMD64"
+
 from sqlalchemy import create_engine, MetaData, event, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, scoped_session
 from sqlalchemy.pool import QueuePool, StaticPool
-from typing import Generator, Optional
-from contextlib import contextmanager
-import logging
-import threading
 from sqlalchemy.exc import DisconnectionError, OperationalError
 
 from app.core.config import get_settings
@@ -101,45 +110,59 @@ def create_database_engine():
             # 如果已经是SQLite或其他数据库，直接抛出异常
             raise
 
-try:
-    engine = create_database_engine()
-except Exception as e:
-    logger.error(f"❌ All database connections failed: {e}")
-    logger.warning("⚠️ Application will run without database persistence")
-    engine = None
+# 延迟初始化数据库引擎，避免在模块导入时就创建连接
+engine = None
 
-# 添加连接池事件监听器
-@event.listens_for(engine, "connect")
-def set_mysql_pragma(dbapi_connection, connection_record):
-    """设置MySQL连接参数"""
-    if "mysql" in settings.database_url:
-        with dbapi_connection.cursor() as cursor:
-            # 设置会话级别的参数
-            cursor.execute("SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO'")
-            cursor.execute("SET SESSION time_zone = '+08:00'")
+def get_engine():
+    """获取数据库引擎，延迟初始化"""
+    global engine
+    if engine is None:
+        try:
+            engine = create_database_engine()
+        except Exception as e:
+            logger.error(f"❌ All database connections failed: {e}")
+            logger.warning("⚠️ Application will run without database persistence")
+            engine = None
+    return engine
 
-@event.listens_for(engine, "checkout")
-def receive_checkout(dbapi_connection, connection_record, connection_proxy):
-    """连接检出时的处理"""
-    logger.debug("数据库连接已检出")
+# 延迟初始化会话工厂
+SessionLocal = None
 
-@event.listens_for(engine, "checkin")
-def receive_checkin(dbapi_connection, connection_record):
-    """连接检入时的处理"""
-    logger.debug("数据库连接已检入")
+def get_session_local():
+    """获取会话工厂，延迟初始化"""
+    global SessionLocal
+    if SessionLocal is None:
+        engine = get_engine()
+        if engine:
+            # 添加连接池事件监听器
+            @event.listens_for(engine, "connect")
+            def set_mysql_pragma(dbapi_connection, connection_record):
+                """设置MySQL连接参数"""
+                if "mysql" in settings.database_url:
+                    with dbapi_connection.cursor() as cursor:
+                        # 设置会话级别的参数
+                        cursor.execute("SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO'")
+                        cursor.execute("SET SESSION time_zone = '+08:00'")
 
-# 创建线程安全的会话工厂
-if engine:
-    SessionLocal = scoped_session(
-        sessionmaker(
-            autocommit=False, 
-            autoflush=False, 
-            bind=engine,
-            expire_on_commit=False  # 避免在commit后对象过期
-        )
-    )
-else:
-    SessionLocal = None
+            @event.listens_for(engine, "checkout")
+            def receive_checkout(dbapi_connection, connection_record, connection_proxy):
+                """连接检出时的处理"""
+                logger.debug("数据库连接已检出")
+
+            @event.listens_for(engine, "checkin")
+            def receive_checkin(dbapi_connection, connection_record):
+                """连接检入时的处理"""
+                logger.debug("数据库连接已检入")
+            
+            SessionLocal = scoped_session(
+                sessionmaker(
+                    autocommit=False, 
+                    autoflush=False, 
+                    bind=engine,
+                    expire_on_commit=False  # 避免在commit后对象过期
+                )
+            )
+    return SessionLocal
 
 # 创建基础模型类
 Base = declarative_base()
@@ -153,7 +176,11 @@ def get_db() -> Generator[Session, None, None]:
     获取数据库会话 - 使用连接池
     Dependency for getting database session with connection pooling
     """
-    db = SessionLocal()
+    session_local = get_session_local()
+    if not session_local:
+        raise RuntimeError("Database not available")
+        
+    db = session_local()
     try:
         yield db
         db.commit()  # 自动提交成功的事务
@@ -164,7 +191,7 @@ def get_db() -> Generator[Session, None, None]:
     finally:
         db.close()
         # 清理scoped_session的线程本地存储
-        SessionLocal.remove()
+        session_local.remove()
 
 @contextmanager
 def get_db_session():
@@ -172,7 +199,11 @@ def get_db_session():
     上下文管理器方式获取数据库会话
     Context manager for database session
     """
-    db = SessionLocal()
+    session_local = get_session_local()
+    if not session_local:
+        raise RuntimeError("Database not available")
+        
+    db = session_local()
     try:
         yield db
         db.commit()
@@ -182,11 +213,12 @@ def get_db_session():
         raise
     finally:
         db.close()
-        SessionLocal.remove()
+        session_local.remove()
 
 
 def create_tables():
     """创建数据库表"""
+    engine = get_engine()
     if not engine:
         logger.warning("⚠️ No database engine available, skipping table creation")
         return
@@ -201,6 +233,11 @@ def create_tables():
 
 def drop_tables():
     """删除数据库表"""
+    engine = get_engine()
+    if not engine:
+        logger.warning("⚠️ No database engine available, skipping table drop")
+        return
+        
     try:
         Base.metadata.drop_all(bind=engine)
         logger.info("Database tables dropped successfully")
@@ -213,10 +250,28 @@ class DatabaseManager:
     """数据库管理器 - 使用连接池"""
     
     def __init__(self):
-        self.engine = engine
-        self.session_factory = SessionLocal
         self._lock = threading.Lock()
-        self.available = engine is not None and SessionLocal is not None
+        self._engine = None
+        self._session_factory = None
+    
+    @property
+    def engine(self):
+        """获取数据库引擎"""
+        if self._engine is None:
+            self._engine = get_engine()
+        return self._engine
+    
+    @property
+    def session_factory(self):
+        """获取会话工厂"""
+        if self._session_factory is None:
+            self._session_factory = get_session_local()
+        return self._session_factory
+    
+    @property
+    def available(self):
+        """检查数据库是否可用"""
+        return self.engine is not None and self.session_factory is not None
     
     def get_session(self) -> Session:
         """获取数据库会话"""
@@ -299,16 +354,21 @@ class DatabaseManager:
         """重新连接数据库"""
         try:
             self.close_all_connections()
-            # 重新创建引擎
-            global engine
-            engine = create_engine(
-                settings.database_url,
-                **get_database_config()
-            )
-            self.engine = engine
-            # 重新绑定session工厂
-            self.session_factory.configure(bind=engine)
-            logger.info("数据库重新连接成功")
+            # 重置引擎和会话工厂
+            global engine, SessionLocal
+            engine = None
+            SessionLocal = None
+            self._engine = None
+            self._session_factory = None
+            
+            # 重新初始化
+            self._engine = get_engine()
+            self._session_factory = get_session_local()
+            
+            if self._engine and self._session_factory:
+                logger.info("数据库重新连接成功")
+            else:
+                logger.error("数据库重新连接失败")
         except Exception as e:
             logger.error(f"数据库重新连接失败: {e}")
             raise

@@ -599,7 +599,7 @@ class NegativeFundingMonitorService:
             enhanced: 是否为增强模式（包含价格预测和仓位建议）
         """
         if not opportunities:
-            return f"📊 当前无显著负费率机会（筛选阈值: -0.1%以下）\n⏰ 下次检查: 20分钟后"
+            return f"📊 当前无显著负费率机会（筛选阈值: -0.1%以下）\n⏰ 下次检查: 60分钟后"
         
         # 分离不同类型的机会
         surge_opportunities = [opp for opp in opportunities if opp['is_surge']]
@@ -712,7 +712,7 @@ class NegativeFundingMonitorService:
             message += "• 建议分散投资，单币种不超过总资金20%\n"
             message += "• 密切监控费率变化，及时调整仓位\n\n"
         
-        message += "⏰ 下次检查: 20分钟后\n"
+        message += "⏰ 下次检查: 60分钟后\n"
         message += f"📋 筛选标准: 负费率 ≤ -0.1%"
         
         return message
