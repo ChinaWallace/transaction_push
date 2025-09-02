@@ -66,6 +66,7 @@ from app.api.enhanced_trading import router as enhanced_trading_router
 from app.services.scheduler_service import SchedulerService
 from app.services.ml_enhanced_service import MLEnhancedService
 from app.services.negative_funding_monitor_service import NegativeFundingMonitorService
+from app.schemas.market_anomaly import AnomalyLevel
 
 # 获取配置和日志
 settings = get_settings()
@@ -263,6 +264,13 @@ async def send_startup_summary_notification(app_state, successful_tasks: int, fa
             opportunities = funding_result.get("opportunities_count", 0)
             message += f"💰 负费率机会: {opportunities} 个套利机会\n"
         
+        # 市场异常分析结果
+        market_anomaly_result = task_results.get("market_anomaly_analysis", {})
+        if market_anomaly_result.get("status") == "success":
+            anomalies_found = market_anomaly_result.get("anomalies_found", 0)
+            recommended_count = market_anomaly_result.get("recommended_count", 0)
+            message += f"🚨 市场异常: {anomalies_found} 个异常, {recommended_count} 个推荐\n"
+        
         # 新闻分析结果 - 暂时注释掉
         # if news_result.get("status") == "success":
         #     news_notifications = news_result.get("notifications_sent", 0)
@@ -284,7 +292,8 @@ async def send_startup_summary_notification(app_state, successful_tasks: int, fa
         total_signals = (
             len(trading_result.get("strong_signals", [])) +
             funding_result.get("opportunities_count", 0) +
-            kronos_result.get("summary", {}).get("total_strong_opportunities", 0)
+            kronos_result.get("summary", {}).get("total_strong_opportunities", 0) +
+            market_anomaly_result.get("recommended_count", 0)
         )
         
         priority = "high" if total_signals > 0 else "medium" if failed_tasks == 0 else "low"
@@ -367,6 +376,46 @@ async def perform_startup_funding_analysis():
             
     except Exception as e:
         logger.error(f"❌ 负费率分析异常: {e}")
+        return {"status": "error", "error": str(e)}
+
+async def perform_startup_market_anomaly_analysis():
+    """启动时执行市场异常分析和推送"""
+    try:
+        logger.info("🚨 开始市场异常监控分析...")
+        
+        from app.services.market_anomaly_monitor_service import get_market_anomaly_service
+        
+        # 获取市场异常监控服务
+        market_anomaly_service = await get_market_anomaly_service()
+        
+        # 执行监控周期
+        result = await market_anomaly_service.run_monitoring_cycle()
+        
+        if result['success']:
+            anomalies_found = result['anomalies_found']
+            recommended_count = result['recommended_count']
+            
+            logger.info(f"✅ 市场异常分析完成: 发现 {anomalies_found} 个异常")
+            logger.info(f"⭐ 推荐关注: {recommended_count} 个币种")
+            
+            if recommended_count > 0:
+                logger.info("🏆 发现推荐的异常机会，已发送通知")
+            else:
+                logger.info("📊 当前市场无显著异常")
+            
+            return {
+                "status": "success",
+                "anomalies_found": anomalies_found,
+                "recommended_count": recommended_count,
+                "timestamp": result['timestamp']
+            }
+        else:
+            error_msg = result.get('error', '未知错误')
+            logger.error(f"❌ 市场异常分析失败: {error_msg}")
+            return {"status": "error", "error": error_msg}
+            
+    except Exception as e:
+        logger.error(f"❌ 市场异常分析异常: {e}")
         return {"status": "error", "error": str(e)}
 
 async def perform_startup_news_analysis():
@@ -651,6 +700,39 @@ async def lifespan(app: FastAPI):
         # 将负费率监控服务存储到应用状态
         app.state.funding_monitor = funding_monitor
         
+        # 添加市场异常监控定时任务
+        from app.services.market_anomaly_monitor_service import get_market_anomaly_service
+        
+        market_anomaly_service = await get_market_anomaly_service()
+        
+        # 每30分钟检查一次市场异常
+        async def market_anomaly_task():
+            """市场异常监控任务包装器"""
+            try:
+                logger.debug("🔄 开始执行市场异常监控任务...")
+                result = await market_anomaly_service.run_monitoring_cycle()
+                if result.get('success'):
+                    anomalies_count = result.get('anomalies_found', 0)
+                    recommended_count = result.get('recommended_count', 0)
+                    logger.debug(f"✅ 市场异常监控任务执行成功: {anomalies_count}个异常, {recommended_count}个推荐")
+                else:
+                    logger.warning(f"⚠️ 市场异常监控任务执行异常: {result.get('error', '未知错误')}")
+            except Exception as e:
+                logger.error(f"❌ 市场异常监控任务执行失败: {e}")
+        
+        scheduler.add_job(
+            market_anomaly_task,
+            'interval',
+            minutes=30,
+            id='market_anomaly_monitor',
+            name='市场异常监控（波动率+交易量+持仓量）',
+            max_instances=1  # 确保同时只有一个实例运行
+        )
+        logger.info("✅ Market anomaly monitor scheduled")
+        
+        # 将市场异常监控服务存储到应用状态
+        app.state.market_anomaly_service = market_anomaly_service
+        
         # 添加Kronos持仓分析定时任务
         if settings.kronos_config.get('enable_kronos_prediction', False):
             from app.services.kronos_position_analysis_service import get_kronos_position_service
@@ -704,7 +786,10 @@ async def lifespan(app: FastAPI):
         # 2. 负费率分析任务
         startup_tasks.append(("funding_analysis", perform_startup_funding_analysis()))
         
-        # 3. 新闻分析任务 (如果启用) - 暂时注释掉
+        # 3. 市场异常监控分析任务
+        startup_tasks.append(("market_anomaly_analysis", perform_startup_market_anomaly_analysis()))
+        
+        # 4. 新闻分析任务 (如果启用) - 暂时注释掉
         # if settings.news_config.get('enable_news_analysis', True):
         #     startup_tasks.append(("news_analysis", perform_startup_news_analysis()))
         
@@ -930,6 +1015,11 @@ def create_app() -> FastAPI:
     app.include_router(ml_enhanced_router, prefix="/api/ml", tags=["机器学习增强"])
     app.include_router(backtest_router, prefix="/api", tags=["回测分析"])
     app.include_router(funding_monitor_router, prefix="/api/funding", tags=["负费率监控"])
+    
+    # 市场异常监控API
+    from app.api.market_anomaly import router as market_anomaly_router
+    app.include_router(market_anomaly_router, prefix="/api/market-anomaly", tags=["市场异常监控"])
+    
     app.include_router(kronos_router, prefix="/api/kronos", tags=["Kronos AI预测"])
     app.include_router(kronos_integrated_router, prefix="/api/kronos-integrated", tags=["Kronos集成决策"])
     app.include_router(kronos_market_opportunities_router, prefix="/api/kronos-opportunities", tags=["Kronos市场机会"])
@@ -1148,6 +1238,110 @@ def create_app() -> FastAPI:
                 }
         except Exception as e:
             logger.error(f"手动触发负费率监控失败: {e}")
+            raise HTTPException(status_code=500, detail=f"监控失败: {str(e)}")
+    
+    # 市场异常快速查看
+    @app.get("/market-anomalies", summary="快速查看市场异常")
+    async def get_market_anomalies():
+        """快速查看当前市场异常情况"""
+        try:
+            if hasattr(app.state, 'market_anomaly_service'):
+                service = app.state.market_anomaly_service
+                logger.info("🔍 快速查看市场异常...")
+                
+                # 扫描异常（只返回推荐的）
+                anomalies = await service.scan_market_anomalies(
+                    min_anomaly_level=AnomalyLevel.MEDIUM,
+                    only_recommended=True
+                )
+                
+                if anomalies:
+                    # 构建简化的响应
+                    top_anomalies = anomalies[:8]  # 只返回前8个
+                    anomaly_list = []
+                    
+                    for anomaly in top_anomalies:
+                        anomaly_list.append({
+                            'symbol': anomaly.symbol_name,
+                            'score': anomaly.anomaly_score,
+                            'trend': anomaly.trend_direction.value,
+                            'price_change_24h': f"{anomaly.price_change_24h * 100:+.1f}%",
+                            'volume_ratio': f"{anomaly.volume_ratio:.1f}x",
+                            'anomaly_level': anomaly.overall_anomaly_level.value,
+                            'main_reason': anomaly.recommendation_reason[0] if anomaly.recommendation_reason else "",
+                            'current_price': anomaly.current_price
+                        })
+                    
+                    return {
+                        "status": "success",
+                        "message": f"发现 {len(anomalies)} 个市场异常",
+                        "anomalies": anomaly_list,
+                        "summary": {
+                            "total_anomalies": len(anomalies),
+                            "strong_uptrend": sum(1 for a in anomalies if a.trend_direction.value in ['strong_up', 'up']),
+                            "high_volume": sum(1 for a in anomalies if a.volume_ratio > 2.0)
+                        },
+                        "timestamp": datetime.now().isoformat()
+                    }
+                else:
+                    return {
+                        "status": "success",
+                        "message": "当前无显著市场异常",
+                        "anomalies": [],
+                        "summary": {
+                            "total_anomalies": 0,
+                            "strong_uptrend": 0,
+                            "high_volume": 0
+                        },
+                        "timestamp": datetime.now().isoformat()
+                    }
+            else:
+                return {
+                    "status": "error",
+                    "message": "市场异常监控服务未启动",
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            logger.error(f"获取市场异常失败: {e}")
+            raise HTTPException(status_code=500, detail="获取市场异常失败")
+    
+    # 手动触发市场异常监控
+    @app.post("/test-market-anomaly-monitor", summary="手动触发市场异常监控")
+    async def test_market_anomaly_monitor():
+        """手动触发市场异常监控，用于测试推送功能"""
+        try:
+            if hasattr(app.state, 'market_anomaly_service'):
+                service = app.state.market_anomaly_service
+                logger.info("🧪 手动触发市场异常监控测试...")
+                
+                # 运行完整的监控周期
+                result = await service.run_monitoring_cycle()
+                
+                if result['success']:
+                    return {
+                        "status": "success",
+                        "message": f"监控完成，发现 {result.get('anomalies_found', 0)} 个异常，推荐 {result.get('recommended_count', 0)} 个",
+                        "data": {
+                            "anomalies_found": result.get('anomalies_found', 0),
+                            "recommended_count": result.get('recommended_count', 0),
+                            "notification_sent": result.get('anomalies_found', 0) > 0
+                        },
+                        "timestamp": result.get('timestamp')
+                    }
+                else:
+                    return {
+                        "status": "error",
+                        "message": f"监控失败: {result.get('error', '未知错误')}",
+                        "timestamp": result.get('timestamp')
+                    }
+            else:
+                return {
+                    "status": "error",
+                    "message": "市场异常监控服务未启动",
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            logger.error(f"手动触发市场异常监控失败: {e}")
             raise HTTPException(status_code=500, detail=f"监控失败: {str(e)}")
     
     # 快速市场概览

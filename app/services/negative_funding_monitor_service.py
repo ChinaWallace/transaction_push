@@ -183,11 +183,21 @@ class NegativeFundingMonitorService:
             
             if result:
                 data = result[0]
+                # 计算24小时价格变化
+                current_price = float(data.get('last', '0') or '0')
+                open_24h = data.get('open24h')
+                
+                if open_24h and float(open_24h) > 0:
+                    open_price = float(open_24h)
+                    change_24h = (current_price - open_price) / open_price
+                else:
+                    change_24h = 0.0
+                
                 return {
                     'symbol': symbol,
-                    'price': float(data.get('last', '0') or '0'),
+                    'price': current_price,
                     'volume_24h': float(data.get('volCcy24h', '0') or '0'),  # 24小时交易额
-                    'change_24h': float(data.get('chg', '0') or '0')
+                    'change_24h': change_24h
                 }
             
             return {'symbol': symbol, 'price': 0, 'volume_24h': 0, 'change_24h': 0}
@@ -293,7 +303,16 @@ class NegativeFundingMonitorService:
                     symbol not in self.excluded_major_coins):
                     
                     volume_24h = float(ticker.get('volCcy24h', '0') or '0')
-                    change_24h = float(ticker.get('chg', '0') or '0')  # 保留正负号，不取绝对值
+                    
+                    # 计算24小时价格变化
+                    current_price = float(ticker.get('last', '0') or '0')
+                    open_24h = ticker.get('open24h')
+                    
+                    if open_24h and float(open_24h) > 0:
+                        open_price = float(open_24h)
+                        change_24h = (current_price - open_price) / open_price
+                    else:
+                        change_24h = 0.0
                     
                     # 只考虑有一定交易量的币种（大于10万USDT）
                     if volume_24h > 100000:
