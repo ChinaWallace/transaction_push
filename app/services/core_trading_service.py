@@ -26,6 +26,9 @@ from app.services.okx_service import OKXService
 from app.services.trading_decision_service import TradingAction, RiskLevel, TradingDecisionService
 from app.services.ml_enhanced_service import MLEnhancedService, PredictionSignal
 from app.services.trend_analysis_service import TrendAnalysisService
+from app.services.volume_anomaly_service import get_volume_anomaly_service
+from app.services.open_interest_analysis_service import get_oi_analysis_service
+from app.services.dynamic_weight_service import get_dynamic_weight_service
 from app.services.core_notification_service import get_core_notification_service
 from app.utils.exceptions import TradingToolError
 
@@ -212,6 +215,11 @@ class CoreTradingService:
         self.trend_service = None
         self.notification_service = None
         
+        # 增强服务
+        self.volume_anomaly_service = get_volume_anomaly_service()
+        self.oi_analysis_service = get_oi_analysis_service()
+        self.dynamic_weight_service = get_dynamic_weight_service()
+        
         # 初始化可选服务
         self._initialize_optional_services()
         
@@ -227,16 +235,17 @@ class CoreTradingService:
         # 获取ML权重配置管理器
         self.ml_config = get_ml_weight_config()
         
-        # 分析权重配置 - 使用动态权重管理
+        # 基础权重配置 - 将被动态权重服务覆盖
         base_weights = self.ml_config.get_weights()
-        self.analysis_weights = {
+        self.base_analysis_weights = {
             'kronos': 0.50,                                    # Kronos AI预测权重50%
-            'technical': base_weights.get('traditional', 0.40), # 技术分析权重(动态)
-            'ml': base_weights.get('ml', 0.05),                # ML预测权重(动态)
+            'technical': base_weights.get('traditional', 0.35), # 技术分析权重(动态)
+            'ml': base_weights.get('ml', 0.10),                # ML预测权重(动态)
             'position': 0.05                                   # 持仓分析权重5%
         }
         
-        logger.info(f"🔧 交易权重配置: ML模式={self.ml_config.current_mode.value}, 权重={self.analysis_weights}")
+        logger.info(f"🔧 基础交易权重配置: ML模式={self.ml_config.current_mode.value}, 权重={self.base_analysis_weights}")
+        logger.info("⚖️ 启用动态权重管理: 将根据市场波动性自动调整权重")
         
         # 信号强度阈值
         self.strength_thresholds = {
@@ -325,7 +334,7 @@ class CoreTradingService:
         analysis_type: AnalysisType = AnalysisType.INTEGRATED,
         force_update: bool = False
     ) -> Optional[TradingSignal]:
-        """分析单个交易对
+        """分析单个交易对 - 增强版，集成交易量异常、持仓量变动和动态权重
         
         Args:
             symbol: 交易对
@@ -336,7 +345,7 @@ class CoreTradingService:
             Optional[TradingSignal]: 交易信号
         """
         try:
-            self.logger.debug(f"🔍 开始分析 {symbol}，类型: {analysis_type.value}")
+            self.logger.debug(f"🔍 开始增强分析 {symbol}，类型: {analysis_type.value}")
             
             # 获取当前价格
             try:
@@ -346,6 +355,15 @@ class CoreTradingService:
             except Exception as e:
                 self.logger.warning(f"⚠️ 获取 {symbol} 价格失败: {e}")
                 current_price = 0
+            
+            # 🚀 获取动态权重配置
+            dynamic_weights = await self.dynamic_weight_service.get_dynamic_weights(symbol)
+            
+            # 🔊 获取交易量异常分析
+            volume_anomaly = await self.volume_anomaly_service.detect_volume_anomaly(symbol)
+            
+            # 📊 获取持仓量变动分析
+            oi_analysis = await self.oi_analysis_service.analyze_open_interest(symbol)
             
             # 根据分析类型执行不同的分析
             kronos_result = None
@@ -365,21 +383,24 @@ class CoreTradingService:
             if analysis_type in [AnalysisType.POSITION_FOCUSED, AnalysisType.INTEGRATED]:
                 position_result = await self._get_position_analysis(symbol)
             
-            # 综合分析结果
-            signal = await self._synthesize_analysis_results(
+            # 🎯 综合分析结果 - 使用增强版综合分析
+            signal = await self._synthesize_enhanced_analysis_results(
                 symbol=symbol,
                 current_price=current_price,
                 kronos_result=kronos_result,
                 technical_result=technical_result,
                 ml_result=ml_result,
                 position_result=position_result,
+                dynamic_weights=dynamic_weights,
+                volume_anomaly=volume_anomaly,
+                oi_analysis=oi_analysis,
                 analysis_type=analysis_type
             )
             
             return signal
             
         except Exception as e:
-            self.logger.error(f"❌ 分析 {symbol} 失败: {e}")
+            self.logger.error(f"❌ 增强分析 {symbol} 失败: {e}")
             return None
 
     async def _get_kronos_analysis(self, symbol: str, force_update: bool = False) -> Optional[KronosEnhancedDecision]:
@@ -435,6 +456,239 @@ class CoreTradingService:
         except Exception as e:
             self.logger.warning(f"⚠️ 持仓分析失败 {symbol}: {e}")
             return None
+
+    async def _synthesize_enhanced_analysis_results(
+        self,
+        symbol: str,
+        current_price: float,
+        kronos_result: Optional[KronosEnhancedDecision],
+        technical_result: Optional[Dict[str, Any]],
+        ml_result: Optional[Dict[str, Any]],
+        position_result: Optional[Dict[str, Any]],
+        dynamic_weights,
+        volume_anomaly,
+        oi_analysis,
+        analysis_type: AnalysisType
+    ) -> TradingSignal:
+        """增强版综合分析结果生成交易信号 - 集成交易量异常、持仓量变动和动态权重"""
+        
+        # 使用动态权重替代固定权重
+        analysis_weights = {
+            'kronos': dynamic_weights.kronos_weight,
+            'technical': dynamic_weights.technical_weight,
+            'ml': dynamic_weights.ml_weight,
+            'position': dynamic_weights.position_weight
+        }
+        
+        self.logger.debug(
+            f"🎯 {symbol} 动态权重: Kronos={analysis_weights['kronos']:.2f} "
+            f"技术={analysis_weights['technical']:.2f} ML={analysis_weights['ml']:.2f} "
+            f"市场状态={dynamic_weights.market_regime.value}"
+        )
+        
+        # 收集各模块的信号和置信度
+        signals = []
+        confidences = []
+        reasoning_parts = []
+        enhancement_factors = []  # 增强因子
+        
+        # Kronos分析
+        if kronos_result:
+            signals.append(kronos_result.final_action)
+            confidences.append(kronos_result.final_confidence * analysis_weights['kronos'])
+            reasoning_parts.append(f"Kronos: {kronos_result.final_action} ({kronos_result.final_confidence:.2f})")
+        
+        # 技术分析
+        if technical_result:
+            tech_action_enum = technical_result.get('action', 'HOLD')
+            # 处理TradingAction枚举对象
+            if hasattr(tech_action_enum, 'value'):
+                tech_action = tech_action_enum.value
+            else:
+                tech_action = str(tech_action_enum)
+            tech_confidence = technical_result.get('confidence', 0.5)
+            signals.append(tech_action)
+            confidences.append(tech_confidence * analysis_weights['technical'])
+            reasoning_parts.append(f"技术: {tech_action} ({tech_confidence:.2f})")
+        
+        # ML分析
+        if ml_result:
+            ml_action = ml_result.get('signal', 'HOLD')
+            ml_confidence = ml_result.get('confidence', 0.5)
+            signals.append(ml_action)
+            confidences.append(ml_confidence * analysis_weights['ml'])
+            reasoning_parts.append(f"ML: {ml_action} ({ml_confidence:.2f})")
+        
+        # 🔊 交易量异常增强
+        volume_boost = 0.0
+        if volume_anomaly:
+            # 根据信号方向调整置信度
+            primary_action = self._determine_primary_action(signals)
+            volume_boost = self.volume_anomaly_service.get_volume_confidence_adjustment(symbol, primary_action)
+            if volume_boost != 0:
+                enhancement_factors.append(f"交易量异常: {volume_boost:+.1%}")
+                reasoning_parts.append(f"交易量: {volume_anomaly.anomaly_level.value} ({volume_anomaly.volume_ratio:.1f}倍)")
+        
+        # 📊 持仓量变动增强
+        oi_boost = 0.0
+        if oi_analysis:
+            # 获取多周期趋势方向（从技术分析中提取）
+            trend_direction = self._extract_trend_direction(technical_result)
+            oi_boost = self.oi_analysis_service.get_trend_confirmation_boost(symbol, trend_direction)
+            if oi_boost != 0:
+                enhancement_factors.append(f"持仓量确认: {oi_boost:+.1%}")
+                reasoning_parts.append(f"持仓量: {oi_analysis.trend_signal.value} ({oi_analysis.oi_change_percent:+.1f}%)")
+        
+        # 计算基础综合决策
+        if not signals:
+            final_action = "HOLD"
+            final_confidence = 0.5
+        else:
+            final_action, base_confidence = self._enhanced_decision_logic(
+                signals, confidences, kronos_result, dynamic_weights
+            )
+            
+            # 🎯 应用增强因子
+            final_confidence = base_confidence + volume_boost + oi_boost
+            
+            # 应用动态权重的置信度乘数
+            final_confidence *= dynamic_weights.confidence_multiplier
+            
+            # 确保置信度在合理范围内
+            final_confidence = max(0.1, min(final_confidence, 0.95))
+        
+        # 记录增强效果
+        if enhancement_factors:
+            self.logger.info(f"🚀 {symbol} 信号增强: {' | '.join(enhancement_factors)}")
+        
+        # 确定信号强度
+        signal_strength = self._determine_signal_strength(final_confidence)
+        
+        # 提取技术指标详情（保持原有逻辑）
+        technical_indicators = {}
+        key_factors = []
+        
+        if technical_result and 'recommendation' in technical_result:
+            recommendation = technical_result['recommendation']
+            
+            # 提取详细的技术指标数据
+            if hasattr(recommendation, 'key_levels') and recommendation.key_levels:
+                technical_indicators['support_levels'] = recommendation.key_levels.get('support', [])
+                technical_indicators['resistance_levels'] = recommendation.key_levels.get('resistance', [])
+            
+            # 获取详细技术指标（保持原有逻辑）
+            try:
+                market_analysis = await self.traditional_service.analyze_market(symbol)
+                if market_analysis and hasattr(market_analysis, 'traditional_signals'):
+                    traditional_signals = market_analysis.traditional_signals
+                    
+                    if traditional_signals and 'technical_indicators' in traditional_signals:
+                        tech_indicators = traditional_signals['technical_indicators']
+                        technical_indicators.update({
+                            'rsi_14': tech_indicators.get('rsi_14'),
+                            'macd_line': tech_indicators.get('macd_line'),
+                            'macd_signal': tech_indicators.get('macd_signal'),
+                            'macd_histogram': tech_indicators.get('macd_histogram'),
+                            'bb_upper': tech_indicators.get('bb_upper'),
+                            'bb_middle': tech_indicators.get('bb_middle'),
+                            'bb_lower': tech_indicators.get('bb_lower'),
+                            'kdj_k': tech_indicators.get('kdj_k'),
+                            'kdj_d': tech_indicators.get('kdj_d'),
+                            'kdj_j': tech_indicators.get('kdj_j'),
+                            'atr_14': tech_indicators.get('atr_14'),
+                            'williams_r': tech_indicators.get('williams_r'),
+                            'ma5': tech_indicators.get('ma5'),
+                            'ma10': tech_indicators.get('ma10'),
+                            'ma20': tech_indicators.get('ma20'),
+                            'ma30': tech_indicators.get('ma30'),
+                            'ma60': tech_indicators.get('ma60'),
+                            'ema12': tech_indicators.get('ema12'),
+                            'ema26': tech_indicators.get('ema26')
+                        })
+                        
+                        if 'signals' in traditional_signals:
+                            signals_data = traditional_signals['signals']
+                            technical_indicators.update({
+                                'rsi_signal': signals_data.get('rsi_signal'),
+                                'macd_signal': signals_data.get('macd_signal'),
+                                'bb_signal': signals_data.get('bb_signal'),
+                                'kdj_signal': signals_data.get('kdj_signal'),
+                                'ma_signal': signals_data.get('ma_signal'),
+                                'trend_signal': signals_data.get('trend_signal'),
+                                'volume_signal': signals_data.get('volume_signal')
+                            })
+            except Exception as e:
+                self.logger.warning(f"❌ 获取详细技术指标失败 {symbol}: {e}")
+            
+            # 提取关键因子
+            if hasattr(recommendation, 'reasoning') and recommendation.reasoning:
+                reasoning_text = recommendation.reasoning
+                if 'RSI' in reasoning_text:
+                    key_factors.append("RSI技术指标")
+                if 'MACD' in reasoning_text:
+                    key_factors.append("MACD趋势指标")
+                if 'MA' in reasoning_text or '均线' in reasoning_text:
+                    key_factors.append("移动平均线")
+                if '布林' in reasoning_text or 'Bollinger' in reasoning_text:
+                    key_factors.append("布林带指标")
+                if '成交量' in reasoning_text or 'volume' in reasoning_text:
+                    key_factors.append("成交量分析")
+                if '突破' in reasoning_text or 'breakout' in reasoning_text:
+                    key_factors.append("价格突破")
+        
+        # 添加增强因子到关键因子
+        if volume_anomaly and volume_anomaly.anomaly_level.value != 'normal':
+            key_factors.append(f"交易量异常({volume_anomaly.anomaly_level.value})")
+        
+        if oi_analysis and oi_analysis.change_level.value != 'normal':
+            key_factors.append(f"持仓量变动({oi_analysis.change_level.value})")
+        
+        # 添加其他因素
+        if kronos_result:
+            key_factors.append("Kronos AI预测")
+            if hasattr(kronos_result, 'key_factors'):
+                key_factors.extend(kronos_result.key_factors)
+        
+        if ml_result:
+            key_factors.append("机器学习预测")
+        
+        key_factors.append(f"动态权重({dynamic_weights.market_regime.value})")
+        
+        # 计算风险管理参数
+        stop_loss_price, take_profit_price, position_size_usdt = self._calculate_risk_management_params(
+            current_price, final_action, final_confidence
+        )
+        
+        # 创建增强版交易信号
+        signal = TradingSignal(
+            symbol=symbol,
+            timestamp=datetime.now(),
+            final_action=final_action,
+            final_confidence=final_confidence,
+            signal_strength=signal_strength,
+            kronos_result=kronos_result,
+            technical_result=technical_result,
+            ml_result=ml_result,
+            position_result=position_result,
+            entry_price=current_price,
+            stop_loss_price=stop_loss_price,
+            take_profit_price=take_profit_price,
+            position_size_usdt=position_size_usdt,
+            leverage=self._calculate_leverage(final_confidence),
+            reasoning=" | ".join(reasoning_parts),
+            key_factors=key_factors,
+            technical_indicators=technical_indicators,
+            confidence_breakdown={
+                'kronos': kronos_result.final_confidence if kronos_result else 0,
+                'technical': technical_result.get('confidence', 0) if technical_result else 0,
+                'ml': ml_result.get('confidence', 0) if ml_result else 0,
+                'volume_boost': volume_boost,
+                'oi_boost': oi_boost,
+                'confidence_multiplier': dynamic_weights.confidence_multiplier
+            }
+        )
+        
+        return signal
 
     async def _synthesize_analysis_results(
         self,
@@ -655,6 +909,69 @@ class CoreTradingService:
         
         return signal
 
+    def _enhanced_decision_logic(self, signals: List[str], confidences: List[float], 
+                               kronos_result, dynamic_weights) -> Tuple[str, float]:
+        """增强版决策逻辑 - 考虑动态权重和市场状态"""
+        if not signals:
+            return "HOLD", 0.5
+        
+        # 特殊处理：Kronos极高置信度时的决策优化
+        kronos_confidence = kronos_result.final_confidence if kronos_result else 0
+        kronos_action = kronos_result.final_action if kronos_result else "HOLD"
+        
+        # 根据市场状态调整Kronos权重阈值
+        if dynamic_weights.market_regime.value == 'low_volatility':
+            # 低波动期：降低Kronos主导阈值，因为AI权重已经提高
+            high_confidence_threshold = 0.85
+            extreme_confidence_threshold = 0.92
+        elif dynamic_weights.market_regime.value in ['high_volatility', 'extreme_volatility']:
+            # 高波动期：提高Kronos主导阈值，更依赖技术分析
+            high_confidence_threshold = 0.88
+            extreme_confidence_threshold = 0.95
+        else:
+            # 正常波动期：使用标准阈值
+            high_confidence_threshold = 0.80
+            extreme_confidence_threshold = 0.90
+        
+        # 当Kronos置信度>=极高阈值时，给予绝对优先权
+        if kronos_confidence >= extreme_confidence_threshold:
+            if "买入" in kronos_action or "BUY" in kronos_action.upper():
+                final_action = "BUY"
+                final_confidence = max(0.75, kronos_confidence * 0.9)
+                self.logger.info(f"🔥 Kronos极高置信度({kronos_confidence:.2f})主导决策: {final_action}")
+            elif "卖出" in kronos_action or "SELL" in kronos_action.upper():
+                final_action = "SELL"
+                final_confidence = max(0.75, kronos_confidence * 0.9)
+                self.logger.info(f"🔥 Kronos极高置信度({kronos_confidence:.2f})主导决策: {final_action}")
+            else:
+                final_action, final_confidence = self._regular_decision_logic(signals, confidences)
+        
+        # 当Kronos置信度>=高阈值时，给予高权重
+        elif kronos_confidence >= high_confidence_threshold:
+            if "买入" in kronos_action or "BUY" in kronos_action.upper():
+                final_action = "BUY"
+                # 使用动态权重计算
+                kronos_weight = dynamic_weights.kronos_weight * 1.4  # 高置信度时额外提升40%
+                other_weight = 1 - kronos_weight
+                final_confidence = (kronos_confidence * kronos_weight + 
+                                  sum(confidences[1:]) * other_weight) if len(confidences) > 1 else kronos_confidence * 0.85
+                self.logger.info(f"🎯 Kronos高置信度({kronos_confidence:.2f})主导决策: {final_action}")
+            elif "卖出" in kronos_action or "SELL" in kronos_action.upper():
+                final_action = "SELL"
+                kronos_weight = dynamic_weights.kronos_weight * 1.4
+                other_weight = 1 - kronos_weight
+                final_confidence = (kronos_confidence * kronos_weight + 
+                                  sum(confidences[1:]) * other_weight) if len(confidences) > 1 else kronos_confidence * 0.85
+                self.logger.info(f"🎯 Kronos高置信度({kronos_confidence:.2f})主导决策: {final_action}")
+            else:
+                final_action, final_confidence = self._regular_decision_logic(signals, confidences)
+        
+        # 常规决策逻辑
+        else:
+            final_action, final_confidence = self._regular_decision_logic(signals, confidences)
+        
+        return final_action, final_confidence
+
     def _regular_decision_logic(self, signals: List[str], confidences: List[float]) -> Tuple[str, float]:
         """常规决策逻辑"""
         # 投票机制
@@ -672,6 +989,40 @@ class CoreTradingService:
         final_confidence = sum(confidences) / len(confidences) if confidences else 0.5
         
         return final_action, final_confidence
+    
+    def _determine_primary_action(self, signals: List[str]) -> str:
+        """确定主要信号方向"""
+        if not signals:
+            return "HOLD"
+        
+        buy_count = sum(1 for s in signals if str(s).upper() in ['BUY', 'LONG', '买入', '强烈买入'])
+        sell_count = sum(1 for s in signals if str(s).upper() in ['SELL', 'SHORT', '卖出', '强烈卖出'])
+        
+        if buy_count > sell_count:
+            return "BUY"
+        elif sell_count > buy_count:
+            return "SELL"
+        else:
+            return "HOLD"
+    
+    def _extract_trend_direction(self, technical_result: Optional[Dict[str, Any]]) -> str:
+        """从技术分析结果中提取趋势方向"""
+        if not technical_result:
+            return "neutral"
+        
+        action_enum = technical_result.get('action', 'HOLD')
+        # 处理TradingAction枚举对象
+        if hasattr(action_enum, 'value'):
+            action = action_enum.value.upper()
+        else:
+            action = str(action_enum).upper()
+            
+        if action in ['BUY', 'LONG', '买入', '强烈买入']:
+            return "up"
+        elif action in ['SELL', 'SHORT', '卖出', '强烈卖出']:
+            return "down"
+        else:
+            return "neutral"
 
     def _calculate_risk_management_params(self, current_price: float, action: str, confidence: float) -> Tuple[float, float, float]:
         """计算风险管理参数 - 日内短线优化"""

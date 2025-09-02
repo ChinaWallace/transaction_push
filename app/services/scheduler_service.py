@@ -182,6 +182,15 @@ class SchedulerService:
                 max_instances=1
             )
             
+            # 🎯 动态权重监控 - 每60分钟执行一次
+            self.scheduler.add_job(
+                self._dynamic_weight_monitoring_job,
+                trigger=IntervalTrigger(minutes=60),
+                id="dynamic_weight_monitoring",
+                name="动态权重监控",
+                max_instances=1
+            )
+            
             # 持仓分析 - 已由Kronos持仓分析服务接管，此处禁用避免重复推送
             # self.scheduler.add_job(
             #     self._position_analysis_job,
@@ -266,39 +275,89 @@ class SchedulerService:
         #     logger.error(f"Funding rate monitoring job failed: {e}")
     
     async def _open_interest_job(self):
-        """持仓量监控任务"""
+        """持仓量监控任务 - 增强版，集成趋势确认"""
         try:
-            monitor_logger.info("Executing scheduled open interest monitoring")
-            monitor_service = self._get_monitor_service()
+            monitor_logger.info("📊 执行持仓量变动监控 (增强版)")
             
-            # 监控配置的交易对
-            symbols = settings.monitored_symbols
-            result = await monitor_service.monitor_open_interest(symbols, notify=True)
+            # 使用新的持仓量分析服务
+            from app.services.open_interest_analysis_service import get_oi_analysis_service
+            oi_service = get_oi_analysis_service()
+            
+            # 监控核心币种
+            core_symbols = settings.kronos_config.get('target_symbols', [])
+            if not core_symbols:
+                core_symbols = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+            
+            # 批量分析持仓量
+            analysis_summary = await oi_service.get_analysis_summary(core_symbols)
             
             monitor_logger.info(
-                f"Open interest monitoring completed: {result.get('significant_changes', 0)} significant changes"
+                f"✅ 持仓量变动监控完成: 分析 {analysis_summary.get('total_symbols', 0)} 个币种, "
+                f"发现 {analysis_summary.get('significant_changes', 0)} 个显著变化 "
+                f"(看涨确认: {analysis_summary.get('bullish_confirmations', 0)}, "
+                f"看跌确认: {analysis_summary.get('bearish_confirmations', 0)})"
             )
             
+            # 记录前3个变化
+            top_changes = analysis_summary.get('top_changes', [])[:3]
+            for i, change in enumerate(top_changes, 1):
+                symbol_name = change['symbol'].replace('-USDT-SWAP', '')
+                direction = "📈" if change['oi_change_percent'] > 0 else "📉"
+                monitor_logger.info(
+                    f"   {i}. {direction} {symbol_name}: 持仓量 {change['oi_change_percent']:+.2f}% "
+                    f"价格: {change['price_change_24h']:+.2f}% "
+                    f"信号: {change['trend_signal']}"
+                )
+            
+            # 如果有显著变化，发送通知
+            if analysis_summary.get('significant_changes', 0) > 0:
+                try:
+                    # 使用原有的监控服务发送通知
+                    monitor_service = self._get_monitor_service()
+                    symbols = [change['symbol'] for change in top_changes]
+                    await monitor_service.monitor_open_interest(symbols, notify=True)
+                except Exception as e:
+                    logger.warning(f"发送持仓量变化通知失败: {e}")
+            
         except Exception as e:
-            logger.error(f"Open interest monitoring job failed: {e}")
+            logger.error(f"❌ 持仓量变动监控失败: {e}")
     
     async def _volume_anomaly_job(self):
-        """交易量异常监控任务 - 目前主要用于数据收集"""
+        """交易量异常监控任务 - 增强版，集成到交易决策中"""
         try:
-            monitor_logger.info("Executing scheduled volume anomaly monitoring (data collection)")
-            monitor_service = self._get_monitor_service()
+            monitor_logger.info("🔊 执行交易量异常监控 (增强版)")
             
-            # 使用核心监控服务的综合监控方法
-            result = await monitor_service.run_comprehensive_monitoring_cycle()
+            # 使用新的交易量异常服务
+            from app.services.volume_anomaly_service import get_volume_anomaly_service
+            volume_service = get_volume_anomaly_service()
             
-            # 注意：当前没有独立的交易量异常通知功能
-            # 交易量异常检测主要集成在交易决策分析中使用
+            # 监控核心币种
+            core_symbols = settings.kronos_config.get('target_symbols', [])
+            if not core_symbols:
+                core_symbols = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+            
+            # 批量检测异常
+            anomaly_summary = await volume_service.get_anomaly_summary(core_symbols)
+            
             monitor_logger.info(
-                f"Volume anomaly monitoring completed: {result.get('total_opportunities', 0)} data points collected"
+                f"✅ 交易量异常监控完成: 检测 {anomaly_summary.get('total_symbols', 0)} 个币种, "
+                f"发现 {anomaly_summary.get('anomalies_found', 0)} 个异常 "
+                f"(看涨: {anomaly_summary.get('bullish_anomalies', 0)}, "
+                f"看跌: {anomaly_summary.get('bearish_anomalies', 0)})"
             )
             
+            # 记录前3个异常
+            top_anomalies = anomaly_summary.get('top_anomalies', [])[:3]
+            for i, anomaly in enumerate(top_anomalies, 1):
+                symbol_name = anomaly['symbol'].replace('-USDT-SWAP', '')
+                monitor_logger.info(
+                    f"   {i}. 🔊 {symbol_name}: {anomaly['volume_ratio']:.1f}倍成交量 "
+                    f"价格: {anomaly['price_change_24h']:+.2f}% "
+                    f"级别: {anomaly['anomaly_level']}"
+                )
+            
         except Exception as e:
-            logger.error(f"Volume anomaly monitoring job failed: {e}")
+            logger.error(f"❌ 交易量异常监控失败: {e}")
     
     async def _core_trading_analysis_job(self):
         """核心交易服务分析任务 - 每30分钟执行一次的详细推送"""
@@ -633,6 +692,58 @@ class SchedulerService:
             
         except Exception as e:
             logger.error(f"Health check job failed: {e}")
+    
+    async def _dynamic_weight_monitoring_job(self):
+        """动态权重监控任务 - 展示权重调整效果"""
+        try:
+            monitor_logger.info("⚖️ 执行动态权重监控")
+            
+            # 使用动态权重服务
+            from app.services.dynamic_weight_service import get_dynamic_weight_service
+            weight_service = get_dynamic_weight_service()
+            
+            # 监控核心币种
+            core_symbols = settings.kronos_config.get('target_symbols', [])
+            if not core_symbols:
+                core_symbols = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+            
+            # 获取权重摘要
+            weight_summary = await weight_service.get_weight_summary(core_symbols)
+            
+            # 统计市场状态分布
+            regime_dist = weight_summary.get('regime_distribution', {})
+            avg_weights = weight_summary.get('average_weights', {})
+            
+            monitor_logger.info(
+                f"✅ 动态权重监控完成: 分析 {weight_summary.get('total_symbols', 0)} 个币种"
+            )
+            
+            # 显示市场状态分布
+            for regime, count in regime_dist.items():
+                if count > 0:
+                    monitor_logger.info(f"   📊 {regime}: {count} 个币种")
+            
+            # 显示平均权重
+            monitor_logger.info(
+                f"   ⚖️ 平均权重: Kronos={avg_weights.get('kronos', 0):.2f} "
+                f"技术={avg_weights.get('technical', 0):.2f} "
+                f"ML={avg_weights.get('ml', 0):.2f}"
+            )
+            
+            # 显示权重调整示例
+            regime_examples = weight_summary.get('regime_examples', {})
+            for regime, examples in regime_examples.items():
+                if examples:
+                    example = examples[0]  # 取第一个示例
+                    symbol_name = example['symbol'].replace('-USDT-SWAP', '')
+                    monitor_logger.info(
+                        f"   🎯 {regime}示例 ({symbol_name}): "
+                        f"Kronos={example['kronos_weight']:.2f} "
+                        f"技术={example['technical_weight']:.2f}"
+                    )
+            
+        except Exception as e:
+            logger.error(f"❌ 动态权重监控失败: {e}")
     
     def _format_daily_report(self, monitor_result: Dict[str, Any]) -> str:
         """格式化每日报告"""

@@ -7,14 +7,34 @@
 
 基于Python的**下一代智能量化交易分析工具**，集成Kronos AI预测模型、多维度技术分析和机器学习算法，专为加密货币市场设计的全栈交易决策系统。
 
+## 🚀 最新增强功能
+
+### 🔊 交易量异常检测增强
+- **智能检测**：自动识别2倍、3倍、5倍以上的成交量异常
+- **置信度增强**：异常放量时提高买入信号置信度5%-15%
+- **方向识别**：区分看涨异常（放量上涨）和看跌异常（放量下跌）
+- **实时监控**：每60分钟检测一次，集成到核心交易决策中
+
+### 📊 持仓量变动分析联动  
+- **趋势确认**：持仓量大幅增加 + 多周期上涨趋势 = 提升信号强度
+- **变动监控**：24小时持仓量变化>20%触发显著变化警报
+- **信号分类**：看涨确认、看跌确认、趋势减弱、趋势加强四种信号
+- **强度提升**：根据变化级别提供3%-10%的信号强度提升
+
+### ⚖️ 动态权重管理系统
+- **自适应调整**：根据市场波动性动态调整各模块权重
+- **智能策略**：高波动期增加技术分析权重，低波动期增加AI预测权重
+- **实时优化**：15分钟更新一次权重配置，快速适应市场变化
+- **四种状态**：低波动、正常、高波动、极端波动自动识别
+
 ## ✨ 核心亮点
 
 🤖 **Kronos AI驱动** - 集成最新Kronos金融预测模型，24小时智能价格预测  
-🎯 **三重分析融合** - Kronos AI(60%) + 技术分析(25%) + 机器学习(15%)  
+🎯 **动态权重融合** - 根据市场波动性自适应调整Kronos AI + 技术分析 + ML权重  
 📊 **100分制风险评估** - 智能持仓健康度评估，精准操作建议  
 ⚡ **日内短线优化** - 3-15分钟级别高频信号，专为短线交易设计  
 💰 **负费率套利** - 自动发现吃利息机会，日化收益0.1-0.5%  
-🔍 **异常检测系统** - 机器学习驱动的市场异常监控  
+🔍 **多维异常检测** - 交易量异常 + 持仓量变动 + 机器学习异常监控  
 📢 **智能通知推送** - 多渠道实时通知，优先级自动分级  
 🌐 **微服务架构** - 高性能异步处理，支持高并发访问
 
@@ -487,6 +507,66 @@ GET /api/trading/position-health
 
 GET /api/trading/risk-assessment  
 # 投资组合风险分析
+```
+
+### 🚀 增强交易分析API (v2.0新增)
+
+**增强版综合分析**
+```http
+GET /api/enhanced/enhanced-analysis/{symbol}
+# 集成交易量异常、持仓量变动、动态权重的综合分析
+
+POST /api/enhanced/batch-enhanced-analysis
+# 批量增强分析，支持并发处理
+
+GET /api/enhanced/enhancement-summary
+# 增强功能摘要统计
+```
+
+**交易量异常检测**
+```http
+GET /api/enhanced/volume-anomaly/{symbol}
+# 单币种交易量异常检测
+
+# 返回示例：
+{
+  "anomaly_level": "high",
+  "volume_ratio": 3.2,
+  "confidence_boost": 0.10,
+  "is_bullish": true
+}
+```
+
+**持仓量变动分析**
+```http
+GET /api/enhanced/open-interest-analysis/{symbol}
+# 持仓量变动趋势确认分析
+
+# 返回示例：
+{
+  "change_level": "significant", 
+  "trend_signal": "bullish_confirmation",
+  "signal_strength_boost": 0.06,
+  "trend_confirmation_score": 0.8
+}
+```
+
+**动态权重配置**
+```http
+GET /api/enhanced/dynamic-weights/{symbol}
+# 获取当前动态权重配置
+
+# 返回示例：
+{
+  "market_regime": "high_volatility",
+  "weights": {
+    "kronos": 0.40,
+    "technical": 0.45,
+    "ml": 0.10,
+    "position": 0.05
+  },
+  "confidence_multiplier": 0.9
+}
 ```
 
 ### 🤖 Kronos AI API

@@ -62,6 +62,7 @@ from app.api.http_pool import router as http_pool_router
 from app.api.trading_pairs import router as trading_pairs_router
 from app.api.unified_data import router as unified_data_router
 from app.api.ml_config import router as ml_config_router
+from app.api.enhanced_trading import router as enhanced_trading_router
 from app.services.scheduler_service import SchedulerService
 from app.services.ml_enhanced_service import MLEnhancedService
 from app.services.negative_funding_monitor_service import NegativeFundingMonitorService
@@ -916,6 +917,9 @@ def create_app() -> FastAPI:
     
     # 注册路由 - 核心整合API优先
     app.include_router(core_trading_router, tags=["核心交易"])
+    
+    # 增强交易分析API
+    app.include_router(enhanced_trading_router, prefix="/api/enhanced", tags=["增强交易分析"])
     
     # 原有路由 - 保持兼容性
     app.include_router(trend_router, prefix="/api/trend", tags=["趋势分析"])
