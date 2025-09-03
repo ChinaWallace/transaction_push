@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Optional
 from sqlalchemy import select, update, delete
 from sqlalchemy.dialects.mysql import insert
 
-from app.services.okx_service import OKXService
+from app.services.okx_hybrid_service import get_okx_hybrid_service
 from app.models.market_data import TradingPair
 from app.core.database import db_manager
 from app.core.logging import get_logger
@@ -25,10 +25,15 @@ class TradingPairService:
     """交易对管理服务"""
     
     def __init__(self):
-        self.okx_service = OKXService()
+        self.okx_service = None  # 将在需要时异步初始化
         self.db_manager = db_manager
         
         # 排除的大市值币种（波动太大，不适合吃利息）
+    
+    async def _ensure_okx_service(self):
+        """确保OKX服务已初始化"""
+        if self.okx_service is None:
+            self.okx_service = await get_okx_hybrid_service()
         self.excluded_major_coins = {
             'BTC-USDT-SWAP', 'BNB-USDT-SWAP', 
             'XRP-USDT-SWAP', 'ADA-USDT-SWAP',
@@ -48,9 +53,11 @@ class TradingPairService:
         try:
             logger.info("开始获取OKX交易对列表...")
             
+            # 确保OKX服务已初始化
+            await self._ensure_okx_service()
+            
             # 获取永续合约交易对
-            async with self.okx_service:
-                instruments = await self.okx_service.get_all_instruments('SWAP')
+            instruments = await self.okx_service.get_all_instruments('SWAP')
             
             if not instruments:
                 logger.warning("未获取到交易对数据")

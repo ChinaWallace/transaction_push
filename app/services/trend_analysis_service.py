@@ -12,7 +12,7 @@ import asyncio
 
 from app.core.logging import get_logger, trading_logger
 from app.services.binance_service import BinanceService
-from app.services.okx_service import OKXService
+from app.services.okx_hybrid_service import get_okx_hybrid_service
 from app.utils.indicators import SuperTrendIndicator
 from app.utils.exceptions import IndicatorCalculationError, DataNotFoundError
 from app.models.signal import TrendSignal, SuperTrendData
@@ -124,11 +124,17 @@ class TrendAnalysisService:
     
     def __init__(self, exchange: str = 'okx'):
         self.exchange = exchange.lower()
-        if self.exchange == 'okx':
-            self.exchange_service = OKXService()
-        else:
-            self.exchange_service = BinanceService()
+        self.exchange_service = None  # 将在需要时异步初始化
+        self._is_okx = self.exchange == 'okx'
         self.supertrend_indicator = SuperTrendIndicator(period=10, multiplier=3.0)
+    
+    async def _ensure_exchange_service(self):
+        """确保交易所服务已初始化"""
+        if self.exchange_service is None:
+            if self._is_okx:
+                self.exchange_service = await get_okx_hybrid_service()
+            else:
+                self.exchange_service = BinanceService()
         # 日内短线交易优化：专注5分钟和15分钟级别
         self.timeframes = ['15m', '5m']
     
@@ -159,6 +165,9 @@ class TrendAnalysisService:
             分析结果
         """
         try:
+            # 确保交易所服务已初始化
+            await self._ensure_exchange_service()
+            
             # 获取多周期数据
             if custom_data:
                 timeframe_data = custom_data
@@ -381,6 +390,9 @@ class TrendAnalysisService:
             # 获取历史数据
             end_time = datetime.now()
             start_time = end_time - timedelta(days=days)
+            
+            # 确保交易所服务已初始化
+            await self._ensure_exchange_service()
             
             # 获取15分钟数据作为主时间轴
             klines_15m = await self.exchange_service.get_kline_data(

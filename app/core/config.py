@@ -459,6 +459,19 @@ class Settings(BaseSettings):
             "passphrase": self.okx_passphrase,
             "sandbox": self.okx_sandbox,
             "base_url": self.okx_base_url,
+            "enable_websocket": True,  # 启用WebSocket
+            "websocket_config": {
+                "public_url": "wss://ws.okx.com:8443/ws/v5/public" if not self.okx_sandbox else "wss://wspap.okx.com:8443/ws/v5/public?brokerId=9999",
+                "private_url": "wss://ws.okx.com:8443/ws/v5/private" if not self.okx_sandbox else "wss://wspap.okx.com:8443/ws/v5/private?brokerId=9999",
+                "reconnect_interval": 5,
+                "max_reconnect_attempts": 10,
+                "ping_interval": 25,
+                "connection_timeout": 30,
+                "max_subscriptions_per_connection": 240,  # OKX限制
+                "enable_compression": True,
+                "enable_auto_reconnect": True,
+                "heartbeat_interval": 25
+            }
         }
     
     @property

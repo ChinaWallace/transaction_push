@@ -13,6 +13,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.core.logging import get_logger, monitor_logger
 from app.core.config import get_settings
+from app.services.okx_hybrid_service import get_okx_hybrid_service
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -76,13 +77,16 @@ class SchedulerService:
             # 添加定时任务
             await self._setup_scheduled_jobs()
             
-            # 启动时更新一次交易对列表
-            await self._update_trading_pairs_on_startup()
+            # 启动时更新一次交易对列表（增加错误处理）
+            try:
+                await self._update_trading_pairs_on_startup()
+            except Exception as e:
+                logger.warning(f"⚠️ 启动时更新交易对列表失败: {e}")
             
-            logger.info("Scheduler service started successfully")
+            logger.info("✅ 调度服务启动成功")
             
         except Exception as e:
-            logger.error(f"Failed to start scheduler service: {e}")
+            logger.error(f"❌ 调度服务启动失败: {e}")
             raise
     
     async def stop(self):
@@ -249,11 +253,32 @@ class SchedulerService:
                 max_instances=1
             )
             
-            logger.info("Scheduled jobs setup completed")
+            logger.info("✅ 定时任务设置完成")
             
         except Exception as e:
-            logger.error(f"Failed to setup scheduled jobs: {e}")
+            logger.error(f"❌ 定时任务设置失败: {e}")
             raise
+    
+    async def _update_trading_pairs_on_startup(self):
+        """启动时更新交易对列表"""
+        try:
+            logger.info("🔄 启动时更新交易对列表...")
+            
+            # 获取OKX混合服务
+            okx_service = await get_okx_hybrid_service()
+            
+            # 验证主要交易对
+            if hasattr(okx_service, '_validate_symbols'):
+                valid_symbols = await okx_service._validate_symbols(okx_service.major_symbols)
+                if valid_symbols != okx_service.major_symbols:
+                    logger.info(f"📝 更新主要交易对列表: {len(valid_symbols)} 个有效交易对")
+                    okx_service.major_symbols = valid_symbols
+            
+            logger.info("✅ 交易对列表更新完成")
+            
+        except Exception as e:
+            logger.error(f"❌ 更新交易对列表失败: {e}")
+            # 不抛出异常，允许服务继续启动
     
     async def _funding_rate_job(self):
         """资金费率监控任务 - 已禁用，由NegativeFundingMonitorService接管"""

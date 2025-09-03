@@ -59,7 +59,20 @@ class HTTPConnectionManager:
     async def _ensure_session(self):
         """确保session可用"""
         async with HTTPConnectionManager._lock:
-            if self.session is None or self.session.closed:
+            # 安全检查session状态
+            session_closed = True
+            try:
+                if self.session is not None:
+                    session_closed = self.session.closed
+            except AttributeError:
+                # 处理session对象没有closed属性的情况
+                logger.debug("Session对象缺少closed属性，重新创建session")
+                session_closed = True
+            except Exception as e:
+                logger.warning(f"检查session状态时出错: {e}")
+                session_closed = True
+            
+            if self.session is None or session_closed:
                 await self._create_session()
     
     async def _create_session(self):
@@ -206,8 +219,19 @@ class HTTPConnectionManager:
                 current_time - self._last_health_check < timedelta(seconds=self._health_check_interval)):
                 return True
             
-            # 检查session状态
-            if self.session is None or self.session.closed:
+            # 安全检查session状态
+            try:
+                if self.session is None:
+                    return False
+                
+                # 安全检查closed属性
+                if hasattr(self.session, 'closed') and self.session.closed:
+                    return False
+                elif not hasattr(self.session, 'closed'):
+                    # 如果没有closed属性，尝试其他方法检查
+                    logger.debug("Session缺少closed属性，假设连接正常")
+            except Exception as e:
+                logger.warning(f"检查session状态时出错: {e}")
                 return False
             
             # 执行简单的网络测试（可选）
@@ -245,8 +269,21 @@ class HTTPConnectionManager:
                 logger.debug(f"获取连接器统计信息时出错: {e}")
                 # 忽略错误，继续返回基本统计
         
+        # 安全检查session状态
+        session_active = False
+        try:
+            if self.session is not None:
+                if hasattr(self.session, 'closed'):
+                    session_active = not self.session.closed
+                else:
+                    # 如果没有closed属性，假设连接活跃
+                    session_active = True
+        except Exception as e:
+            logger.debug(f"检查session状态时出错: {e}")
+            session_active = False
+        
         stats.update({
-            "session_active": self.session is not None and not self.session.closed,
+            "session_active": session_active,
             "last_health_check": self._last_health_check,
             "health_check_interval": self._health_check_interval
         })
@@ -256,10 +293,25 @@ class HTTPConnectionManager:
     async def close(self):
         """关闭连接管理器"""
         async with HTTPConnectionManager._lock:
-            if self.session and not self.session.closed:
-                await self.session.close()
+            try:
+                if self.session is not None:
+                    # 安全检查closed属性
+                    should_close = True
+                    try:
+                        if hasattr(self.session, 'closed'):
+                            should_close = not self.session.closed
+                    except Exception as e:
+                        logger.debug(f"检查session.closed时出错: {e}")
+                        should_close = True
+                    
+                    if should_close:
+                        await self.session.close()
+                        logger.info("🔒 HTTP连接池已关闭")
+                    
+                    self.session = None
+            except Exception as e:
+                logger.error(f"关闭HTTP连接池时出错: {e}")
                 self.session = None
-                logger.info("🔒 HTTP连接池已关闭")
     
     async def reconnect(self):
         """重新连接"""

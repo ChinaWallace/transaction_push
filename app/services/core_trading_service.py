@@ -22,7 +22,7 @@ from app.services.kronos_integrated_decision_service import (
     KronosSignalStrength
 )
 from app.services.position_analysis_service import PositionAnalysisService, PositionRisk
-from app.services.okx_service import OKXService
+from app.services.okx_hybrid_service import get_okx_hybrid_service
 from app.services.trading_decision_service import TradingAction, RiskLevel, TradingDecisionService
 from app.services.ml_enhanced_service import MLEnhancedService, PredictionSignal
 from app.services.trend_analysis_service import TrendAnalysisService
@@ -205,7 +205,7 @@ class CoreTradingService:
         self.logger = get_logger(__name__)
         
         # 初始化各个分析服务
-        self.okx_service = OKXService()
+        self.okx_service = None  # 将在需要时异步初始化
         self.position_service = PositionAnalysisService()
         self.traditional_service = TradingDecisionService()
         
@@ -347,8 +347,11 @@ class CoreTradingService:
         try:
             self.logger.debug(f"🔍 开始增强分析 {symbol}，类型: {analysis_type.value}")
             
-            # 获取当前价格
+            # 获取当前价格 - 使用WebSocket混合服务
             try:
+                if self.okx_service is None:
+                    self.okx_service = await get_okx_hybrid_service()
+                
                 current_price = await self.okx_service.get_current_price(symbol)
                 if current_price is None:
                     current_price = 0

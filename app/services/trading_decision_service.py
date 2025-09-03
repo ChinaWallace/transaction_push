@@ -18,7 +18,7 @@ from app.core.technical_analysis_config import get_technical_config
 from app.services.ml_enhanced_service import MLEnhancedService, PredictionSignal
 # from app.services.trend_analysis_service import TrendAnalysisService  # 已禁用，有问题
 from app.services.binance_service import BinanceService
-from app.services.okx_service import OKXService
+from app.services.okx_hybrid_service import get_okx_hybrid_service
 from app.utils.exceptions import TradingToolError
 
 logger = get_logger(__name__)
@@ -111,31 +111,47 @@ class TradingDecisionService:
         self.exchange = exchange.lower()
         
         # 初始化服务
-        if self.exchange == 'okx':
-            self.exchange_service = OKXService()
-        else:
-            self.exchange_service = BinanceService()
+        self.exchange_service = None  # 将在需要时异步初始化
+        self._is_okx = self.exchange == 'okx'
         
-        # 可选的ML服务（如果需要）
+        # 技术分析配置 - 在__init__中初始化
         try:
-            self.ml_service = MLEnhancedService()
-            # self.trend_service = TrendAnalysisService()  # 已禁用，有问题
-            self.trend_service = None  # 不使用有问题的TrendAnalysisService
-            self.ml_enabled = True
+            self.tech_config = get_technical_config()
         except Exception as e:
-            logger.warning(f"ML服务初始化失败，将使用基础技术分析: {e}")
-            self.ml_service = None
-            self.trend_service = None
-            self.ml_enabled = False
-        
-        # 技术分析配置
-        self.tech_config = get_technical_config()
+            logger.warning(f"技术分析配置初始化失败: {e}")
+            self.tech_config = {}
         
         # 风险管理参数
         self.max_position_percent = 25.0  # 单个交易对最大仓位25%
         self.max_leverage = 3.0           # 最大杠杆3倍（保守）
         self.base_stop_loss = 0.03        # 基础止损3%
         self.base_take_profit = 0.09      # 基础止盈9% (1:3风险收益比)
+        
+        # 可选的ML服务（如果需要）
+        self.ml_service = None
+        self.trend_service = None
+        self.ml_enabled = False
+    
+    async def _ensure_exchange_service(self):
+        """确保交易所服务已初始化"""
+        if self.exchange_service is None:
+            if self._is_okx:
+                self.exchange_service = await get_okx_hybrid_service()
+            else:
+                self.exchange_service = BinanceService()
+        
+        # 初始化ML服务（如果还没有初始化）
+        if self.ml_service is None:
+            try:
+                self.ml_service = MLEnhancedService()
+                # self.trend_service = TrendAnalysisService()  # 已禁用，有问题
+                self.trend_service = None  # 不使用有问题的TrendAnalysisService
+                self.ml_enabled = True
+            except Exception as e:
+                logger.warning(f"ML服务初始化失败，将使用基础技术分析: {e}")
+                self.ml_service = None
+                self.trend_service = None
+                self.ml_enabled = False
     
     async def analyze_market(self, symbol: str) -> MarketAnalysis:
         """
@@ -148,9 +164,11 @@ class TradingDecisionService:
             市场分析结果
         """
         try:
+            # 确保交易所服务已初始化
+            await self._ensure_exchange_service()
+            
             # 使用内置的市场信号分析替代TrendAnalysisService
-            async with self.exchange_service as exchange:
-                market_signals = await self._get_market_signals(symbol, exchange)
+            market_signals = await self._get_market_signals(symbol, self.exchange_service)
             
             # 转换为传统分析格式
             traditional_analysis = {
@@ -225,73 +243,76 @@ class TradingDecisionService:
             交易建议
         """
         try:
-            async with self.exchange_service as exchange:
-                # 并行获取数据
-                tasks = [
-                    exchange.get_current_price(symbol),
-                    exchange.get_account_balance(),
-                    exchange.get_positions(),
-                    self._get_market_signals(symbol, exchange)
-                ]
+            # 确保交易所服务已初始化
+            await self._ensure_exchange_service()
+            exchange = self.exchange_service
+            
+            # 并行获取数据
+            tasks = [
+                exchange.get_current_price(symbol),
+                exchange.get_account_balance(),
+                exchange.get_positions(),
+                self._get_market_signals(symbol, exchange)
+            ]
+            
+            current_price, account_info, positions, market_signals = await asyncio.gather(*tasks)
+            
+            if not current_price:
+                raise TradingToolError(f"无法获取{symbol}当前价格")
+            
+            # 分析当前持仓
+            current_position = self._find_current_position(symbol, positions)
+            
+            # 计算交易动作
+            action = self._determine_action_from_signals(market_signals)
+            
+            # 计算仓位和风险参数
+            position_params = self._calculate_position_parameters(
+                action, current_price, account_info, current_position, market_signals
+            )
+            
+            # 计算价格点位
+            price_levels = self._calculate_price_levels(
+                action, current_price, market_signals
+            )
+            
+            # 生成决策理由
+            reasoning = self._generate_trading_reasoning(market_signals, action, position_params)
+            
+            return TradingRecommendation(
+                symbol=symbol,
+                action=action,
+                confidence=market_signals.get('confidence', 0.5),
                 
-                current_price, account_info, positions, market_signals = await asyncio.gather(*tasks)
+                # 核心交易参数
+                position_size_usdt=position_params['size_usdt'],
+                position_size_percent=position_params['size_percent'],
+                leverage=position_params['leverage'],
                 
-                if not current_price:
-                    raise TradingToolError(f"无法获取{symbol}当前价格")
+                # 价格点位
+                entry_price=price_levels['entry'],
+                stop_loss_price=price_levels['stop_loss'],
+                take_profit_price=price_levels['take_profit'],
                 
-                # 分析当前持仓
-                current_position = self._find_current_position(symbol, positions)
+                # 风险管理
+                risk_level=position_params['risk_level'],
+                max_loss_usdt=position_params['max_loss'],
+                expected_profit_usdt=position_params['expected_profit'],
+                risk_reward_ratio=position_params['risk_reward_ratio'],
                 
-                # 计算交易动作
-                action = self._determine_action_from_signals(market_signals)
+                # 执行建议
+                entry_timing=self._determine_entry_timing(market_signals, action),
+                hold_duration_hours=self._estimate_hold_duration(market_signals, action),
                 
-                # 计算仓位和风险参数
-                position_params = self._calculate_position_parameters(
-                    action, current_price, account_info, current_position, market_signals
-                )
+                # 决策依据
+                reasoning=reasoning,
+                key_levels=price_levels.get('key_levels', {}),
                 
-                # 计算价格点位
-                price_levels = self._calculate_price_levels(
-                    action, current_price, market_signals
-                )
-                
-                # 生成决策理由
-                reasoning = self._generate_trading_reasoning(market_signals, action, position_params)
-                
-                return TradingRecommendation(
-                    symbol=symbol,
-                    action=action,
-                    confidence=market_signals.get('confidence', 0.5),
-                    
-                    # 核心交易参数
-                    position_size_usdt=position_params['size_usdt'],
-                    position_size_percent=position_params['size_percent'],
-                    leverage=position_params['leverage'],
-                    
-                    # 价格点位
-                    entry_price=price_levels['entry'],
-                    stop_loss_price=price_levels['stop_loss'],
-                    take_profit_price=price_levels['take_profit'],
-                    
-                    # 风险管理
-                    risk_level=position_params['risk_level'],
-                    max_loss_usdt=position_params['max_loss'],
-                    expected_profit_usdt=position_params['expected_profit'],
-                    risk_reward_ratio=position_params['risk_reward_ratio'],
-                    
-                    # 执行建议
-                    entry_timing=self._determine_entry_timing(market_signals, action),
-                    hold_duration_hours=self._estimate_hold_duration(market_signals, action),
-                    
-                    # 决策依据
-                    reasoning=reasoning,
-                    key_levels=price_levels.get('key_levels', {}),
-                    
-                    # 当前状态
-                    current_price=current_price,
-                    current_positions=current_position,
-                    account_info=account_info
-                )
+                # 当前状态
+                current_price=current_price,
+                current_positions=current_position,
+                account_info=account_info
+            )
             
         except Exception as e:
             logger.error(f"获取{symbol}交易建议失败: {e}")

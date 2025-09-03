@@ -1026,6 +1026,10 @@ def create_app() -> FastAPI:
     app.include_router(ml_config_router, prefix="/api/ml-config", tags=["ML配置管理"])
     app.include_router(news_router, prefix="/api/news", tags=["新闻分析"])
     
+    # WebSocket演示API (已删除)
+    # from app.api.websocket_demo import router as websocket_demo_router
+    # app.include_router(websocket_demo_router, tags=["WebSocket演示"])
+    
     # 根路径
     @app.get("/", summary="根路径")
     async def root():

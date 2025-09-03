@@ -416,7 +416,6 @@ class MLEnhancedService:
             # 应用字段名映射
             if rename_mapping:
                 df.rename(columns=rename_mapping, inplace=True)
-                logger.info(f"字段名映射: {rename_mapping}")
             
             df.set_index('timestamp', inplace=True)
             

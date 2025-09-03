@@ -19,7 +19,7 @@ import numpy as np
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from app.services.okx_service import OKXService
+from app.services.okx_hybrid_service import get_okx_hybrid_service
 from app.services.core_notification_service import get_core_notification_service
 from app.services.notification_service import NotificationService
 from app.core.logging import get_logger
@@ -98,12 +98,25 @@ class NegativeFundingMonitorService:
     """负费率监控服务 - 每小时监控并推送"""
     
     def __init__(self):
-        self.okx_service = OKXService()
+        self.okx_service = None  # 将在需要时异步初始化
         self.notification_service = None  # Will be initialized async
         
         # 历史费率数据存储 (用于检测显著变化)
-        self.funding_rate_history = {}  # {symbol: [(timestamp, rate), ...]}
-        self.max_history_hours = 24  # 保留24小时历史数据
+    
+    async def _ensure_okx_service(self):
+        """确保OKX混合服务已初始化"""
+        if self.okx_service is None:
+            self.okx_service = await get_okx_hybrid_service()
+            logger.info("✅ OKX混合服务已初始化 (WebSocket + HTTP)")
+            
+            # 检查服务状态
+            status = self.okx_service.get_service_status()
+            logger.info(f"📊 服务状态: WebSocket={status.get('websocket_enabled')}, "
+                       f"主要交易对={status.get('major_symbols_count')}")
+        
+        if not hasattr(self, 'funding_rate_history'):
+            self.funding_rate_history = {}  # {symbol: [(timestamp, rate), ...]}
+            self.max_history_hours = 24  # 保留24小时历史数据
         
         # 排除的大市值币种（波动太大，不适合吃利息）
         # 注意：ETH和SOL现在用于Kronos分析，不在排除列表中
@@ -120,6 +133,9 @@ class NegativeFundingMonitorService:
             'XRP-USD-SWAP', 'ADA-USD-SWAP', 'DOGE-USD-SWAP',
             'AVAX-USD-SWAP', 'DOT-USD-SWAP', 'LTC-USD-SWAP'
         }
+        
+        # 已订阅的交易对集合（用于避免重复订阅）
+        self.subscribed_symbols = set()
         
         self.funding_intervals_cache = {}  # 缓存费率间隔信息
         self.target_symbols = []
@@ -140,71 +156,154 @@ class NegativeFundingMonitorService:
             self.notification_service = await get_core_notification_service()
     
     async def get_all_funding_rates_optimized(self) -> List[Dict[str, Any]]:
-        """优化版：直接从OKX获取所有SWAP交易对，然后批量获取费率"""
+        """优化版：智能选择WebSocket或HTTP获取费率数据"""
         try:
-            logger.debug("📡 正在获取所有SWAP交易对列表...")
+            logger.debug("📡 正在获取所有SWAP交易对费率数据...")
             
-            # 1. 直接从OKX获取所有SWAP交易对
-            async with self.okx_service:
+            # 确保OKX混合服务已初始化
+            await self._ensure_okx_service()
+            
+            # 1. 优先尝试从WebSocket实时数据获取主要交易对费率
+            realtime_funding_rates = []
+            if hasattr(self.okx_service, 'realtime_manager') and self.okx_service.realtime_manager:
+                try:
+                    # 获取WebSocket中已订阅的交易对费率
+                    for symbol in self.okx_service.major_symbols:
+                        try:
+                            funding_data = self.okx_service.realtime_manager.get_funding_rate(symbol)
+                            if funding_data:
+                                realtime_funding_rates.append({
+                                    'symbol': symbol,
+                                    'funding_rate': funding_data.funding_rate,
+                                    'next_funding_time': funding_data.next_funding_time,
+                                    'source': 'websocket'
+                                })
+                        except Exception as e:
+                            logger.debug(f"获取{symbol}WebSocket费率失败: {e}")
+                            continue
+                    
+                    if realtime_funding_rates:
+                        logger.debug(f"🔌 WebSocket获取到 {len(realtime_funding_rates)} 个主要交易对费率")
+                except Exception as e:
+                    logger.warning(f"⚠️ WebSocket获取费率失败: {e}")
+            
+            # 2. 使用HTTP API获取完整的费率数据（包含所有交易对）
+            try:
+                # 获取所有USDT永续合约列表
                 instruments = await self.okx_service.get_all_instruments('SWAP')
                 
                 if not instruments:
                     logger.warning("未获取到SWAP交易对列表")
-                    return []
+                    return realtime_funding_rates  # 返回WebSocket数据
                 
                 # 过滤出活跃的USDT永续合约
                 usdt_symbols = [
                     inst['instId'] for inst in instruments 
                     if inst.get('state') == 'live' and 'USDT-SWAP' in inst['instId']
                 ]
-            
-            if not usdt_symbols:
-                logger.warning("未获取到USDT永续合约列表")
+                
+                if not usdt_symbols:
+                    logger.warning("未获取到USDT永续合约列表")
+                    return realtime_funding_rates
+                
+                logger.debug(f"📋 发现 {len(usdt_symbols)} 个USDT永续合约")
+                
+                # 批量获取费率数据
+                http_funding_rates = await self.okx_service.get_funding_rate()
+                
+                # 3. 合并WebSocket和HTTP数据，WebSocket数据优先
+                merged_rates = {}
+                
+                # 先添加HTTP数据
+                for rate in http_funding_rates:
+                    if rate and 'symbol' in rate:  # 确保数据有效
+                        rate['source'] = 'rest_api'
+                        merged_rates[rate['symbol']] = rate
+                
+                # WebSocket数据覆盖HTTP数据（更实时）
+                for rate in realtime_funding_rates:
+                    if rate and 'symbol' in rate:  # 确保数据有效
+                        merged_rates[rate['symbol']] = rate
+                
+                final_rates = list(merged_rates.values())
+                
+                ws_count = len(realtime_funding_rates)
+                http_count = len(http_funding_rates)
+                logger.debug(f"✅ 费率数据获取完成: WebSocket({ws_count}) + HTTP({http_count}) = {len(final_rates)} 个")
+                
+                return final_rates
+                
+            except Exception as e:
+                logger.error(f"HTTP获取费率失败: {e}")
+                # 如果HTTP失败，返回WebSocket数据
+                if realtime_funding_rates:
+                    logger.info(f"⚠️ 回退到WebSocket数据: {len(realtime_funding_rates)} 个")
+                    return realtime_funding_rates
                 return []
-            
-            logger.debug(f"📋 发现 {len(usdt_symbols)} 个USDT永续合约")
-            
-            # 2. 直接使用OKX服务的优化批处理方法
-            async with self.okx_service:
-                funding_rates = await self.okx_service.get_batch_funding_rates(usdt_symbols)
-            
-            logger.debug(f"✅ 成功获取 {len(funding_rates)} 个USDT合约费率数据")
-            return funding_rates
 
         except Exception as e:
             logger.error(f"批量获取费率失败: {e}")
             return []  
     
     async def get_symbol_basic_info(self, symbol: str) -> Dict[str, Any]:
-        """获取币种基础信息（价格和交易量）"""
+        """获取币种基础信息（价格和交易量）- 智能选择WebSocket或HTTP"""
         try:
-            params = {'instId': symbol}
-            result = await self.okx_service._make_request('GET', '/api/v5/market/ticker', params=params)
+            # 确保OKX混合服务已初始化
+            await self._ensure_okx_service()
             
-            if result:
-                data = result[0]
-                # 计算24小时价格变化
-                current_price = float(data.get('last', '0') or '0')
-                open_24h = data.get('open24h')
-                
-                if open_24h and float(open_24h) > 0:
-                    open_price = float(open_24h)
-                    change_24h = (current_price - open_price) / open_price
-                else:
-                    change_24h = 0.0
-                
-                return {
-                    'symbol': symbol,
-                    'price': current_price,
-                    'volume_24h': float(data.get('volCcy24h', '0') or '0'),  # 24小时交易额
-                    'change_24h': change_24h
-                }
+            # 1. 优先尝试从WebSocket实时数据获取
+            if hasattr(self.okx_service, 'realtime_manager') and self.okx_service.realtime_manager:
+                try:
+                    ticker = self.okx_service.realtime_manager.get_latest_ticker(symbol)
+                    if ticker:
+                        # 计算24小时价格变化
+                        current_price = ticker.price
+                        change_24h = ticker.change_24h
+                        
+                        logger.debug(f"🔌 WebSocket获取{symbol}基础信息: ${current_price:.4f}")
+                        
+                        return {
+                            'symbol': symbol,
+                            'price': current_price,
+                            'volume_24h': ticker.volume_24h,
+                            'change_24h': change_24h,
+                            'source': 'websocket'
+                        }
+                except Exception as e:
+                    logger.debug(f"WebSocket获取{symbol}基础信息失败: {e}")
             
-            return {'symbol': symbol, 'price': 0, 'volume_24h': 0, 'change_24h': 0}
+            # 2. 回退到HTTP API
+            try:
+                ticker_data = await self.okx_service.get_ticker_data(symbol)
+                if ticker_data:
+                    # 计算24小时价格变化
+                    current_price = float(ticker_data.get('last', '0') or '0')
+                    open_24h = ticker_data.get('open24h')
+                    
+                    if open_24h and float(open_24h) > 0:
+                        open_price = float(open_24h)
+                        change_24h = (current_price - open_price) / open_price
+                    else:
+                        change_24h = 0.0
+                    
+                    logger.debug(f"🌐 HTTP获取{symbol}基础信息: ${current_price:.4f}")
+                    
+                    return {
+                        'symbol': symbol,
+                        'price': current_price,
+                        'volume_24h': float(ticker_data.get('volCcy24h', '0') or '0'),
+                        'change_24h': change_24h,
+                        'source': 'rest_api'
+                    }
+            except Exception as e:
+                logger.warning(f"HTTP获取{symbol}基础信息失败: {e}")
+            
+            # 3. 如果都失败，返回默认值
+            return {'symbol': symbol, 'price': 0, 'volume_24h': 0, 'change_24h': 0, 'source': 'none'}
             
         except Exception as e:
             logger.warning(f"获取{symbol}基础信息失败: {e}")
-            return {'symbol': symbol, 'price': 0, 'volume_24h': 0, 'change_24h': 0}
+            return {'symbol': symbol, 'price': 0, 'volume_24h': 0, 'change_24h': 0, 'source': 'error'}
     
     def _update_funding_rate_history(self, symbol: str, funding_rate: float):
         """更新费率历史数据"""
@@ -286,61 +385,166 @@ class NegativeFundingMonitorService:
         }
 
     async def get_top_volume_symbols(self, limit: int = 50) -> List[str]:
-        """获取交易量或涨幅前N的币种（排除大市值币种）"""
+        """获取交易量或涨幅前N的币种（排除大市值币种）- 智能选择数据源"""
         try:
-            # 获取所有USDT永续合约的24小时统计数据
-            result = await self.okx_service._make_request('GET', '/api/v5/market/tickers', 
-                                                        params={'instType': 'SWAP'})
+            # 确保OKX混合服务已初始化
+            await self._ensure_okx_service()
             
-            if not result:
-                return []
-            
-            # 筛选USDT合约并排除大市值币种
-            usdt_tickers = []
-            for ticker in result:
-                symbol = ticker.get('instId', '')
-                if (symbol.endswith('-USDT-SWAP') and 
-                    symbol not in self.excluded_major_coins):
+            # 1. 优先尝试从WebSocket实时数据获取主要交易对的ticker
+            realtime_tickers = []
+            if hasattr(self.okx_service, 'realtime_manager') and self.okx_service.realtime_manager:
+                try:
+                    for symbol in self.okx_service.major_symbols:
+                        if (symbol.endswith('-USDT-SWAP') and 
+                            symbol not in self.excluded_major_coins):
+                            
+                            ticker = self.okx_service.realtime_manager.get_latest_ticker(symbol)
+                            if ticker:
+                                realtime_tickers.append({
+                                    'symbol': symbol,
+                                    'volume_24h': ticker.volume_24h,
+                                    'change_24h': ticker.change_24h,
+                                    'score': ticker.volume_24h / 1000000 + ticker.change_24h * 100,
+                                    'source': 'websocket'
+                                })
                     
-                    volume_24h = float(ticker.get('volCcy24h', '0') or '0')
-                    
-                    # 计算24小时价格变化
-                    current_price = float(ticker.get('last', '0') or '0')
-                    open_24h = ticker.get('open24h')
-                    
-                    if open_24h and float(open_24h) > 0:
-                        open_price = float(open_24h)
-                        change_24h = (current_price - open_price) / open_price
-                    else:
-                        change_24h = 0.0
-                    
-                    # 只考虑有一定交易量的币种（大于10万USDT）
-                    if volume_24h > 100000:
-                        usdt_tickers.append({
-                            'symbol': symbol,
-                            'volume_24h': volume_24h,
-                            'change_24h': change_24h,
-                            'score': volume_24h / 1000000 + change_24h * 100  # 综合评分
-                        })
+                    if realtime_tickers:
+                        logger.debug(f"🔌 WebSocket获取到 {len(realtime_tickers)} 个主要交易对ticker")
+                except Exception as e:
+                    logger.debug(f"WebSocket获取ticker失败: {e}")
             
-            # 按综合评分排序（交易量 + 涨跌幅）
-            usdt_tickers.sort(key=lambda x: x['score'], reverse=True)
-            
-            # 返回前N个币种
-            top_symbols = [ticker['symbol'] for ticker in usdt_tickers[:limit]]
-            
-            logger.debug(f"📊 获取到交易量/涨幅前{len(top_symbols)}的币种")
-            return top_symbols
+            # 2. 使用HTTP API获取完整的ticker数据
+            try:
+                result = await self.okx_service.get_tickers('SWAP')
+                
+                if not result:
+                    # 如果HTTP失败，返回WebSocket数据
+                    if realtime_tickers:
+                        realtime_tickers.sort(key=lambda x: x['score'], reverse=True)
+                        return [t['symbol'] for t in realtime_tickers[:limit]]
+                    return self._get_fallback_symbols()
+                
+                # 筛选USDT合约并排除大市值币种
+                http_tickers = []
+                for ticker in result:
+                    symbol = ticker.get('instId', '')
+                    if (symbol.endswith('-USDT-SWAP') and 
+                        symbol not in self.excluded_major_coins):
+                        
+                        volume_24h = float(ticker.get('volCcy24h', '0') or '0')
+                        
+                        # 计算24小时价格变化
+                        current_price = float(ticker.get('last', '0') or '0')
+                        open_24h = ticker.get('open24h')
+                        
+                        if open_24h and float(open_24h) > 0:
+                            open_price = float(open_24h)
+                            change_24h = (current_price - open_price) / open_price
+                        else:
+                            change_24h = 0.0
+                        
+                        # 只考虑有一定交易量的币种（大于10万USDT）
+                        if volume_24h > 100000:
+                            http_tickers.append({
+                                'symbol': symbol,
+                                'volume_24h': volume_24h,
+                                'change_24h': change_24h,
+                                'score': volume_24h / 1000000 + change_24h * 100,
+                                'source': 'rest_api'
+                            })
+                
+                # 3. 合并WebSocket和HTTP数据，WebSocket数据优先
+                merged_tickers = {}
+                
+                # 先添加HTTP数据
+                for ticker in http_tickers:
+                    merged_tickers[ticker['symbol']] = ticker
+                
+                # WebSocket数据覆盖HTTP数据（更实时）
+                for ticker in realtime_tickers:
+                    merged_tickers[ticker['symbol']] = ticker
+                
+                # 按综合评分排序
+                final_tickers = list(merged_tickers.values())
+                final_tickers.sort(key=lambda x: x['score'], reverse=True)
+                
+                # 返回前N个币种
+                top_symbols = [ticker['symbol'] for ticker in final_tickers[:limit]]
+                
+                ws_count = len(realtime_tickers)
+                http_count = len(http_tickers)
+                logger.debug(f"📊 获取热门币种: WebSocket({ws_count}) + HTTP({http_count}) = {len(top_symbols)} 个")
+                
+                return top_symbols
+                
+            except Exception as e:
+                logger.error(f"HTTP获取ticker失败: {e}")
+                # 回退到WebSocket数据
+                if realtime_tickers:
+                    realtime_tickers.sort(key=lambda x: x['score'], reverse=True)
+                    logger.info(f"⚠️ 回退到WebSocket数据: {len(realtime_tickers)} 个")
+                    return [t['symbol'] for t in realtime_tickers[:limit]]
+                
+                return self._get_fallback_symbols()
             
         except Exception as e:
             logger.error(f"获取热门币种失败: {e}")
-            # 返回备用列表
-            return [
-                'API3-USDT-SWAP', 'AUCTION-USDT-SWAP', 'CORE-USDT-SWAP', 'DGB-USDT-SWAP',
-                'LRC-USDT-SWAP', 'RAY-USDT-SWAP', 'LUNC-USDT-SWAP', 'USTC-USDT-SWAP',
-                'ORDI-USDT-SWAP', 'SATS-USDT-SWAP', 'PEPE-USDT-SWAP', 'WIF-USDT-SWAP',
-                'BONK-USDT-SWAP', 'NEIRO-USDT-SWAP', 'PNUT-USDT-SWAP', 'GOAT-USDT-SWAP'
-            ]
+            return self._get_fallback_symbols()
+    
+    def _get_fallback_symbols(self) -> List[str]:
+        """获取备用币种列表"""
+        return [
+            'API3-USDT-SWAP', 'AUCTION-USDT-SWAP', 'CORE-USDT-SWAP', 'DGB-USDT-SWAP',
+            'LRC-USDT-SWAP', 'RAY-USDT-SWAP', 'LUNC-USDT-SWAP', 'USTC-USDT-SWAP',
+            'ORDI-USDT-SWAP', 'SATS-USDT-SWAP', 'PEPE-USDT-SWAP', 'WIF-USDT-SWAP',
+            'BONK-USDT-SWAP', 'NEIRO-USDT-SWAP', 'PNUT-USDT-SWAP', 'GOAT-USDT-SWAP'
+        ]
+    
+    async def _subscribe_negative_funding_symbols(self, symbols: List[str]):
+        """动态订阅负费率交易对的实时数据"""
+        try:
+            if not hasattr(self.okx_service, 'realtime_manager') or not self.okx_service.realtime_manager:
+                logger.debug("WebSocket服务不可用，跳过动态订阅")
+                return
+            
+            new_symbols = []
+            for symbol in symbols:
+                if symbol not in self.subscribed_symbols:
+                    new_symbols.append(symbol)
+                    self.subscribed_symbols.add(symbol)
+            
+            if not new_symbols:
+                return
+            
+            logger.info(f"📡 动态订阅负费率交易对实时数据: {len(new_symbols)} 个")
+            
+            # 批量订阅
+            success_count = 0
+            
+            # 订阅ticker数据
+            try:
+                if await self.okx_service.realtime_manager.subscribe_ticker(new_symbols):
+                    success_count += 1
+            except Exception as e:
+                logger.warning(f"订阅ticker失败: {e}")
+            
+            # 订阅资金费率
+            try:
+                if await self.okx_service.realtime_manager.subscribe_funding_rates(new_symbols):
+                    success_count += 1
+            except Exception as e:
+                logger.warning(f"订阅资金费率失败: {e}")
+            
+            # K线数据使用REST API（WebSocket频道不可用）
+            logger.debug(f"📈 {len(new_symbols)} 个交易对的K线数据将使用REST API获取")
+            
+            if success_count > 0:
+                logger.info(f"✅ 动态订阅完成: {len(new_symbols)} 个交易对")
+            else:
+                logger.warning(f"⚠️ 动态订阅失败: {len(new_symbols)} 个交易对")
+                
+        except Exception as e:
+            logger.error(f"动态订阅失败: {e}")
     
     async def get_funding_interval(self, symbol: str) -> int:
         """获取币种的费率间隔（小时）"""
@@ -349,12 +553,16 @@ class NegativeFundingMonitorService:
             return self.funding_intervals_cache[symbol]
         
         try:
-            # 获取费率历史来计算间隔
-            async with self.okx_service:
-                history = await self.okx_service.get_funding_rate_history(symbol, limit=5)
+            # 确保OKX服务已初始化
+            await self._ensure_okx_service()
+            
+            # 获取费率历史来计算间隔 - 这个功能需要REST API
+            from app.services.okx_service import OKXService
+            async with OKXService() as rest_service:
+                history = await rest_service.get_funding_rate_history(symbol, limit=5)
                 
                 if history:
-                    interval = self.okx_service.calculate_funding_interval(history)
+                    interval = rest_service.calculate_funding_interval(history)
                     self.funding_intervals_cache[symbol] = interval
                     return interval
                 else:
@@ -422,28 +630,31 @@ class NegativeFundingMonitorService:
             reasons = []
             risk_factors = []
             
-            # 费率评分 - 更细致的分级
+            # 费率评分 - 降低门槛，确保更多机会被识别
             abs_rate = abs(funding_rate)
             if abs_rate >= 0.015:  # 大于等于1.5%
-                score += 80
+                score += 85
                 reasons.append(f"🔥 超高负费率 {funding_rate*100:.3f}%")
             elif abs_rate >= 0.01:  # 大于等于1%
-                score += 65
+                score += 70
                 reasons.append(f"🚀 极高负费率 {funding_rate*100:.3f}%")
             elif abs_rate >= 0.005:  # 大于等于0.5%
-                score += 45
+                score += 55
                 reasons.append(f"📈 高负费率 {funding_rate*100:.3f}%")
             elif abs_rate >= 0.002:  # 大于等于0.2%
-                score += 30
+                score += 40
                 reasons.append(f"💰 中等负费率 {funding_rate*100:.3f}%")
             elif abs_rate >= 0.001:  # 大于等于0.1%
-                score += 20
+                score += 30
                 reasons.append(f"📊 轻微负费率 {funding_rate*100:.3f}%")
-            else:
-                score += 10
+            elif abs_rate >= 0.0005:  # 大于等于0.05%
+                score += 25
                 reasons.append(f"🔍 微小负费率 {funding_rate*100:.3f}%")
+            else:
+                score += 20
+                reasons.append(f"📉 极微负费率 {funding_rate*100:.3f}%")
             
-            # 交易量评分 - 更精细的分级
+            # 交易量评分 - 降低门槛，更宽松的分级
             volume_24h = info.get('volume_24h', 0)
             if volume_24h > 50000000:  # 大于5000万USDT
                 score += 25
@@ -452,18 +663,22 @@ class NegativeFundingMonitorService:
                 score += 22
                 reasons.append("🏆 大交易量")
             elif volume_24h > 10000000:  # 大于1000万USDT
-                score += 18
+                score += 20
                 reasons.append("✅ 交易量充足")
             elif volume_24h > 5000000:  # 大于500万USDT
-                score += 15
+                score += 18
                 reasons.append("📊 交易量良好")
             elif volume_24h > 1000000:  # 大于100万USDT
-                score += 10
-                reasons.append("⚠️ 交易量适中")
+                score += 15
+                reasons.append("📈 交易量适中")
             elif volume_24h > 500000:  # 大于50万USDT
-                score += 5
+                score += 12
                 reasons.append("🔸 交易量偏小")
+            elif volume_24h > 100000:  # 大于10万USDT
+                score += 8
+                reasons.append("⚠️ 交易量较小")
             else:
+                score += 5  # 即使交易量很小也给基础分
                 risk_factors.append("交易量过小，流动性风险")
             
             # 价格稳定性评分 - 考虑波动率对套利的影响
@@ -523,28 +738,28 @@ class NegativeFundingMonitorService:
             risk_penalty = len(risk_factors) * 8
             score = max(0, score - risk_penalty)
             
-            # 综合评级 - 更精细的分级
-            if score >= 90:
+            # 综合评级 - 降低门槛，确保更多机会被显示
+            if score >= 85:
                 rating = "🌟 极力推荐"
                 priority = 1
-            elif score >= 75:
+            elif score >= 70:
                 rating = "🟢 强烈推荐"
                 priority = 1
-            elif score >= 60:
+            elif score >= 55:
                 rating = "🟡 推荐"
                 priority = 2
-            elif score >= 45:
+            elif score >= 40:
                 rating = "🟠 可考虑"
-                priority = 3
+                priority = 2
             elif score >= 30:
                 rating = "🔵 关注"
-                priority = 4
-            elif score >= 15:
+                priority = 3
+            elif score >= 20:
                 rating = "⚪ 观望"
-                priority = 5
+                priority = 3
             else:
-                rating = "🔴 不推荐"
-                priority = 6
+                rating = "🔴 谨慎"
+                priority = 4
             
             # 计算预期收益和风险指标
             expected_daily_return = abs(daily_rate)
@@ -578,7 +793,11 @@ class NegativeFundingMonitorService:
                 'expected_daily_return': expected_daily_return,
                 'risk_adjusted_return': risk_adjusted_return,
                 'liquidity_score': min(100, volume_24h / 100000),  # 流动性评分 (0-100)
-                'stability_score': max(0, 100 - change_24h * 1000)  # 稳定性评分 (0-100)
+                'stability_score': max(0, 100 - change_24h * 1000),  # 稳定性评分 (0-100)
+                # 数据源信息
+                'funding_rate_source': rate_data.get('source', 'unknown'),
+                'ticker_source': info.get('source', 'unknown'),
+                'data_source': 'websocket' if (rate_data.get('source') == 'websocket' or info.get('source') == 'websocket') else 'rest_api'
             })
         
         # 多维度排序：优先级 -> 风险调整收益 -> 评分 -> 费率
@@ -599,7 +818,17 @@ class NegativeFundingMonitorService:
             enhanced: 是否为增强模式（包含价格预测和仓位建议）
         """
         if not opportunities:
-            return f"📊 当前无显著负费率机会（筛选阈值: -0.1%以下）\n⏰ 下次检查: 60分钟后"
+            # 即使没有机会也显示监控状态，避免用户以为系统没工作
+            return f"""📊 负费率监控状态更新
+
+⏰ 监控时间: {datetime.now().strftime('%m-%d %H:%M')}
+🔍 当前市场: 暂无显著负费率机会
+📋 筛选标准: 负费率 ≤ -0.05% (动态调整)
+
+💡 说明: 系统正常运行，持续监控中
+⏰ 下次检查: 60分钟后
+
+🔄 如有新机会将立即推送"""
         
         # 分离不同类型的机会
         surge_opportunities = [opp for opp in opportunities if opp['is_surge']]
@@ -713,7 +942,14 @@ class NegativeFundingMonitorService:
             message += "• 密切监控费率变化，及时调整仓位\n\n"
         
         message += "⏰ 下次检查: 60分钟后\n"
-        message += f"📋 筛选标准: 负费率 ≤ -0.1%"
+        message += f"📋 筛选标准: 负费率 ≤ -0.05% (动态调整)\n"
+        
+        # 添加数据源信息
+        if opportunities:
+            ws_count = sum(1 for opp in opportunities if opp.get('data_source') == 'websocket')
+            http_count = len(opportunities) - ws_count
+            if ws_count > 0:
+                message += f"🔌 实时数据: {ws_count}个 | 🌐 HTTP数据: {http_count}个"
         
         return message
     
@@ -791,17 +1027,34 @@ class NegativeFundingMonitorService:
             if not all_funding_rates:
                 return {'success': False, 'error': '未获取到费率数据'}
             
-            # 2. 筛选出负费率低于-0.1%的币种进行详细分析
-            significant_negative_threshold = -0.001  # -0.1%
-            negative_funding_rates = [r for r in all_funding_rates if r['funding_rate'] <= significant_negative_threshold]
+            # 2. 筛选出负费率币种进行详细分析 - 降低阈值，确保有内容显示
+            primary_threshold = -0.0005  # -0.05% 主要阈值
+            secondary_threshold = -0.0001  # -0.01% 次要阈值
+            
+            # 优先分析负费率低于-0.05%的币种
+            primary_negative_rates = [r for r in all_funding_rates if r['funding_rate'] <= primary_threshold]
+            
+            # 如果主要阈值的币种少于3个，则扩展到-0.01%
+            if len(primary_negative_rates) < 3:
+                secondary_negative_rates = [r for r in all_funding_rates if r['funding_rate'] <= secondary_threshold]
+                negative_funding_rates = secondary_negative_rates
+                used_threshold = secondary_threshold
+                logger.info(f"📊 主要阈值(-0.05%)币种不足，扩展到-0.01%阈值")
+            else:
+                negative_funding_rates = primary_negative_rates
+                used_threshold = primary_threshold
             
             total_negative_count = len([r for r in all_funding_rates if r['funding_rate'] < 0])
-            logger.info(f"📊 发现 {total_negative_count} 个负费率币种，其中 {len(negative_funding_rates)} 个低于-0.1%，开始详细分析...")
+            logger.info(f"📊 发现 {total_negative_count} 个负费率币种，其中 {len(negative_funding_rates)} 个低于{used_threshold*100:.2f}%，开始详细分析...")
             
             funding_rates = negative_funding_rates  # 直接使用负费率数据
             
-            # 3. 获取负费率币种的基础信息（价格、交易量等）
+            # 3. 动态订阅负费率交易对的实时数据
             negative_symbols = [r['symbol'] for r in funding_rates]
+            if negative_symbols:
+                await self._subscribe_negative_funding_symbols(negative_symbols)
+            
+            # 4. 获取负费率币种的基础信息（价格、交易量等）
             basic_info = {}
             
             if negative_symbols:
@@ -809,50 +1062,57 @@ class NegativeFundingMonitorService:
                 for symbol in negative_symbols:
                     info = await self.get_symbol_basic_info(symbol)
                     basic_info[symbol] = info
-                    await asyncio.sleep(0.1)  # 控制频率
+                    await asyncio.sleep(0.05)  # 减少延迟，因为有WebSocket数据
             
-            # 4. 分析负费率机会
+            # 5. 分析负费率机会
             opportunities = await self.analyze_negative_funding_opportunities(funding_rates, basic_info)
             
-            # 5. 增强分析（可选）
+            # 6. 增强分析（可选）
             if enable_enhanced_analysis and opportunities:
                 logger.info("🚀 开始增强分析（价格预测 + 仓位建议）...")
                 opportunities = await self.analyze_enhanced_opportunities(opportunities)
                 logger.info(f"✅ 增强分析完成，共 {len(opportunities)} 个机会")
             
-            # 6. 生成通知消息
+            # 7. 生成通知消息
             notification_message = self.format_notification_message(opportunities, enhanced=enable_enhanced_analysis)
             
-            # 7. 发送通知（只有发现机会时才发送）
-            if opportunities:
-                try:
-                    # 确保通知服务已初始化
-                    await self._ensure_notification_service()
-                    
-                    # 直接发送详细的负费率机会分析消息
-                    from app.services.core_notification_service import NotificationContent, NotificationType, NotificationPriority
-                    
-                    content = NotificationContent(
-                        type=NotificationType.FUNDING_RATE,
-                        priority=NotificationPriority.NORMAL,
-                        title="💰 负费率套利机会",
-                        message=notification_message,
-                        metadata={
-                            'opportunities': opportunities,  # 添加完整的机会数据
-                            'opportunities_count': len(opportunities),
-                            'monitoring_type': 'negative_funding',
-                            'skip_formatting': True  # 标记跳过重新格式化
-                        }
-                    )
-                    
-                    results = await self.notification_service.send_notification(content)
-                    if any(results.values()):
-                        logger.info("✅ 负费率机会通知已发送")
-                        logger.debug(f"📱 推送消息内容:\n{'-'*80}\n{notification_message}\n{'-'*80}")
+            # 8. 发送通知（无论是否有机会都发送状态更新）
+            try:
+                # 确保通知服务已初始化
+                await self._ensure_notification_service()
+                
+                # 直接发送详细的负费率机会分析消息
+                from app.services.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+                
+                # 根据机会数量调整优先级
+                priority = NotificationPriority.HIGH if len(opportunities) >= 3 else NotificationPriority.NORMAL
+                
+                content = NotificationContent(
+                    type=NotificationType.FUNDING_RATE,
+                    priority=priority,
+                    title="💰 负费率套利机会" if opportunities else "📊 负费率监控状态",
+                    message=notification_message,
+                    metadata={
+                        'opportunities': opportunities,  # 添加完整的机会数据
+                        'opportunities_count': len(opportunities),
+                        'total_negative_count': total_negative_count,
+                        'monitoring_type': 'negative_funding',
+                        'skip_formatting': True,  # 标记跳过重新格式化
+                        'threshold_used': used_threshold
+                    }
+                )
+                
+                results = await self.notification_service.send_notification(content)
+                if any(results.values()):
+                    if opportunities:
+                        logger.info(f"✅ 负费率机会通知已发送 ({len(opportunities)} 个机会)")
                     else:
-                        logger.warning("⚠️ 通知发送失败")
-                except Exception as e:
-                    logger.error(f"发送通知失败: {e}")
+                        logger.info("✅ 负费率监控状态通知已发送")
+                    logger.debug(f"📱 推送消息内容:\n{'-'*80}\n{notification_message}\n{'-'*80}")
+                else:
+                    logger.warning("⚠️ 通知发送失败")
+            except Exception as e:
+                logger.error(f"发送通知失败: {e}")
             
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
@@ -863,9 +1123,18 @@ class NegativeFundingMonitorService:
                 'funding_rates_obtained': len(funding_rates),
                 'negative_funding_count': len(opportunities),
                 'opportunities': opportunities,
+                'opportunities_count': len(opportunities),
                 'notification_message': notification_message,
                 'analysis_time': start_time.isoformat(),
-                'duration_seconds': duration
+                'duration_seconds': duration,
+                'threshold_used': used_threshold,
+                'total_negative_count': total_negative_count,
+                'debug_info': {
+                    'primary_threshold_count': len(primary_negative_rates),
+                    'secondary_threshold_count': len([r for r in all_funding_rates if r['funding_rate'] <= secondary_threshold]),
+                    'websocket_enabled': self.okx_service.is_websocket_enabled if self.okx_service else False,
+                    'subscribed_symbols_count': len(self.subscribed_symbols)
+                }
             }
             
             logger.info(f"✅ 监控完成: 发现 {len(opportunities)} 个负费率机会 (耗时 {duration:.1f}秒)")
@@ -883,11 +1152,49 @@ class NegativeFundingMonitorService:
     # ========== 新增：价格预测和仓位建议功能 ==========
     
     async def get_market_data(self, symbol: str, timeframe: str = '1H', limit: int = 100) -> List[Dict[str, Any]]:
-        """获取市场数据"""
+        """获取市场数据 - 智能选择WebSocket或HTTP"""
         try:
-            async with self.okx_service as exchange:
-                klines = await exchange.get_kline_data(symbol, timeframe, limit)
+            # 确保OKX混合服务已初始化
+            await self._ensure_okx_service()
+            
+            # 1. 优先尝试从WebSocket获取K线数据（适合少量最新数据）
+            if (limit <= 200 and hasattr(self.okx_service, 'realtime_manager') and 
+                self.okx_service.realtime_manager and symbol in self.okx_service.major_symbols):
+                try:
+                    klines = self.okx_service.realtime_manager.get_latest_klines(symbol, timeframe, limit)
+                    if klines:
+                        # 转换为标准格式
+                        result = []
+                        for kline in klines:
+                            result.append({
+                                'timestamp': kline.timestamp,
+                                'open': str(kline.open),
+                                'high': str(kline.high),
+                                'low': str(kline.low),
+                                'close': str(kline.close),
+                                'volume': str(kline.volume),
+                                'confirm': kline.confirm,
+                                'source': 'websocket'
+                            })
+                        
+                        logger.debug(f"🔌 WebSocket获取{symbol} K线: {len(result)}条")
+                        return result
+                except Exception as e:
+                    logger.debug(f"WebSocket获取{symbol} K线失败: {e}")
+            
+            # 2. 回退到HTTP API获取历史数据
+            try:
+                klines = await self.okx_service.get_kline_data(symbol, timeframe, limit)
+                for kline in klines:
+                    kline['source'] = 'rest_api'
+                
+                logger.debug(f"🌐 HTTP获取{symbol} K线: {len(klines)}条")
                 return klines
+                
+            except Exception as e:
+                logger.error(f"HTTP获取{symbol} K线失败: {e}")
+                return []
+            
         except Exception as e:
             logger.error(f"获取 {symbol} 市场数据失败: {e}")
             return []

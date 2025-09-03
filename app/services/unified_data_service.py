@@ -16,7 +16,7 @@ from app.core.logging import get_logger
 from app.core.config import get_settings
 from app.data.data_cache import DataCache
 from app.services.binance_service import BinanceService
-from app.services.okx_service import OKXService
+from app.services.okx_hybrid_service import get_okx_hybrid_service
 from app.utils.exceptions import DataNotFoundError, ServiceUnavailableError
 
 logger = get_logger(__name__)
@@ -100,10 +100,10 @@ class UnifiedDataService:
             self._binance_service = BinanceService()
         return self._binance_service
     
-    async def _get_okx_service(self) -> OKXService:
-        """获取OKX服务实例"""
+    async def _get_okx_service(self):
+        """获取OKX混合服务实例"""
         if self._okx_service is None:
-            self._okx_service = OKXService()
+            self._okx_service = await get_okx_hybrid_service()
         return self._okx_service
     
     async def get_kline_data(self, request: DataRequest) -> MarketDataResult:
@@ -260,25 +260,25 @@ class UnifiedDataService:
                     return data
                 
             elif source == DataSource.OKX:
-                async with await self._get_okx_service() as service:
-                    klines = await service.get_kline_data(
-                        symbol=request.symbol,
-                        timeframe=request.timeframe,
-                        limit=request.limit
-                    )
-                    
-                    if klines:
-                        data = pd.DataFrame([{
-                            'timestamp': pd.to_datetime(k['timestamp'], unit='ms'),
-                            'open': k['open'],
-                            'high': k['high'],
-                            'low': k['low'],
-                            'close': k['close'],
-                            'volume': k['volume']
-                        } for k in klines])
-                        data.set_index('timestamp', inplace=True)
-                        self._mark_source_healthy(source)
-                        return data
+                service = await self._get_okx_service()
+                klines = await service.get_kline_data(
+                    symbol=request.symbol,
+                    timeframe=request.timeframe,
+                    limit=request.limit
+                )
+                
+                if klines:
+                    data = pd.DataFrame([{
+                        'timestamp': pd.to_datetime(k['timestamp'], unit='ms'),
+                        'open': k['open'],
+                        'high': k['high'],
+                        'low': k['low'],
+                        'close': k['close'],
+                        'volume': k['volume']
+                    } for k in klines])
+                    data.set_index('timestamp', inplace=True)
+                    self._mark_source_healthy(source)
+                    return data
             
             # 如果没有数据，标记为轻微错误
             self._mark_source_error(source, is_critical=False)
@@ -376,22 +376,22 @@ class UnifiedDataService:
         """获取资金费率数据（统一接口）"""
         try:
             # 优先使用OKX（支持更多币种）
-            async with await self._get_okx_service() as okx_service:
-                rates = await okx_service.get_batch_funding_rates(symbols)
-                
-                # 转换为统一格式
-                result = {}
-                for rate in rates:
-                    if rate and 'symbol' in rate:
-                        result[rate['symbol']] = {
-                            'funding_rate': rate['funding_rate'],
-                            'next_funding_time': rate.get('next_funding_time'),
-                            'source': 'okx',
-                            'timestamp': datetime.now()
-                        }
-                
-                self.logger.info(f"📊 获取费率数据: {len(result)} 个币种")
-                return result
+            okx_service = await self._get_okx_service()
+            rates = await okx_service.get_funding_rate()
+            
+            # 转换为统一格式
+            result = {}
+            for rate in rates:
+                if rate and 'symbol' in rate:
+                    result[rate['symbol']] = {
+                        'funding_rate': rate['funding_rate'],
+                        'next_funding_time': rate.get('next_funding_time'),
+                        'source': 'okx',
+                        'timestamp': datetime.now()
+                    }
+            
+            self.logger.info(f"📊 获取费率数据: {len(result)} 个币种")
+            return result
                 
         except Exception as e:
             self.logger.error(f"获取费率数据失败: {e}")
@@ -422,9 +422,10 @@ class UnifiedDataService:
             health_status["sources"]["binance"] = "healthy" if binance_healthy else "unhealthy"
             
             # 检查OKX服务
-            async with await self._get_okx_service() as okx_service:
-                okx_healthy = await okx_service.health_check()
-                health_status["sources"]["okx"] = "healthy" if okx_healthy else "unhealthy"
+            okx_service = await self._get_okx_service()
+            okx_status = okx_service.get_service_status()
+            okx_healthy = okx_status.get('websocket_enabled', False) and okx_status.get('is_initialized', False)
+            health_status["sources"]["okx"] = "healthy" if okx_healthy else "unhealthy"
             
             # 更新健康状态
             self._source_health[DataSource.BINANCE]["healthy"] = binance_healthy

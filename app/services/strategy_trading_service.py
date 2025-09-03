@@ -13,7 +13,7 @@ import numpy as np
 
 from app.core.logging import get_logger
 from app.core.config import get_settings
-from app.services.okx_service import OKXService
+from app.services.okx_hybrid_service import get_okx_hybrid_service
 from app.utils.exceptions import TradingToolError
 
 logger = get_logger(__name__)
@@ -78,7 +78,12 @@ class StrategyTradingService:
     """策略交易服务类"""
     
     def __init__(self):
-        self.okx_service = OKXService()
+        self.okx_service = None  # 将在需要时异步初始化
+    
+    async def _ensure_okx_service(self):
+        """确保OKX服务已初始化"""
+        if self.okx_service is None:
+            self.okx_service = await get_okx_hybrid_service()
     
     async def analyze_grid_opportunity(self, symbol: str, 
                                      investment: float = 1000) -> StrategyRecommendation:
@@ -102,10 +107,12 @@ class StrategyTradingService:
                     reasoning="Kronos预测功能未启用，无法进行网格分析"
                 )
             
-            async with self.okx_service as okx:
-                # 获取历史数据
-                klines = await okx.get_kline_data(symbol, '1H', 200)  # 获取更多数据用于Kronos分析
-                current_price = await okx.get_current_price(symbol)
+            # 确保OKX服务已初始化
+            await self._ensure_okx_service()
+            
+            # 获取历史数据
+            klines = await self.okx_service.get_kline_data(symbol, '1H', 200)  # 获取更多数据用于Kronos分析
+            current_price = await self.okx_service.get_current_price(symbol)
                 
                 if not klines or not current_price:
                     raise TradingToolError(f"无法获取{symbol}数据")
@@ -141,7 +148,7 @@ class StrategyTradingService:
                 funding_rate = 0
                 funding_income_annual = 0
                 try:
-                    funding_data = await okx.get_funding_rate(symbol)
+                    funding_data = await self.okx_service.get_funding_rate(symbol)
                     funding_rate = funding_data.get('funding_rate', 0)
                     # 计算年化资金费率收益 (每8小时收取一次，一年365*3=1095次)
                     funding_income_annual = abs(funding_rate) * 1095 if funding_rate < 0 else 0
@@ -362,10 +369,12 @@ class StrategyTradingService:
                                     investment: float = 1000) -> StrategyRecommendation:
         """分析定投策略机会"""
         try:
-            async with self.okx_service as okx:
-                # 获取历史数据分析趋势
-                klines = await okx.get_kline_data(symbol, '4H', 168)  # 4小时K线，28天数据
-                current_price = await okx.get_current_price(symbol)
+            # 确保OKX服务已初始化
+            await self._ensure_okx_service()
+            
+            # 获取历史数据分析趋势
+            klines = await self.okx_service.get_kline_data(symbol, '4H', 168)  # 4小时K线，28天数据
+            current_price = await self.okx_service.get_current_price(symbol)
                 
                 if not klines or not current_price:
                     raise TradingToolError(f"无法获取{symbol}数据")
@@ -423,7 +432,13 @@ class StrategyTradingService:
     async def create_grid_strategy(self, strategy: GridStrategy) -> Dict[str, Any]:
         """创建网格策略"""
         try:
-            async with self.okx_service as okx:
+            # 确保OKX服务已初始化
+            await self._ensure_okx_service()
+            
+            # 注意：交易操作仍使用REST API，因为WebSocket不支持下单
+            # 这里需要获取原始的REST服务
+            from app.services.okx_service import OKXService
+            async with OKXService() as okx:
                 result = await okx.place_grid_order(
                     symbol=strategy.symbol,
                     grid_num=strategy.grid_num,
@@ -442,7 +457,12 @@ class StrategyTradingService:
     async def create_dca_strategy(self, strategy: DCAStrategy) -> Dict[str, Any]:
         """创建定投策略"""
         try:
-            async with self.okx_service as okx:
+            # 确保OKX服务已初始化
+            await self._ensure_okx_service()
+            
+            # 注意：交易操作仍使用REST API
+            from app.services.okx_service import OKXService
+            async with OKXService() as okx:
                 result = await okx.place_dca_order(
                     symbol=strategy.symbol,
                     side=strategy.side,
@@ -461,7 +481,12 @@ class StrategyTradingService:
     async def get_active_strategies(self) -> List[Dict[str, Any]]:
         """获取活跃策略"""
         try:
-            async with self.okx_service as okx:
+            # 确保OKX服务已初始化
+            await self._ensure_okx_service()
+            
+            # 注意：账户查询仍使用REST API
+            from app.services.okx_service import OKXService
+            async with OKXService() as okx:
                 strategies = await okx.get_trading_bot_orders()
                 
                 # 添加详细信息
@@ -478,7 +503,12 @@ class StrategyTradingService:
     async def stop_strategy(self, algo_id: str, strategy_type: str) -> bool:
         """停止策略"""
         try:
-            async with self.okx_service as okx:
+            # 确保OKX服务已初始化
+            await self._ensure_okx_service()
+            
+            # 注意：交易操作仍使用REST API
+            from app.services.okx_service import OKXService
+            async with OKXService() as okx:
                 result = await okx.stop_trading_bot(algo_id, strategy_type)
                 
                 if result:
