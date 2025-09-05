@@ -10,17 +10,15 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from app.core.logging import get_logger, trading_logger
-from app.services.core_trading_service import (
+from app.services.trading.core_trading_service import (
     get_core_trading_service, 
     CoreTradingService,
     AnalysisType,
     SignalStrength,
-    TradingSignal,
-    PositionAnalysisResult,
-    MarketOpportunity
+    TradingSignal
 )
-from app.services.core_notification_service import get_core_notification_service
-from app.services.core_scheduler_service import get_core_scheduler_service
+from app.services.notification.core_notification_service import get_core_notification_service
+from app.services.core.core_scheduler_service import get_core_scheduler_service
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/core-trading", tags=["核心交易"])
@@ -780,7 +778,7 @@ async def health_check():
         
         # 检查核心交易服务
         try:
-            trading_service = await get_core_trading_service()
+            await get_core_trading_service()
             health_status["services"]["core_trading"] = {
                 "status": "healthy",
                 "message": "核心交易服务运行正常"
@@ -794,7 +792,7 @@ async def health_check():
         
         # 检查通知服务
         try:
-            notification_service = await get_core_notification_service()
+            await get_core_notification_service()
             health_status["services"]["core_notification"] = {
                 "status": "healthy",
                 "message": "核心通知服务运行正常"
@@ -947,7 +945,7 @@ async def _send_batch_strong_signals_notification(
 ):
     """发送批量强信号通知"""
     try:
-        notification_service = await get_core_notification_service()
+        await get_core_notification_service()
         
         # 构建批量通知数据
         notification_data = {

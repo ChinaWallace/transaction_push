@@ -5,14 +5,12 @@ Kronos市场机会API
 """
 
 from fastapi import APIRouter, HTTPException, Query
-from typing import List, Optional, Dict, Any
+from typing import Dict, Any
 from datetime import datetime
 
 from app.core.logging import get_logger
-from app.services.kronos_market_opportunity_service import (
-    get_kronos_market_opportunity_service,
-    MarketOpportunity,
-    OpportunityType
+from app.services.ml.kronos_market_opportunity_service import (
+    get_kronos_market_opportunity_service
 )
 
 router = APIRouter(prefix="/kronos-opportunities", tags=["Kronos市场机会"])

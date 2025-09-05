@@ -5,11 +5,10 @@ Notification service API routes
 """
 
 from fastapi import APIRouter, HTTPException, Body
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 from app.core.logging import get_logger
-from app.services.core_notification_service import get_core_notification_service
-from app.services.notification_service import NotificationService
+from app.services.notification.notification_service import NotificationService
 from app.schemas.notification import NotificationRequest, NotificationResponse
 
 logger = get_logger(__name__)

@@ -6,7 +6,7 @@ HTTP client utility for making API requests
 
 import asyncio
 import aiohttp
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import json
 from datetime import datetime, timedelta
 

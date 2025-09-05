@@ -3,13 +3,11 @@
 Kronos预测API路由
 """
 
-from typing import Dict, List, Optional
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, Query, Path
 from fastapi.responses import JSONResponse
 
 from app.schemas.kronos import (
-    KronosPredictionRequest,
     KronosBatchPredictionRequest,
     KronosPredictionResponse,
     KronosBatchPredictionResponse,
@@ -17,8 +15,8 @@ from app.schemas.kronos import (
     KronosHealthResponse,
     PredictionDataPoint
 )
-from app.services.kronos_prediction_service import get_kronos_service, KronosPredictionService
-from app.services.okx_service import OKXService
+from app.services.ml.kronos_prediction_service import get_kronos_service, KronosPredictionService
+from app.services.exchanges.okx.okx_service import OKXService
 from app.core.logging import get_logger
 
 router = APIRouter()

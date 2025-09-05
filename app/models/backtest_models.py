@@ -4,7 +4,6 @@
 Backtest Data Models
 """
 
-from typing import Dict, Any, List, Optional
 from datetime import datetime
 from enum import Enum
 from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Boolean, JSON

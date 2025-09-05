@@ -8,7 +8,7 @@ import os
 import sys
 import logging
 import threading
-from typing import Generator, Optional
+from typing import Generator
 from contextlib import contextmanager
 
 # 在Windows上设置环境变量以避免SQLAlchemy的WMI查询问题
@@ -21,7 +21,6 @@ from sqlalchemy import create_engine, MetaData, event, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, scoped_session
 from sqlalchemy.pool import QueuePool, StaticPool
-from sqlalchemy.exc import DisconnectionError, OperationalError
 
 from app.core.config import get_settings
 

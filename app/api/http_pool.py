@@ -6,7 +6,7 @@ HTTP connection pool management API endpoints
 
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any
-from app.utils.http_client import get_http_pool_stats, close_http_pool, http_pool
+from app.utils.http_client import get_http_pool_stats, close_http_pool
 from app.schemas.http_pool import (
     HTTPPoolStatsResponse,
     HTTPPoolHealthResponse,

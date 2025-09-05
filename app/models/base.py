@@ -8,7 +8,6 @@ from sqlalchemy import Column, Integer, DateTime, String, Text, Boolean
 from sqlalchemy.sql import func
 from sqlalchemy.ext.declarative import declared_attr
 from app.core.database import Base
-from typing import Any
 import json
 
 

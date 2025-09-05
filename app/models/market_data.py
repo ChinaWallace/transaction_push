@@ -4,11 +4,10 @@
 Market data models
 """
 
-from sqlalchemy import Column, String, Float, Integer, DateTime, Index, BigInteger, Text
+from sqlalchemy import Column, String, Integer, DateTime, Index, BigInteger, Text
 from sqlalchemy.dialects.mysql import DECIMAL
 from decimal import Decimal
 from datetime import datetime
-from typing import Optional
 
 from .base import BaseModel
 

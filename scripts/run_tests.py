@@ -16,7 +16,6 @@ def run_tests():
     
     # 检查是否安装了pytest
     try:
-        import pytest
         print("✅ 使用pytest运行测试")
         result = subprocess.run([sys.executable, "-m", "pytest", "tests/", "-v"], 
                               capture_output=False)

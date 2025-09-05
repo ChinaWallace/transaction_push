@@ -6,7 +6,6 @@ Kronos预测相关的数据模型
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from pydantic import BaseModel, Field
-import pandas as pd
 
 
 class KronosPredictionRequest(BaseModel):

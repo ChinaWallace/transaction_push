@@ -4,12 +4,9 @@
 Signal data models
 """
 
-from sqlalchemy import Column, String, Float, Integer, DateTime, Index, Text, Boolean
+from sqlalchemy import Column, String, Integer, DateTime, Index, Text, Boolean
 from sqlalchemy.dialects.mysql import DECIMAL, JSON
-from decimal import Decimal
-from datetime import datetime
-from typing import Optional, Dict, Any
-import json
+from typing import Dict, Any
 
 from .base import BaseModel, StatusMixin
 

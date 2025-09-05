@@ -5,17 +5,15 @@ Volume Anomaly Detection Service - 检测成交量异常并提供决策权重调
 """
 
 import asyncio
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 from enum import Enum
 import numpy as np
-import pandas as pd
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.services.okx_service import OKXService
-from app.utils.exceptions import TradingToolError
+from app.services.exchanges.exchange_service_manager import get_exchange_service
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -56,7 +54,7 @@ class VolumeAnomalyService:
     def __init__(self):
         self.settings = get_settings()
         self.logger = get_logger(__name__)
-        self.okx_service = OKXService()
+        self.exchange_service = None  # 将在需要时异步初始化
         
         # 异常检测配置
         self.anomaly_config = {
@@ -96,8 +94,12 @@ class VolumeAnomalyService:
             if self._is_cache_valid(cache_key):
                 return self._volume_cache.get(cache_key)
             
+            # 确保交易所服务已初始化
+            if self.exchange_service is None:
+                self.exchange_service = await get_exchange_service()
+            
             # 获取K线数据
-            klines = await self.okx_service.get_kline_data(
+            klines = await self.exchange_service.get_kline_data(
                 symbol=symbol,
                 timeframe='1h',
                 limit=48  # 48小时数据

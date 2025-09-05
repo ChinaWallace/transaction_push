@@ -4,10 +4,9 @@
 Notification data models
 """
 
-from sqlalchemy import Column, String, Integer, DateTime, Text, Boolean, Index
+from sqlalchemy import Column, String, Integer, DateTime, Text, Index
 from sqlalchemy.dialects.mysql import JSON
 from datetime import datetime
-from typing import Dict, Any
 
 from .base import BaseModel, StatusMixin
 

@@ -12,7 +12,7 @@ from typing import List, Dict, Set
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.services.okx_service import OKXService
+from app.services.exchanges.exchange_service_manager import get_exchange_service
 from app.core.config import get_settings
 from app.core.logging import get_logger
 
@@ -23,14 +23,18 @@ class SymbolValidator:
     
     def __init__(self):
         self.settings = get_settings()
-        self.okx_service = OKXService()
+        self.exchange_service = None  # 将在需要时异步初始化
     
     async def validate_symbol(self, symbol: str) -> Dict[str, any]:
         """验证单个交易对"""
         try:
+            # 确保交易所服务已初始化
+            if self.exchange_service is None:
+                self.exchange_service = await get_exchange_service()
+            
             # 尝试获取1小时K线数据，只要1条
-            async with self.okx_service as okx:
-                klines = await okx.get_kline_data(symbol, '1H', limit=1)
+            async with self.exchange_service as exchange:
+                klines = await exchange.get_kline_data(symbol, '1H', limit=1)
                 
                 if klines and len(klines) > 0:
                     return {

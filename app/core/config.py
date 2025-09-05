@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     host: str = Field(default="0.0.0.0", description="服务主机")
     port: int = Field(default=8000, description="服务端口")
     
+    # 交易所选择配置
+    exchange_provider: str = Field(default="okx", description="交易所提供商: okx, binance")
+    
     # 数据库配置
     database_url: str = Field(default="mysql+pymysql://root:8964@localhost:3306/trading_db", description="数据库连接URL")
     database_echo: bool = Field(default=False, description="数据库SQL日志")
@@ -38,10 +41,12 @@ class Settings(BaseSettings):
     db_write_timeout: int = Field(default=30, description="数据库写入超时(秒)")
     
     # 币安API配置
-    binance_api_key: str = Field(default="test_key", description="币安API Key")
-    binance_secret_key: str = Field(default="test_secret", description="币安Secret Key")
+    binance_api_key: str = Field(default="", description="币安API Key")
+    binance_secret_key: str = Field(default="", description="币安Secret Key")
     binance_testnet: bool = Field(default=False, description="是否使用测试网")
     binance_base_url: str = Field(default="https://fapi.binance.com", description="币安API基础URL")
+    binance_websocket_url: str = Field(default="wss://fstream.binance.com/ws/", description="币安WebSocket URL")
+    binance_enable_websocket: bool = Field(default=True, description="是否启用币安WebSocket")
     
     # OKX API配置
     okx_api_key: str = Field(default="", description="OKX API Key")
@@ -394,6 +399,147 @@ class Settings(BaseSettings):
     log_retention: str = Field(default="30 days", description="日志保留")
     log_path: str = Field(default="logs/", description="日志路径")
     
+    # 依赖管理配置
+    dependency_config: Dict[str, Any] = Field(default_factory=lambda: {
+        'enable_dependency_check': True,
+        'check_interval_minutes': 60,  # 每小时检查一次依赖状态
+        'auto_install_missing': False,  # 是否自动安装缺失依赖
+        'required_dependencies': [
+            'pandas', 'numpy', 'aiohttp', 'fastapi', 'pydantic',
+            'sqlalchemy', 'pymysql', 'redis', 'asyncio'
+        ],
+        'optional_dependencies': [
+            'torch', 'transformers', 'scikit-learn', 'joblib',
+            'ta-lib', 'ccxt', 'websockets', 'plotly'
+        ],
+        'kronos_dependencies': [
+            'torch', 'transformers', 'tokenizers', 'accelerate'
+        ],
+        'fallback_config': {
+            'enable_fallback_mode': True,
+            'fallback_timeout_seconds': 30,
+            'max_fallback_attempts': 3,
+            'fallback_services': ['basic_analysis', 'simple_prediction']
+        },
+        'version_constraints': {
+            'torch': '>=1.9.0',
+            'transformers': '>=4.20.0',
+            'pandas': '>=1.3.0',
+            'numpy': '>=1.21.0',
+            'fastapi': '>=0.68.0'
+        },
+        'installation_config': {
+            'pip_index_url': 'https://pypi.org/simple/',
+            'pip_extra_index_urls': ['https://download.pytorch.org/whl/cpu'],
+            'pip_timeout': 300,
+            'pip_retries': 3
+        }
+    }, description="依赖管理配置 - 自动检查、验证和管理系统依赖")
+    
+    # 服务初始化配置
+    service_config: Dict[str, Any] = Field(default_factory=lambda: {
+        'initialization_timeout': 120,  # 服务初始化超时时间(秒)
+        'startup_retry_attempts': 3,    # 启动重试次数
+        'startup_retry_delay': 5,       # 重试延迟(秒)
+        'graceful_shutdown_timeout': 30,  # 优雅关闭超时(秒)
+        'health_check_interval': 60,    # 健康检查间隔(秒)
+        'service_priorities': {
+            'core': ['config', 'logging', 'database'],
+            'essential': ['exchange_factory', 'data_service'],
+            'analysis': ['indicator_service', 'prediction_service'],
+            'optional': ['kronos_service', 'notification_service']
+        },
+        'failure_handling': {
+            'continue_on_optional_failure': True,
+            'max_failed_services': 2,  # 最多允许2个非核心服务失败
+            'enable_service_recovery': True,
+            'recovery_check_interval': 300,  # 5分钟检查一次恢复
+            'auto_restart_failed_services': True
+        },
+        'resource_limits': {
+            'max_memory_mb': 2048,      # 最大内存使用(MB)
+            'max_cpu_percent': 80,      # 最大CPU使用率
+            'max_concurrent_tasks': 50,  # 最大并发任务数
+            'connection_pool_size': 100  # 连接池大小
+        }
+    }, description="服务初始化和管理配置 - 控制服务启动、健康检查和故障恢复")
+    
+    # 回退服务配置
+    fallback_config: Dict[str, Any] = Field(default_factory=lambda: {
+        'enable_fallback_services': True,
+        'fallback_timeout': 30,  # 回退服务超时(秒)
+        'prediction_fallback': {
+            'enable': True,
+            'method': 'simple_technical_analysis',  # 简单技术分析作为回退
+            'indicators': ['sma', 'ema', 'rsi', 'macd'],
+            'confidence_penalty': 0.3,  # 回退预测置信度惩罚
+            'cache_duration_minutes': 15
+        },
+        'data_fallback': {
+            'enable': True,
+            'use_cached_data': True,
+            'max_cache_age_minutes': 30,
+            'fallback_exchanges': ['okx', 'binance'],  # 备用交易所
+            'retry_original_after_minutes': 10
+        },
+        'notification_fallback': {
+            'enable': True,
+            'fallback_channels': ['console', 'file'],  # 备用通知渠道
+            'log_failed_notifications': True
+        },
+        'analysis_fallback': {
+            'enable': True,
+            'use_basic_indicators': True,
+            'disable_advanced_features': True,
+            'simplified_signals': True
+        }
+    }, description="回退服务配置 - 当主要服务不可用时的备用方案")
+    
+    # API增强错误处理配置
+    api_error_handling_config: Dict[str, Any] = Field(default_factory=lambda: {
+        'enable_enhanced_error_handling': True,
+        'max_retry_attempts': 5,
+        'base_retry_delay': 1.0,  # 基础重试延迟(秒)
+        'max_retry_delay': 60.0,  # 最大重试延迟(秒)
+        'exponential_backoff_factor': 2.0,
+        'jitter_enabled': True,   # 启用抖动避免雷群效应
+        'circuit_breaker': {
+            'enable': True,
+            'failure_threshold': 5,    # 失败阈值
+            'recovery_timeout': 60,    # 恢复超时(秒)
+            'half_open_max_calls': 3   # 半开状态最大调用数
+        },
+        'rate_limiting': {
+            'enable': True,
+            'requests_per_second': 10,
+            'burst_size': 20,
+            'adaptive_rate_limiting': True
+        },
+        'timeout_config': {
+            'connect_timeout': 10,
+            'read_timeout': 30,
+            'total_timeout': 60,
+            'adaptive_timeout': True,  # 自适应超时
+            'timeout_multiplier': 1.5
+        },
+        'error_classification': {
+            'retryable_errors': [
+                'ConnectionError', 'TimeoutError', 'HTTPError_5xx',
+                'RateLimitError', 'TemporaryUnavailable'
+            ],
+            'non_retryable_errors': [
+                'AuthenticationError', 'InvalidParameterError',
+                'HTTPError_4xx', 'ValidationError'
+            ]
+        },
+        'monitoring': {
+            'track_error_rates': True,
+            'alert_on_high_error_rate': True,
+            'error_rate_threshold': 0.1,  # 10%错误率阈值
+            'alert_cooldown_minutes': 15
+        }
+    }, description="API增强错误处理配置 - 重试、熔断、限流和监控")
+    
     model_config = SettingsConfigDict(
         env_file=".env",
         env_ignore_empty=True,  # 忽略空的env文件
@@ -417,10 +563,75 @@ class Settings(BaseSettings):
             os.makedirs(v, exist_ok=True)
         return v
     
+    @validator("exchange_provider")
+    def validate_exchange_provider(cls, v):
+        """验证交易所提供商"""
+        valid_exchanges = ["okx", "binance"]
+        if v.lower() not in valid_exchanges:
+            raise ValueError(f"Exchange provider must be one of {valid_exchanges}")
+        return v.lower()
+    
+    @validator("binance_api_key")
+    def validate_binance_api_key(cls, v, values):
+        """验证币安API Key"""
+        exchange_provider = values.get("exchange_provider", "okx")
+        if exchange_provider == "binance" and not v:
+            raise ValueError("Binance API key is required when exchange_provider is 'binance'")
+        return v
+    
+    @validator("binance_secret_key")
+    def validate_binance_secret_key(cls, v, values):
+        """验证币安Secret Key"""
+        exchange_provider = values.get("exchange_provider", "okx")
+        if exchange_provider == "binance" and not v:
+            raise ValueError("Binance secret key is required when exchange_provider is 'binance'")
+        return v
+    
+    @validator("okx_api_key")
+    def validate_okx_api_key(cls, v, values):
+        """验证OKX API Key"""
+        exchange_provider = values.get("exchange_provider", "okx")
+        if exchange_provider == "okx" and not v:
+            raise ValueError("OKX API key is required when exchange_provider is 'okx'")
+        return v
+    
+    @validator("okx_secret_key")
+    def validate_okx_secret_key(cls, v, values):
+        """验证OKX Secret Key"""
+        exchange_provider = values.get("exchange_provider", "okx")
+        if exchange_provider == "okx" and not v:
+            raise ValueError("OKX secret key is required when exchange_provider is 'okx'")
+        return v
+    
+    @validator("okx_passphrase")
+    def validate_okx_passphrase(cls, v, values):
+        """验证OKX Passphrase"""
+        exchange_provider = values.get("exchange_provider", "okx")
+        if exchange_provider == "okx" and not v:
+            raise ValueError("OKX passphrase is required when exchange_provider is 'okx'")
+        return v
+    
     @property
     def is_development(self) -> bool:
         """是否为开发环境"""
         return self.debug
+    
+    def validate_exchange_config(self) -> bool:
+        """验证交易所配置是否完整"""
+        if self.exchange_provider == "okx":
+            return bool(self.okx_api_key and self.okx_secret_key and self.okx_passphrase)
+        elif self.exchange_provider == "binance":
+            return bool(self.binance_api_key and self.binance_secret_key)
+        return False
+    
+    def get_active_exchange_config(self) -> dict:
+        """获取当前激活的交易所配置"""
+        if self.exchange_provider == "okx":
+            return self.okx_config
+        elif self.exchange_provider == "binance":
+            return self.binance_config
+        else:
+            raise ValueError(f"Unsupported exchange provider: {self.exchange_provider}")
     
     @property
     def database_config(self) -> dict:
@@ -448,6 +659,17 @@ class Settings(BaseSettings):
             "secret_key": self.binance_secret_key,
             "testnet": self.binance_testnet,
             "base_url": self.binance_base_url,
+            "enable_websocket": self.binance_enable_websocket,
+            "websocket_config": {
+                "websocket_url": self.binance_websocket_url,
+                "reconnect_interval": 5,
+                "max_reconnect_attempts": 10,
+                "ping_interval": 20,
+                "connection_timeout": 30,
+                "enable_compression": False,
+                "enable_auto_reconnect": True,
+                "heartbeat_interval": 20
+            }
         }
     
     @property

@@ -4,11 +4,10 @@
 Trend analysis API routes
 """
 
-from fastapi import APIRouter, HTTPException, Query, Body
-from typing import List, Dict, Any, Optional
-from datetime import datetime
+from fastapi import APIRouter, HTTPException, Query
+from typing import Dict, Any
 
-from app.services.trend_analysis_service import TrendAnalysisService
+from app.services.analysis.trend_analysis_service import TrendAnalysisService
 from app.core.logging import get_logger
 from app.schemas.trend import TrendAnalysisRequest, TrendAnalysisResponse, BatchAnalysisRequest
 

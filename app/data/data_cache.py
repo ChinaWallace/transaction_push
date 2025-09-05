@@ -8,7 +8,7 @@ import asyncio
 import pickle
 import gzip
 import hashlib
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 import pandas as pd
 import os

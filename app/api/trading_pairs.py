@@ -5,11 +5,11 @@
 Trading Pairs Management API
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query
-from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, HTTPException, Query
+from typing import Optional
 from datetime import datetime
 
-from app.services.trading_pair_service import TradingPairService
+from app.services.trading.trading_pair_service import TradingPairService
 from app.schemas.base import BaseResponse
 from app.core.logging import get_logger
 

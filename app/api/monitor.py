@@ -4,8 +4,8 @@
 Monitor service API routes
 """
 
-from fastapi import APIRouter, HTTPException, Query, Body
-from typing import Dict, Any, List, Optional
+from fastapi import APIRouter, HTTPException, Query
+from typing import Dict, Any, Optional
 
 from app.core.logging import get_logger
 from app.services.monitor_service import MonitorService
@@ -177,7 +177,7 @@ async def run_comprehensive_monitoring(
 async def test_notifications():
     """测试所有通知渠道"""
     try:
-        from app.services.notification_service import NotificationService
+        from app.services.notification.notification_service import NotificationService
         
         notification_service = NotificationService()
         results = await notification_service.test_notifications()

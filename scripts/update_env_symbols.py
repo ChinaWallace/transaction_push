@@ -13,7 +13,7 @@ import re
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.services.okx_service import OKXService
+from app.services.exchanges.exchange_service_manager import get_exchange_service
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -22,10 +22,10 @@ logger = get_logger(__name__)
 async def get_all_okx_swap_symbols():
     """获取OKX所有永续合约币种"""
     try:
-        okx_service = OKXService()
+        exchange_service = await get_exchange_service()
         
         # 获取所有活跃的永续合约
-        symbols = await okx_service.get_active_symbols(inst_type='SWAP')
+        symbols = await exchange_service.get_active_symbols(inst_type='SWAP')
         
         # 过滤出USDT永续合约
         usdt_swaps = [symbol for symbol in symbols if symbol.endswith('-USDT-SWAP')]

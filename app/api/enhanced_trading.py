@@ -5,14 +5,14 @@ Enhanced Trading Analysis API - 集成交易量异常、持仓量变动和动态
 """
 
 from fastapi import APIRouter, HTTPException, Query
-from typing import List, Dict, Any, Optional
+from typing import List
 from datetime import datetime
 
 from app.core.logging import get_logger
-from app.services.core_trading_service import get_core_trading_service, AnalysisType
+from app.services.trading.core_trading_service import get_core_trading_service, AnalysisType
 from app.services.volume_anomaly_service import get_volume_anomaly_service
-from app.services.open_interest_analysis_service import get_oi_analysis_service
-from app.services.dynamic_weight_service import get_dynamic_weight_service
+from app.services.analysis.open_interest_analysis_service import get_oi_analysis_service
+from app.services.core.dynamic_weight_service import get_dynamic_weight_service
 
 logger = get_logger(__name__)
 router = APIRouter()

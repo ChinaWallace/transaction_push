@@ -4,8 +4,8 @@ Kronos高级机会API
 提供高级的Kronos机会分析功能
 """
 
-from fastapi import APIRouter, HTTPException, Query
-from typing import List, Optional, Dict, Any
+from fastapi import APIRouter, HTTPException
+from typing import Dict, Any
 from datetime import datetime
 
 from app.core.logging import get_logger

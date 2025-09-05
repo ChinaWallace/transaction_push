@@ -5,8 +5,6 @@ Formatting utility functions
 """
 
 from typing import Any, Dict
-from decimal import Decimal
-from datetime import datetime
 
 
 def format_currency(amount: float, currency: str = "USDT", decimals: int = 4) -> str:

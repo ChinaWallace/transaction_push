@@ -5,17 +5,15 @@ Backtesting API endpoints
 """
 
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query, Body, BackgroundTasks
 from pydantic import BaseModel, Field, validator
-import asyncio
 import uuid
 
 from app.core.logging import get_logger
-from app.services.backtest_service_complete import (
+from app.services.backtest.backtest_service_complete import (
     CompleteBacktestService, 
     StrategyParameter, 
-    OptimizationMethod,
     RiskManagementConfig,
     PortfolioConfig
 )

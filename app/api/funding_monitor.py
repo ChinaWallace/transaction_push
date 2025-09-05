@@ -6,7 +6,6 @@ Negative Funding Rate Monitor API
 """
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
-from typing import List, Dict, Any
 from datetime import datetime
 import asyncio
 

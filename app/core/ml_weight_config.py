@@ -4,7 +4,7 @@
 ML Weight Configuration Management
 """
 
-from typing import Dict, Any
+from typing import Dict
 from enum import Enum
 from app.core.logging import get_logger
 

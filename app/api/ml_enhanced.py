@@ -6,13 +6,13 @@ ML Enhanced API endpoints for prediction, anomaly detection and optimization
 
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from app.core.logging import get_logger
 from app.core.config import get_settings
 from app.core.ml_weight_config import get_ml_weight_config
-from app.services.ml_enhanced_service import MLEnhancedService, PredictionSignal, AnomalyType
+from app.services.ml.ml_enhanced_service import MLEnhancedService
 from app.schemas.base import BaseResponse
 
 logger = get_logger(__name__)
@@ -367,7 +367,7 @@ async def get_strategy_overview(symbol: str) -> StrategyOverviewResponse:
     """
     try:
         # 导入其他服务
-        from app.services.trend_analysis_service import TrendAnalysisService
+        from app.services.analysis.trend_analysis_service import TrendAnalysisService
         from app.services.binance_service import BinanceService
         
         trend_service = TrendAnalysisService()

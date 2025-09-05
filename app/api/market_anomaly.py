@@ -5,13 +5,13 @@ Market Anomaly Monitoring API
 """
 
 from fastapi import APIRouter, HTTPException, Query
-from typing import List, Dict, Any, Optional
+from typing import Optional
 from datetime import datetime
 
 from app.core.logging import get_logger
 from app.services.market_anomaly_monitor_service import get_market_anomaly_service
 from app.schemas.market_anomaly import (
-    MarketAnomalyRequest, MarketAnomalyResponse, AnomalyLevel, AnomalyType
+    MarketAnomalyResponse, AnomalyLevel, AnomalyType
 )
 
 logger = get_logger(__name__)

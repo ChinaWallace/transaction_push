@@ -413,7 +413,7 @@ def calculate_support_resistance(
         # 提取价格数据
         highs = [float(k.get('high', k.get('high_price', 0))) for k in klines]
         lows = [float(k.get('low', k.get('low_price', 0))) for k in klines]
-        closes = [float(k.get('close', k.get('close_price', 0))) for k in klines]
+        [float(k.get('close', k.get('close_price', 0))) for k in klines]
         
         # 寻找局部高点和低点
         local_highs = []
@@ -475,6 +475,327 @@ def calculate_support_resistance(
     except Exception as e:
         logger.error(f"Support/Resistance calculation failed: {e}")
         return {'support_levels': [], 'resistance_levels': []}
+
+
+class MovingAverageIndicator:
+    """移动平均线指标计算器 - Moving Average Indicator"""
+    
+    def __init__(self, period: int = 20, ma_type: str = 'sma'):
+        """
+        初始化移动平均线指标
+        Initialize Moving Average Indicator
+        
+        Args:
+            period: 计算周期 / Calculation period
+            ma_type: 移动平均类型 ('sma' 或 'ema') / MA type ('sma' or 'ema')
+        """
+        if period <= 0:
+            raise ValueError("📊 移动平均周期必须大于0 / Period must be greater than 0")
+        if ma_type not in ['sma', 'ema']:
+            raise ValueError("📊 移动平均类型必须是 'sma' 或 'ema' / MA type must be 'sma' or 'ema'")
+            
+        self.period = period
+        self.ma_type = ma_type
+        logger.debug(f"🔍 初始化移动平均指标: 周期={period}, 类型={ma_type}")
+    
+    def calculate(self, prices: List[float]) -> List[Optional[float]]:
+        """
+        计算移动平均线
+        Calculate moving average
+        
+        Args:
+            prices: 价格列表 / Price list
+            
+        Returns:
+            移动平均值列表 / Moving average values list
+        """
+        try:
+            if not prices:
+                logger.warning("⚠️ 价格数据为空")
+                return []
+            
+            if len(prices) < self.period:
+                logger.warning(f"⚠️ 数据长度不足: {len(prices)} < {self.period}")
+                return [None] * len(prices)
+            
+            if self.ma_type == 'sma':
+                return self.calculate_sma(prices)
+            else:
+                return self.calculate_ema(prices)
+                
+        except Exception as e:
+            logger.error(f"❌ 移动平均计算失败: {e}")
+            raise IndicatorCalculationError(f"Moving average calculation failed: {e}")
+    
+    def calculate_sma(self, prices: List[float]) -> List[Optional[float]]:
+        """
+        计算简单移动平均线 (SMA)
+        Calculate Simple Moving Average
+        """
+        sma_values = [None] * (self.period - 1)
+        
+        for i in range(self.period - 1, len(prices)):
+            window = prices[i - self.period + 1:i + 1]
+            sma = sum(window) / len(window)
+            sma_values.append(sma)
+        
+        logger.debug(f"🔍 SMA计算完成: {len([v for v in sma_values if v is not None])}个有效值")
+        return sma_values
+    
+    def calculate_ema(self, prices: List[float]) -> List[Optional[float]]:
+        """
+        计算指数移动平均线 (EMA)
+        Calculate Exponential Moving Average
+        """
+        ema_values = [None] * (self.period - 1)
+        
+        # 第一个EMA值使用SMA
+        sma = sum(prices[:self.period]) / self.period
+        ema_values.append(sma)
+        
+        # 计算后续EMA值
+        multiplier = 2 / (self.period + 1)
+        for i in range(self.period, len(prices)):
+            ema = (prices[i] * multiplier) + (ema_values[-1] * (1 - multiplier))
+            ema_values.append(ema)
+        
+        logger.debug(f"🔍 EMA计算完成: {len([v for v in ema_values if v is not None])}个有效值")
+        return ema_values
+
+
+class BollingerBandsIndicator:
+    """布林带指标计算器 - Bollinger Bands Indicator"""
+    
+    def __init__(self, period: int = 20, std_dev: float = 2.0):
+        """
+        初始化布林带指标
+        Initialize Bollinger Bands Indicator
+        
+        Args:
+            period: 计算周期 / Calculation period
+            std_dev: 标准差倍数 / Standard deviation multiplier
+        """
+        if period <= 0:
+            raise ValueError("📊 布林带周期必须大于0 / Period must be greater than 0")
+        if std_dev <= 0:
+            raise ValueError("📊 标准差倍数必须大于0 / Standard deviation multiplier must be greater than 0")
+            
+        self.period = period
+        self.std_dev = std_dev
+        logger.debug(f"🔍 初始化布林带指标: 周期={period}, 标准差倍数={std_dev}")
+    
+    def calculate(self, prices: List[float]) -> Dict[str, List[Optional[float]]]:
+        """
+        计算布林带
+        Calculate Bollinger Bands
+        
+        Args:
+            prices: 价格列表 / Price list
+            
+        Returns:
+            包含上轨、中轨、下轨的字典 / Dict with upper, middle, lower bands
+        """
+        try:
+            if not prices:
+                logger.warning("⚠️ 价格数据为空")
+                return {'upper': [], 'middle': [], 'lower': []}
+            
+            if len(prices) < self.period:
+                logger.warning(f"⚠️ 数据长度不足: {len(prices)} < {self.period}")
+                null_list = [None] * len(prices)
+                return {'upper': null_list, 'middle': null_list, 'lower': null_list}
+            
+            # 计算中轨（SMA）
+            ma_indicator = MovingAverageIndicator(self.period, 'sma')
+            middle_band = ma_indicator.calculate(prices)
+            
+            # 计算上轨和下轨
+            upper_band = [None] * (self.period - 1)
+            lower_band = [None] * (self.period - 1)
+            
+            for i in range(self.period - 1, len(prices)):
+                window = prices[i - self.period + 1:i + 1]
+                
+                # 计算标准差
+                mean = sum(window) / len(window)
+                variance = sum((x - mean) ** 2 for x in window) / len(window)
+                std = variance ** 0.5
+                
+                # 计算上下轨
+                upper_band.append(middle_band[i] + (self.std_dev * std))
+                lower_band.append(middle_band[i] - (self.std_dev * std))
+            
+            logger.info(f"✅ 布林带计算完成: {len([v for v in middle_band if v is not None])}个有效值")
+            
+            return {
+                'upper': upper_band,
+                'middle': middle_band,
+                'lower': lower_band
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ 布林带计算失败: {e}")
+            raise IndicatorCalculationError(f"Bollinger Bands calculation failed: {e}")
+
+
+class StochasticIndicator:
+    """随机指标计算器 - Stochastic Oscillator"""
+    
+    def __init__(self, k_period: int = 14, d_period: int = 3, smooth_k: int = 3):
+        """
+        初始化随机指标
+        Initialize Stochastic Oscillator
+        
+        Args:
+            k_period: %K计算周期 / %K calculation period
+            d_period: %D平滑周期 / %D smoothing period  
+            smooth_k: %K平滑周期 / %K smoothing period
+        """
+        if k_period <= 0 or d_period <= 0 or smooth_k <= 0:
+            raise ValueError("📊 所有周期参数必须大于0 / All period parameters must be greater than 0")
+            
+        self.k_period = k_period
+        self.d_period = d_period
+        self.smooth_k = smooth_k
+        logger.debug(f"🔍 初始化随机指标: K周期={k_period}, D周期={d_period}, K平滑={smooth_k}")
+    
+    def calculate(self, high: List[float], low: List[float], close: List[float]) -> Dict[str, List[Optional[float]]]:
+        """
+        计算随机指标
+        Calculate Stochastic Oscillator
+        
+        Args:
+            high: 最高价列表 / High prices list
+            low: 最低价列表 / Low prices list
+            close: 收盘价列表 / Close prices list
+            
+        Returns:
+            包含%K和%D的字典 / Dict with %K and %D values
+        """
+        try:
+            if len(high) != len(low) or len(low) != len(close):
+                raise ValueError("❌ OHLC数据长度不一致 / OHLC data length mismatch")
+            
+            if not high or len(high) < self.k_period:
+                logger.warning(f"⚠️ 数据长度不足: {len(high) if high else 0} < {self.k_period}")
+                null_list = [None] * len(high) if high else []
+                return {'%K': null_list, '%D': null_list}
+            
+            # 计算原始%K值
+            raw_k = [None] * (self.k_period - 1)
+            
+            for i in range(self.k_period - 1, len(close)):
+                # 获取周期内的最高价和最低价
+                period_high = max(high[i - self.k_period + 1:i + 1])
+                period_low = min(low[i - self.k_period + 1:i + 1])
+                
+                # 计算%K
+                if period_high != period_low:
+                    k_value = ((close[i] - period_low) / (period_high - period_low)) * 100
+                else:
+                    k_value = 50  # 当最高价等于最低价时，设为中性值
+                
+                raw_k.append(k_value)
+            
+            # 平滑%K值
+            if self.smooth_k > 1:
+                k_values = [None] * (len(raw_k) - len([v for v in raw_k if v is not None]) + self.smooth_k - 1)
+                
+                valid_k_start = next(i for i, v in enumerate(raw_k) if v is not None)
+                for i in range(valid_k_start + self.smooth_k - 1, len(raw_k)):
+                    window = [raw_k[j] for j in range(i - self.smooth_k + 1, i + 1) if raw_k[j] is not None]
+                    if len(window) == self.smooth_k:
+                        k_values.append(sum(window) / len(window))
+                    else:
+                        k_values.append(None)
+                
+                # 补齐长度
+                while len(k_values) < len(raw_k):
+                    k_values.append(None)
+            else:
+                k_values = raw_k
+            
+            # 计算%D值（%K的移动平均）
+            d_values = [None] * len(k_values)
+            
+            valid_k_indices = [i for i, v in enumerate(k_values) if v is not None]
+            if len(valid_k_indices) >= self.d_period:
+                for i in range(valid_k_indices[self.d_period - 1], len(k_values)):
+                    window = [k_values[j] for j in range(i - self.d_period + 1, i + 1) if k_values[j] is not None]
+                    if len(window) == self.d_period:
+                        d_values[i] = sum(window) / len(window)
+            
+            logger.info(f"✅ 随机指标计算完成: %K有{len([v for v in k_values if v is not None])}个有效值")
+            
+            return {
+                '%K': k_values,
+                '%D': d_values
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ 随机指标计算失败: {e}")
+            raise IndicatorCalculationError(f"Stochastic calculation failed: {e}")
+
+
+class WilliamsRIndicator:
+    """威廉指标计算器 - Williams %R Indicator"""
+    
+    def __init__(self, period: int = 14):
+        """
+        初始化威廉指标
+        Initialize Williams %R Indicator
+        
+        Args:
+            period: 计算周期 / Calculation period
+        """
+        if period <= 0:
+            raise ValueError("📊 威廉指标周期必须大于0 / Period must be greater than 0")
+            
+        self.period = period
+        logger.debug(f"🔍 初始化威廉指标: 周期={period}")
+    
+    def calculate(self, high: List[float], low: List[float], close: List[float]) -> List[Optional[float]]:
+        """
+        计算威廉指标 %R
+        Calculate Williams %R
+        
+        Args:
+            high: 最高价列表 / High prices list
+            low: 最低价列表 / Low prices list
+            close: 收盘价列表 / Close prices list
+            
+        Returns:
+            威廉指标值列表 / Williams %R values list
+        """
+        try:
+            if len(high) != len(low) or len(low) != len(close):
+                raise ValueError("❌ OHLC数据长度不一致 / OHLC data length mismatch")
+            
+            if not high or len(high) < self.period:
+                logger.warning(f"⚠️ 数据长度不足: {len(high) if high else 0} < {self.period}")
+                return [None] * len(high) if high else []
+            
+            williams_r = [None] * (self.period - 1)
+            
+            for i in range(self.period - 1, len(close)):
+                # 获取周期内的最高价和最低价
+                period_high = max(high[i - self.period + 1:i + 1])
+                period_low = min(low[i - self.period + 1:i + 1])
+                
+                # 计算Williams %R
+                if period_high != period_low:
+                    wr_value = ((period_high - close[i]) / (period_high - period_low)) * -100
+                else:
+                    wr_value = -50  # 当最高价等于最低价时，设为中性值
+                
+                williams_r.append(wr_value)
+            
+            logger.info(f"✅ 威廉指标计算完成: {len([v for v in williams_r if v is not None])}个有效值")
+            return williams_r
+            
+        except Exception as e:
+            logger.error(f"❌ 威廉指标计算失败: {e}")
+            raise IndicatorCalculationError(f"Williams %R calculation failed: {e}")
 
 
 class MACDIndicator:
@@ -558,3 +879,151 @@ class MACDIndicator:
         except Exception as e:
             logger.error(f"MACD calculation failed: {e}")
             raise IndicatorCalculationError(f"MACD calculation failed: {e}")
+
+
+class IndicatorFactory:
+    """指标工厂类 - Indicator Factory for centralized indicator creation"""
+    
+    @staticmethod
+    def create_indicator(indicator_type: str, **kwargs) -> Any:
+        """
+        创建指标实例
+        Create indicator instance
+        
+        Args:
+            indicator_type: 指标类型 / Indicator type
+            **kwargs: 指标参数 / Indicator parameters
+            
+        Returns:
+            指标实例 / Indicator instance
+        """
+        try:
+            indicator_map = {
+                'ma': MovingAverageIndicator,
+                'moving_average': MovingAverageIndicator,
+                'bollinger': BollingerBandsIndicator,
+                'bollinger_bands': BollingerBandsIndicator,
+                'stochastic': StochasticIndicator,
+                'stoch': StochasticIndicator,
+                'williams_r': WilliamsRIndicator,
+                'williams': WilliamsRIndicator,
+                'wr': WilliamsRIndicator,
+                'macd': MACDIndicator,
+                'rsi': RSIIndicator,
+                'supertrend': SuperTrendIndicator,
+                'volume': VolumeIndicator
+            }
+            
+            indicator_type_lower = indicator_type.lower()
+            
+            if indicator_type_lower not in indicator_map:
+                available_types = ', '.join(indicator_map.keys())
+                raise ValueError(f"❌ 不支持的指标类型: {indicator_type}. 可用类型: {available_types}")
+            
+            indicator_class = indicator_map[indicator_type_lower]
+            
+            # 对于静态方法类（如VolumeIndicator），直接返回类
+            if indicator_type_lower == 'volume':
+                logger.info(f"✅ 创建成交量指标实例")
+                return indicator_class
+            
+            # 创建指标实例
+            indicator = indicator_class(**kwargs)
+            logger.info(f"✅ 创建{indicator_type}指标实例: {kwargs}")
+            
+            return indicator
+            
+        except Exception as e:
+            logger.error(f"❌ 指标创建失败: {indicator_type} - {e}")
+            raise IndicatorCalculationError(f"Indicator creation failed: {e}")
+    
+    @staticmethod
+    def get_available_indicators() -> List[str]:
+        """
+        获取可用指标列表
+        Get available indicators list
+        
+        Returns:
+            可用指标类型列表 / Available indicator types list
+        """
+        return [
+            'ma', 'moving_average',
+            'bollinger', 'bollinger_bands', 
+            'stochastic', 'stoch',
+            'williams_r', 'williams', 'wr',
+            'macd', 'rsi', 'supertrend', 'volume'
+        ]
+    
+    @staticmethod
+    def get_indicator_info(indicator_type: str) -> Dict[str, Any]:
+        """
+        获取指标信息
+        Get indicator information
+        
+        Args:
+            indicator_type: 指标类型 / Indicator type
+            
+        Returns:
+            指标信息字典 / Indicator information dict
+        """
+        info_map = {
+            'ma': {
+                'name': '移动平均线 / Moving Average',
+                'description': '计算简单移动平均(SMA)或指数移动平均(EMA)',
+                'parameters': {'period': 'int', 'ma_type': 'str (sma/ema)'}
+            },
+            'bollinger': {
+                'name': '布林带 / Bollinger Bands', 
+                'description': '基于移动平均和标准差的统计指标',
+                'parameters': {'period': 'int', 'std_dev': 'float'}
+            },
+            'stochastic': {
+                'name': '随机指标 / Stochastic Oscillator',
+                'description': '动量震荡指标，显示价格相对于一定周期内价格范围的位置',
+                'parameters': {'k_period': 'int', 'd_period': 'int', 'smooth_k': 'int'}
+            },
+            'williams_r': {
+                'name': '威廉指标 / Williams %R',
+                'description': '动量指标，衡量收盘价在一定周期内价格范围中的位置',
+                'parameters': {'period': 'int'}
+            },
+            'macd': {
+                'name': 'MACD指标 / MACD',
+                'description': '趋势跟踪动量指标',
+                'parameters': {'fast_period': 'int', 'slow_period': 'int', 'signal_period': 'int'}
+            },
+            'rsi': {
+                'name': 'RSI指标 / RSI',
+                'description': '相对强弱指标，衡量价格变动的速度和变化',
+                'parameters': {'period': 'int'}
+            },
+            'supertrend': {
+                'name': 'SuperTrend指标 / SuperTrend',
+                'description': '趋势跟踪指标，基于ATR计算',
+                'parameters': {'period': 'int', 'multiplier': 'float'}
+            },
+            'volume': {
+                'name': '成交量指标 / Volume Indicators',
+                'description': '成交量相关分析指标',
+                'parameters': {'periods': 'int', 'threshold_multiplier': 'float'}
+            }
+        }
+        
+        indicator_type_lower = indicator_type.lower()
+        # 处理别名
+        alias_map = {
+            'moving_average': 'ma',
+            'bollinger_bands': 'bollinger',
+            'stoch': 'stochastic', 
+            'williams': 'williams_r',
+            'wr': 'williams_r'
+        }
+        
+        if indicator_type_lower in alias_map:
+            indicator_type_lower = alias_map[indicator_type_lower]
+        
+        return info_map.get(indicator_type_lower, {
+            'name': f'未知指标 / Unknown Indicator: {indicator_type}',
+            'description': '指标信息不可用',
+            'parameters': {}
+        })

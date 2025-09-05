@@ -5,15 +5,13 @@ Kronos集成API
 """
 
 from fastapi import APIRouter, HTTPException, Query
-from typing import List, Optional, Dict, Any
+from typing import Dict, Any
 from datetime import datetime
 
 from app.core.logging import get_logger
-from app.services.kronos_integrated_decision_service import (
-    get_kronos_integrated_service,
-    KronosEnhancedDecision
+from app.services.ml.kronos_integrated_decision_service import (
+    get_kronos_integrated_service
 )
-from app.utils.exceptions import TradingToolError
 
 router = APIRouter(prefix="/kronos-integrated", tags=["Kronos集成"])
 logger = get_logger(__name__)
@@ -104,7 +102,7 @@ async def batch_analysis(
 async def get_service_status() -> Dict[str, Any]:
     """获取服务状态"""
     try:
-        service = await get_kronos_integrated_service()
+        await get_kronos_integrated_service()
         
         return {
             "success": True,

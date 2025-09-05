@@ -5,19 +5,17 @@ Binance API service for fetching market data
 """
 
 import asyncio
-import aiohttp
 import time
 import hmac
 import hashlib
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional, Union
+from datetime import datetime
 import pandas as pd
 from decimal import Decimal
 
 from app.core.config import get_settings
 from app.core.logging import get_logger, trading_logger
-from app.models.market_data import KlineData, FundingRate, OpenInterest, VolumeData
-from app.utils.http_manager import get_http_manager, safe_http_request
+from app.utils.http_manager import get_http_manager
 from app.utils.exceptions import BinanceAPIError, RateLimitError
 
 logger = get_logger(__name__)
@@ -25,7 +23,38 @@ settings = get_settings()
 
 
 class BinanceService:
-    """币安API服务类"""
+    """
+    币安API服务类
+    Binance API service class
+    
+    数据适配说明 / Data Adaptation Notes:
+    =====================================
+    
+    此服务类现在提供两套方法：
+    This service class now provides two sets of methods:
+    
+    1. 传统方法（向后兼容）/ Legacy Methods (Backward Compatible):
+       - get_exchange_info(): 获取交易所信息
+       - get_active_symbols(): 获取活跃交易对列表
+       - get_24hr_ticker(): 获取24小时ticker数据
+       - get_funding_rate(): 获取资金费率数据
+       - 这些方法保持原有的数据格式和行为，确保现有代码正常工作
+       
+    2. 原始数据方法（用于适配器）/ Raw Data Methods (For Adapters):
+       - get_raw_instruments(): 获取原始交易对数据
+       - get_raw_ticker(): 获取原始ticker数据
+       - get_raw_funding_rate(): 获取原始资金费率数据
+       - 这些方法返回未转换的币安原生数据格式，供数据适配器使用
+    
+    迁移策略 / Migration Strategy:
+    =============================
+    
+    现有业务服务应逐步迁移到使用混合服务（HybridService），
+    混合服务内部使用原始数据方法和适配器来提供统一格式的数据。
+    
+    Existing business services should gradually migrate to use HybridService,
+    which internally uses raw data methods and adapters to provide unified format data.
+    """
     
     def __init__(self):
         self.api_key = settings.binance_api_key
@@ -110,7 +139,16 @@ class BinanceService:
             raise BinanceAPIError(f"API request failed: {e}")
     
     async def get_exchange_info(self) -> dict:
-        """获取交易所信息"""
+        """
+        获取交易所信息
+        Get exchange information
+        
+        Note: 此方法保持向后兼容性。如需原始数据，请使用 get_raw_instruments()
+        This method maintains backward compatibility. Use get_raw_instruments() for raw data.
+        
+        Returns:
+            dict: 交易所信息 / Exchange information
+        """
         try:
             data = await self._make_request("/fapi/v1/exchangeInfo")
             trading_logger.info("Retrieved exchange info successfully")
@@ -120,7 +158,16 @@ class BinanceService:
             raise
     
     async def get_active_symbols(self) -> List[str]:
-        """获取活跃的交易对列表"""
+        """
+        获取活跃的交易对列表
+        Get active trading symbols list
+        
+        Note: 此方法保持向后兼容性，返回币安原生格式符号（如BTCUSDT）
+        This method maintains backward compatibility, returns Binance native format symbols (e.g., BTCUSDT)
+        
+        Returns:
+            List[str]: 活跃交易对符号列表 / List of active trading symbols
+        """
         try:
             exchange_info = await self.get_exchange_info()
             symbols = []
@@ -222,7 +269,22 @@ class BinanceService:
             return None
     
     async def get_funding_rate(self, symbol: Optional[str] = None, limit: int = 100) -> List[dict]:
-        """获取资金费率数据"""
+        """
+        获取资金费率数据
+        Get funding rate data
+        
+        Note: 此方法保持向后兼容性，返回转换后的数据格式
+        This method maintains backward compatibility, returns converted data format
+        如需原始数据用于适配器处理，请使用 get_raw_funding_rate()
+        Use get_raw_funding_rate() for raw data for adapter processing
+        
+        Args:
+            symbol: 币安格式交易对符号（如BTCUSDT） / Binance format symbol (e.g., BTCUSDT)
+            limit: 返回数据条数限制 / Limit of returned data
+            
+        Returns:
+            List[dict]: 转换后的资金费率数据列表 / List of converted funding rate data
+        """
         params = {'limit': limit}
         if symbol:
             params['symbol'] = symbol
@@ -277,7 +339,21 @@ class BinanceService:
             raise
     
     async def get_24hr_ticker(self, symbol: Optional[str] = None) -> List[dict]:
-        """获取24小时价格变动统计"""
+        """
+        获取24小时价格变动统计
+        Get 24hr ticker price change statistics
+        
+        Note: 此方法保持向后兼容性，返回币安原生数据格式
+        This method maintains backward compatibility, returns Binance native data format
+        如需原始数据用于适配器处理，请使用 get_raw_ticker()
+        Use get_raw_ticker() for raw data for adapter processing
+        
+        Args:
+            symbol: 币安格式交易对符号（如BTCUSDT） / Binance format symbol (e.g., BTCUSDT)
+            
+        Returns:
+            List[dict]: 24小时ticker数据列表 / List of 24hr ticker data
+        """
         params = {}
         if symbol:
             params['symbol'] = symbol
@@ -377,3 +453,111 @@ class BinanceService:
         except Exception as e:
             logger.error(f"Failed to get server time: {e}")
             raise
+    
+    async def get_raw_instruments(self, inst_type: str = 'SWAP') -> List[Dict[str, Any]]:
+        """
+        获取原始交易对数据（未转换格式）
+        Get raw instruments data without format conversion
+        
+        Args:
+            inst_type: 交易对类型 / Instrument type (SWAP for perpetual futures)
+            
+        Returns:
+            List[Dict[str, Any]]: 币安原始交易对数据列表
+        """
+        try:
+            logger.debug(f"🔍 获取币安原始交易对数据: {inst_type}")
+            data = await self._make_request("/fapi/v1/exchangeInfo")
+            
+            if data and 'symbols' in data:
+                # 返回原始数据，不进行格式转换
+                raw_instruments = data['symbols']
+                logger.info(f"✅ 获取币安原始交易对数据成功: {len(raw_instruments)} 个")
+                return raw_instruments
+            else:
+                logger.warning("⚠️ 币安API返回空交易对数据")
+                return []
+                
+        except Exception as e:
+            logger.error(f"❌ 获取{inst_type}原始交易对数据失败: {e}")
+            return []
+    
+    async def get_raw_ticker(self, symbol: Optional[str] = None) -> Union[Dict[str, Any], List[Dict[str, Any]], None]:
+        """
+        获取原始ticker数据（未转换格式）
+        Get raw ticker data without format conversion
+        
+        Args:
+            symbol: 交易对符号，None表示获取所有 / Trading pair symbol, None for all
+            
+        Returns:
+            Union[Dict[str, Any], List[Dict[str, Any]], None]: 币安原始ticker数据
+        """
+        try:
+            params = {}
+            if symbol:
+                # 转换符号格式 (BTC-USDT-SWAP -> BTCUSDT)
+                binance_symbol = symbol.replace('-USDT-SWAP', 'USDT').replace('-USDT', 'USDT')
+                params['symbol'] = binance_symbol
+                logger.debug(f"🔍 获取币安原始ticker数据: {symbol} -> {binance_symbol}")
+            else:
+                logger.debug("🔍 获取币安所有原始ticker数据")
+            
+            data = await self._make_request("/fapi/v1/ticker/24hr", params)
+            
+            if data:
+                if symbol:
+                    # 单个ticker数据，添加原始symbol信息用于适配器处理
+                    data['original_symbol'] = symbol
+                    logger.debug(f"✅ 获取币安原始ticker数据成功: {symbol}")
+                else:
+                    # 所有ticker数据
+                    logger.info(f"✅ 获取币安所有原始ticker数据成功: {len(data)} 个")
+                return data
+            else:
+                logger.warning(f"⚠️ 币安API返回空ticker数据: {symbol if symbol else '所有'}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ 获取{symbol if symbol else '所有'}原始ticker数据失败: {e}")
+            return None
+    
+    async def get_raw_funding_rate(self, symbol: Optional[str] = None) -> Union[Dict[str, Any], List[Dict[str, Any]], None]:
+        """
+        获取原始资金费率数据（未转换格式）
+        Get raw funding rate data without format conversion
+        
+        Args:
+            symbol: 交易对符号，None表示获取所有 / Trading pair symbol, None for all
+            
+        Returns:
+            Union[Dict[str, Any], List[Dict[str, Any]], None]: 币安原始资金费率数据
+        """
+        try:
+            params = {}
+            if symbol:
+                # 转换符号格式 (BTC-USDT-SWAP -> BTCUSDT)
+                binance_symbol = symbol.replace('-USDT-SWAP', 'USDT').replace('-USDT', 'USDT')
+                params['symbol'] = binance_symbol
+                logger.debug(f"🔍 获取币安原始资金费率数据: {symbol} -> {binance_symbol}")
+            else:
+                logger.debug("🔍 获取币安所有原始资金费率数据")
+            
+            data = await self._make_request("/fapi/v1/premiumIndex", params)
+            
+            if data:
+                if symbol:
+                    # 单个资金费率数据，添加原始symbol信息用于适配器处理
+                    data['original_symbol'] = symbol
+                    logger.debug(f"✅ 获取币安原始资金费率数据成功: {symbol}")
+                else:
+                    # 所有资金费率数据
+                    logger.info(f"✅ 获取币安所有原始资金费率数据成功: {len(data)} 个")
+                return data
+            else:
+                logger.warning(f"⚠️ 币安API返回空资金费率数据: {symbol if symbol else '所有'}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ 获取{symbol if symbol else '所有'}原始资金费率数据失败: {e}")
+            return None

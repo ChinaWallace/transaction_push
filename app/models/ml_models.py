@@ -5,9 +5,7 @@ ML-related data models for predictions, anomalies and optimizations
 """
 
 from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Boolean, JSON
-from sqlalchemy.sql import func
 from enum import Enum
-from datetime import datetime
 
 from app.models.base import BaseModel
 

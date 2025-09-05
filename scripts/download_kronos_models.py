@@ -5,11 +5,9 @@ Kronos模型下载脚本
 Download Kronos models from Hugging Face Hub
 """
 
-import os
 import sys
 from pathlib import Path
-from huggingface_hub import snapshot_download, hf_hub_download
-from tqdm import tqdm
+from huggingface_hub import snapshot_download
 import logging
 
 # 设置日志
@@ -56,7 +54,7 @@ def download_kronos_models():
         }
     ]
     
-    print("🚀 开始下载Kronos模型...")
+    print("开始下载Kronos模型...")
     print("=" * 60)
     
     # 询问用户是否下载所有模型
@@ -82,14 +80,14 @@ def download_kronos_models():
         local_dir = model_info["local_dir"]
         description = model_info["description"]
         
-        print(f"\n📦 [{i}/{total_models}] 下载 {description}")
+        print(f"\n[{i}/{total_models}] 下载 {description}")
         print(f"   仓库: {repo_id}")
         print(f"   本地路径: {local_dir}")
         
         try:
             # 检查是否已经存在
             if local_dir.exists() and any(local_dir.iterdir()):
-                print(f"   ✅ 模型已存在，跳过下载")
+                print(f"   模型已存在，跳过下载")
                 continue
             
             # 下载模型
@@ -101,14 +99,14 @@ def download_kronos_models():
                 resume_download=True
             )
             
-            print(f"   ✅ 下载完成: {description}")
+            print(f"   下载完成: {description}")
             
         except Exception as e:
-            logger.error(f"   ❌ 下载失败 {description}: {e}")
+            logger.error(f"   下载失败 {description}: {e}")
             continue
     
     print("\n" + "=" * 60)
-    print("🎉 Kronos模型下载完成！")
+    print("Kronos模型下载完成！")
     
     # 显示下载的模型
     print("\n📁 已下载的模型:")
@@ -145,7 +143,6 @@ def verify_kronos_installation():
         
         # 尝试导入Kronos模块
         sys.path.append("./Kronos-master")
-        from model import Kronos, KronosTokenizer, KronosPredictor
         
         print("   ✅ Kronos模块导入成功")
         
@@ -341,7 +338,7 @@ if __name__ == "__main__":
 
 def main():
     """主函数"""
-    print("🤖 Kronos模型下载和安装工具")
+    print("Kronos模型下载和安装工具")
     print("=" * 60)
     
     try:

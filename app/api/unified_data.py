@@ -5,17 +5,16 @@ Unified Data API - 提供统一的数据访问接口
 """
 
 from fastapi import APIRouter, HTTPException, Query
-from typing import List, Dict, Any, Optional
+from typing import List
 import pandas as pd
 
 from app.core.logging import get_logger
-from app.services.unified_data_service import (
+from app.services.data.unified_data_service import (
     get_unified_data_service, 
-    DataRequest, 
-    DataSource,
+    DataSource, 
     get_market_data
 )
-from app.services.data_sharing_service import (
+from app.services.data.data_sharing_service import (
     get_data_sharing_service,
     get_analysis_data,
     get_batch_funding_rates,

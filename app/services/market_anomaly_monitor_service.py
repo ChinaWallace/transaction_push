@@ -5,18 +5,16 @@ Market Anomaly Monitor Service - 监控波动率、交易量、持仓量异常�
 """
 
 import asyncio
-import numpy as np
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 import statistics
 
 from app.core.logging import get_logger
-from app.services.okx_service import OKXService
-from app.services.core_notification_service import get_core_notification_service
+from app.services.exchanges.okx.okx_service import OKXService
+from app.services.notification.core_notification_service import get_core_notification_service
 from app.schemas.market_anomaly import (
-    MarketAnomalyData, AnomalyType, AnomalyLevel, TrendDirection,
-    AnomalySummary, NotificationData
+    MarketAnomalyData, AnomalyLevel, TrendDirection, AnomalySummary
 )
 from app.utils.exceptions import TradingToolError
 
@@ -601,11 +599,7 @@ class MarketAnomalyMonitorService:
         # 综合评估
         is_recommended = False
         
-        # 推荐条件：
-        # 1. 异常评分足够高
-        # 2. 有明确的推荐理由
-        # 3. 风险因素不超过推荐理由
-        # 4. 至少有一个中度以上异常
+        # 推荐条件：异常评分足够高且有明确推荐理由
         has_significant_anomaly = (
             volatility_anomaly in [AnomalyLevel.MEDIUM, AnomalyLevel.HIGH, AnomalyLevel.EXTREME] or
             volume_anomaly in [AnomalyLevel.MEDIUM, AnomalyLevel.HIGH, AnomalyLevel.EXTREME] or
@@ -932,7 +926,7 @@ class MarketAnomalyMonitorService:
                 
                 notification_message = self.format_notification_message(anomalies, summary)
                 
-                from app.services.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+                from app.services.notification.core_notification_service import NotificationContent, NotificationType, NotificationPriority
                 
                 content = NotificationContent(
                     type=NotificationType.SYSTEM_ALERT,

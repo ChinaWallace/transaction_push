@@ -6,7 +6,7 @@ Database connection pool monitoring utilities
 
 import time
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from contextlib import contextmanager
 from sqlalchemy.exc import DisconnectionError, OperationalError
 from app.core.database import db_manager, engine

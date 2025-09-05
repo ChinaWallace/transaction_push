@@ -5,7 +5,7 @@ Base strategy class inspired by freqtrade architecture
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Tuple
 from datetime import datetime
 from dataclasses import dataclass
 from enum import Enum
@@ -95,7 +95,6 @@ class BaseStrategy(ABC):
     @abstractmethod
     def get_required_params(self) -> List[str]:
         """获取必需参数列表"""
-        pass
     
     @abstractmethod
     def populate_indicators(self, dataframe: pd.DataFrame) -> pd.DataFrame:
@@ -108,7 +107,6 @@ class BaseStrategy(ABC):
         Returns:
             包含指标的数据框
         """
-        pass
     
     @abstractmethod
     def populate_entry_trend(self, dataframe: pd.DataFrame) -> pd.DataFrame:
@@ -121,7 +119,6 @@ class BaseStrategy(ABC):
         Returns:
             包含入场信号的数据框
         """
-        pass
     
     @abstractmethod
     def populate_exit_trend(self, dataframe: pd.DataFrame) -> pd.DataFrame:
@@ -134,7 +131,6 @@ class BaseStrategy(ABC):
         Returns:
             包含出场信号的数据框
         """
-        pass
     
     def analyze(self, market_data: MarketData) -> StrategySignal:
         """

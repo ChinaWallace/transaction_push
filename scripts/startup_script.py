@@ -5,7 +5,6 @@ Startup Script for Trading Tool - 开机自动启动解决方案
 """
 
 import sys
-import os
 import winreg
 import subprocess
 from pathlib import Path

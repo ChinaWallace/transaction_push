@@ -93,8 +93,8 @@ from app.api.trading_pairs import router as trading_pairs_router
 from app.api.unified_data import router as unified_data_router
 from app.api.ml_config import router as ml_config_router
 from app.api.enhanced_trading import router as enhanced_trading_router
-from app.services.scheduler_service import SchedulerService
-from app.services.ml_enhanced_service import MLEnhancedService
+from app.services.core.scheduler_service import SchedulerService
+from app.services.ml.ml_enhanced_service import MLEnhancedService
 from app.services.negative_funding_monitor_service import NegativeFundingMonitorService
 from app.schemas.market_anomaly import AnomalyLevel
 
@@ -107,12 +107,22 @@ async def perform_startup_trading_analysis():
     try:
         logger.info("🎯 开始启动完整交易决策分析 (Kronos+传统+ML综合)...")
         
+        # 启动交易所服务管理器
+        from app.services.exchanges.service_manager import start_exchange_services
+        startup_result = await start_exchange_services()
+        
+        if startup_result['status'] == 'success':
+            logger.info(f"✅ 交易所服务启动成功: {startup_result['exchange']}")
+        else:
+            logger.error(f"❌ 交易所服务启动失败: {startup_result.get('error')}")
+            # 继续执行，但记录错误
+        
         # 使用增强的核心交易服务，集成Kronos分析
-        from app.services.core_trading_service import get_core_trading_service, AnalysisType
-        from app.services.core_notification_service import get_core_notification_service
+        from app.services.trading.core_trading_service import get_core_trading_service, AnalysisType
+        from app.services.notification.core_notification_service import get_core_notification_service
         
         core_trading_service = await get_core_trading_service()
-        notification_service = await get_core_notification_service()
+        await get_core_notification_service()
         
         # 主要分析的交易对
         major_symbols = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP", "DOGE-USDT-SWAP", "XRP-USDT-SWAP"]
@@ -266,13 +276,13 @@ async def perform_startup_trading_analysis():
 async def send_startup_summary_notification(app_state, successful_tasks: int, failed_tasks: int):
     """发送启动完成摘要通知"""
     try:
-        from app.services.core_notification_service import get_core_notification_service
+        from app.services.notification.core_notification_service import get_core_notification_service
         notification_service = await get_core_notification_service()
         
         # 收集各任务结果
         trading_result = getattr(app_state, 'startup_trading_analysis_results', {})
         funding_result = getattr(app_state, 'startup_funding_analysis_results', {})
-        news_result = getattr(app_state, 'startup_news_analysis_results', {})
+        getattr(app_state, 'startup_news_analysis_results', {})
         kronos_result = getattr(app_state, 'startup_kronos_market_scan_results', {})
         
         # 构建摘要消息
@@ -297,12 +307,7 @@ async def send_startup_summary_notification(app_state, successful_tasks: int, fa
             recommended_count = market_anomaly_result.get("recommended_count", 0)
             message += f"🚨 市场异常: {anomalies_found} 个异常, {recommended_count} 个推荐\n"
         
-        # 新闻分析结果 - 暂时注释掉
-        # if news_result.get("status") == "success":
-        #     news_notifications = news_result.get("notifications_sent", 0)
-        #     message += f"📰 新闻分析: {news_notifications} 条重要新闻\n"
-        # elif news_result.get("status") == "disabled":
-        #     message += f"📴 新闻分析: 已禁用\n"
+
         
         # Kronos市场扫描 - 已整合到核心交易分析中
         if kronos_result.get("status") == "success":
@@ -324,7 +329,7 @@ async def send_startup_summary_notification(app_state, successful_tasks: int, fa
         
         priority = "high" if total_signals > 0 else "medium" if failed_tasks == 0 else "low"
         
-        from app.services.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+        from app.services.notification.core_notification_service import NotificationContent, NotificationType, NotificationPriority
         
         # 转换优先级字符串为枚举
         priority_map = {
@@ -449,7 +454,7 @@ async def perform_startup_news_analysis():
     try:
         logger.info("📰 开始启动新闻分析...")
         
-        from app.services.news_monitor_service import get_news_monitor_service
+        from app.services.data.news_monitor_service import get_news_monitor_service
         
         # 获取新闻监控服务
         news_monitor = await get_news_monitor_service()
@@ -492,11 +497,11 @@ async def perform_startup_ml_analysis(ml_service: MLEnhancedService):
     try:
         logger.info("🤖 开始ML增强分析...")
         # ML通知功能已整合到核心通知服务中
-        from app.services.core_notification_service import get_core_notification_service
+        from app.services.notification.core_notification_service import get_core_notification_service
         notification_service = await get_core_notification_service()
         
         # 导入异常状态管理器
-        from app.services.anomaly_state_manager import anomaly_state_manager
+        from app.services.ml.anomaly_state_manager import anomaly_state_manager
         
         # 清理过期的异常记录
         anomaly_state_manager.cleanup_old_records(max_age_hours=24)
@@ -582,7 +587,6 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Starting Python Trading Analysis Tool...")
     
     # 存储需要清理的资源
-    cleanup_tasks = []
     
     try:
         # 安全导入数据库模块
@@ -673,28 +677,7 @@ async def lifespan(app: FastAPI):
         )
         logger.info("✅ Negative funding rate monitor scheduled")
         
-        # 添加新闻监控定时任务 - 暂时注释掉
-        # if settings.news_config.get('enable_news_analysis', True):
-        #     from app.services.news_monitor_service import get_news_monitor_service
-        #     
-        #     news_monitor = await get_news_monitor_service()
-        #     
-        #     # 获取新闻监控间隔配置
-        #     news_interval = settings.news_config.get('fetch_interval_minutes', 30)
-        #     
-        #     scheduler.add_job(
-        #         news_monitor.run_monitoring_cycle,
-        #         'interval',
-        #         minutes=news_interval,
-        #         id='news_monitor',
-        #         name='新闻分析监控'
-        #     )
-        #     logger.info(f"✅ News analysis monitor scheduled (every {news_interval} minutes)")
-        #     
-        #     # 将新闻监控服务存储到应用状态
-        #     app.state.news_monitor = news_monitor
-        # else:
-        #     logger.info("📴 News analysis monitoring disabled")
+
         
         # 将负费率监控服务存储到应用状态
         app.state.funding_monitor = funding_monitor
@@ -734,7 +717,7 @@ async def lifespan(app: FastAPI):
         
         # 添加Kronos持仓分析定时任务
         if settings.kronos_config.get('enable_kronos_prediction', False):
-            from app.services.kronos_position_analysis_service import get_kronos_position_service
+            from app.services.analysis.kronos_position_analysis_service import get_kronos_position_service
             
             # 使用全局单例实例，确保状态一致
             kronos_position_service = await get_kronos_position_service()
@@ -788,9 +771,7 @@ async def lifespan(app: FastAPI):
         # 3. 市场异常监控分析任务
         startup_tasks.append(("market_anomaly_analysis", perform_startup_market_anomaly_analysis()))
         
-        # 4. 新闻分析任务 (如果启用) - 暂时注释掉
-        # if settings.news_config.get('enable_news_analysis', True):
-        #     startup_tasks.append(("news_analysis", perform_startup_news_analysis()))
+
         
         # 并发执行所有启动任务
         task_names = [name for name, _ in startup_tasks]
@@ -825,14 +806,12 @@ async def lifespan(app: FastAPI):
         if not hasattr(app.state, 'startup_kronos_market_scan_results'):
             app.state.startup_kronos_market_scan_results = {"status": "disabled"}
         
-        # 🚫 不再发送启动完成摘要通知 - 根据用户要求过滤系统状态信息
-        # await send_startup_summary_notification(app.state, successful_tasks, failed_tasks)
         logger.info("📊 启动摘要通知已禁用 - 系统状态信息不推送")
         
         # 初始化Kronos预测服务（可选）
         if settings.kronos_config.get('enable_kronos_prediction', False):
             try:
-                from app.services.kronos_prediction_service import get_kronos_service
+                from app.services.ml.kronos_prediction_service import get_kronos_service
                 kronos_service = await get_kronos_service()
                 logger.info("✅ Kronos预测服务初始化成功")
                 app.state.kronos_service = kronos_service
@@ -849,16 +828,33 @@ async def lifespan(app: FastAPI):
                 logger.info("✅ ML增强服务初始化成功")
                 app.state.ml_service = ml_service
                 
-                # 启动时ML增强分析 - 已停用避免异常检测报告推送
-                # await perform_startup_ml_analysis(ml_service)
-                logger.info("⚠️ 启动时ML异常检测已停用避免重复推送")
-                
             except Exception as e:
                 logger.warning(f"⚠️ ML增强服务初始化失败: {e}")
                 app.state.ml_service = None
         
+        # 启动配置监控服务
+        try:
+            from app.services.exchanges.config_monitor import start_config_monitoring
+            config_monitor_result = await start_config_monitoring()
+            
+            if config_monitor_result['status'] == 'success':
+                logger.info("✅ 配置监控服务启动成功")
+            else:
+                logger.warning(f"⚠️ 配置监控服务启动失败: {config_monitor_result.get('error')}")
+        except Exception as e:
+            logger.warning(f"⚠️ 配置监控服务启动异常: {e}")
+        
         # 将服务实例存储到应用状态
         app.state.scheduler = scheduler
+        
+        # 启动适配器监控服务
+        try:
+            logger.info("🔍 启动适配器监控服务...")
+            from app.services.monitoring.adapter_monitoring_service import start_adapter_monitoring
+            await start_adapter_monitoring()
+            logger.info("✅ 适配器监控服务启动成功")
+        except Exception as e:
+            logger.warning(f"⚠️ 适配器监控服务启动失败: {e}")
         
         logger.info("🎉 Application startup completed!")
         
@@ -866,6 +862,15 @@ async def lifespan(app: FastAPI):
         
         # 应用关闭时的清理工作
         logger.info("🛑 Shutting down application...")
+        
+        # 0. 停止适配器监控服务
+        try:
+            logger.info("🔍 停止适配器监控服务...")
+            from app.services.monitoring.adapter_monitoring_service import stop_adapter_monitoring
+            await stop_adapter_monitoring()
+            logger.info("✅ 适配器监控服务已停止")
+        except Exception as e:
+            logger.warning(f"⚠️ 停止适配器监控服务失败: {e}")
         
         # 1. 停止调度器
         try:
@@ -883,15 +888,37 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"⚠️ Error cleaning up core HTTP client: {e}")
         
-        # 3. 清理 OKX 服务连接
+        # 3. 停止配置监控服务
         try:
-            from app.services.okx_service import cleanup_all_sessions
-            await cleanup_all_sessions()
-            logger.info("✅ OKX HTTP connections cleaned up")
+            from app.services.exchanges.config_monitor import stop_config_monitoring
+            config_stop_result = await stop_config_monitoring()
+            if config_stop_result['status'] == 'success':
+                logger.info("✅ 配置监控服务停止完成")
+            else:
+                logger.warning(f"⚠️ 配置监控服务停止失败: {config_stop_result.get('error')}")
         except Exception as e:
-            logger.warning(f"⚠️ Error cleaning up OKX connections: {e}")
+            logger.warning(f"⚠️ Error stopping config monitoring: {e}")
         
-        # 4. 通用 HTTP 连接清理（兼容性）
+        # 4. 清理交易所服务
+        try:
+            from app.services.exchanges.service_manager import stop_exchange_services
+            stop_result = await stop_exchange_services()
+            if stop_result['status'] == 'success':
+                logger.info("✅ 交易所服务清理完成")
+            else:
+                logger.warning(f"⚠️ 交易所服务清理失败: {stop_result.get('error')}")
+        except Exception as e:
+            logger.warning(f"⚠️ Error cleaning up exchange services: {e}")
+        
+        # 5. 清理交易所服务连接
+        try:
+            from app.services.exchanges.factory import cleanup_all_exchanges
+            await cleanup_all_exchanges()
+            logger.info("✅ 交易所连接清理完成")
+        except Exception as e:
+            logger.warning(f"⚠️ Error cleaning up exchange connections: {e}")
+        
+        # 6. 通用 HTTP 连接清理（兼容性）
         try:
             import gc
             import aiohttp
@@ -1018,7 +1045,7 @@ def create_app() -> FastAPI:
     app.include_router(kronos_integrated_router, prefix="/api/kronos-integrated", tags=["Kronos集成决策"])
     app.include_router(kronos_market_opportunities_router, prefix="/api/kronos-opportunities", tags=["Kronos市场机会"])
     app.include_router(kronos_advanced_opportunities_router, prefix="/api/kronos-advanced", tags=["Kronos高级机会"])
-    # app.include_router(notification_stats_router)  # 已删除
+
     app.include_router(database_router, prefix="/api/database", tags=["数据库管理"])
     app.include_router(http_pool_router, prefix="/api/http-pool", tags=["HTTP连接池管理"])
     app.include_router(trading_pairs_router, prefix="/api/trading-pairs", tags=["交易对管理"])
@@ -1026,9 +1053,11 @@ def create_app() -> FastAPI:
     app.include_router(ml_config_router, prefix="/api/ml-config", tags=["ML配置管理"])
     app.include_router(news_router, prefix="/api/news", tags=["新闻分析"])
     
-    # WebSocket演示API (已删除)
-    # from app.api.websocket_demo import router as websocket_demo_router
-    # app.include_router(websocket_demo_router, tags=["WebSocket演示"])
+    # 交易所管理API
+    from app.api.exchange_management import router as exchange_management_router
+    app.include_router(exchange_management_router, tags=["交易所管理"])
+    
+
     
     # 根路径
     @app.get("/", summary="根路径")
@@ -1052,8 +1081,23 @@ def create_app() -> FastAPI:
                 db_monitor = get_db_monitor()
                 pool_stats = db_monitor.get_pool_stats() if db_healthy else {}
             
-            # TODO: 检查币安API连接
-            api_healthy = True  # 暂时设为True
+            # 检查适配器状态
+            adapter_status = {"status": "unknown", "details": {}}
+            try:
+                from app.services.monitoring.adapter_monitoring_service import get_adapter_monitoring_service
+                monitoring_service = get_adapter_monitoring_service()
+                adapter_overall_status = await monitoring_service.get_overall_status()
+                adapter_status = {
+                    "status": adapter_overall_status["status"],
+                    "total_exchanges": adapter_overall_status.get("total_exchanges", 0),
+                    "status_breakdown": adapter_overall_status.get("status_breakdown", {}),
+                    "monitoring_active": adapter_overall_status.get("monitoring_active", False)
+                }
+            except Exception as e:
+                logger.warning(f"⚠️ 获取适配器状态失败: {e}")
+                adapter_status = {"status": "error", "error": str(e)}
+            
+            api_healthy = True
             
             # 检查调度器状态
             scheduler_healthy = hasattr(app.state, 'scheduler') and app.state.scheduler.is_running()
@@ -1063,13 +1107,17 @@ def create_app() -> FastAPI:
             if settings.ml_config.get('enable_ml_prediction', False):
                 ml_healthy = hasattr(app.state, 'ml_service') and app.state.ml_service is not None
             
-            status = "healthy" if all([db_healthy, api_healthy, scheduler_healthy, ml_healthy]) else "unhealthy"
+            # 适配器健康状态
+            adapter_healthy = adapter_status["status"] in ["healthy", "degraded"]
+            
+            status = "healthy" if all([db_healthy, api_healthy, scheduler_healthy, ml_healthy, adapter_healthy]) else "unhealthy"
             
             health_checks = {
                 "database": "healthy" if db_healthy else "unhealthy",
                 "connection_pool": pool_stats,
                 "binance_api": "healthy" if api_healthy else "unhealthy", 
-                "scheduler": "healthy" if scheduler_healthy else "unhealthy"
+                "scheduler": "healthy" if scheduler_healthy else "unhealthy",
+                "data_adapters": adapter_status
             }
             
             if settings.ml_config.get('enable_ml_prediction', False):
@@ -1084,6 +1132,85 @@ def create_app() -> FastAPI:
             logger.error(f"Health check failed: {e}")
             raise HTTPException(status_code=500, detail="Health check failed")
     
+    # 适配器监控相关端点
+    @app.get("/adapters/status", summary="获取所有适配器状态")
+    async def get_adapters_status():
+        """获取所有数据适配器的状态信息"""
+        try:
+            from app.services.monitoring.adapter_monitoring_service import get_adapter_monitoring_service
+            monitoring_service = get_adapter_monitoring_service()
+            return await monitoring_service.get_all_statuses()
+        except Exception as e:
+            logger.error(f"❌ 获取适配器状态失败: {e}")
+            raise HTTPException(status_code=500, detail=f"获取适配器状态失败: {str(e)}")
+    
+    @app.get("/adapters/status/{exchange}", summary="获取特定交易所适配器状态")
+    async def get_adapter_status(exchange: str):
+        """获取特定交易所数据适配器的状态信息"""
+        try:
+            from app.services.monitoring.adapter_monitoring_service import get_adapter_monitoring_service
+            monitoring_service = get_adapter_monitoring_service()
+            return await monitoring_service.get_exchange_status(exchange)
+        except Exception as e:
+            logger.error(f"❌ 获取 {exchange} 适配器状态失败: {e}")
+            raise HTTPException(status_code=500, detail=f"获取适配器状态失败: {str(e)}")
+    
+    @app.get("/adapters/performance", summary="获取适配器性能统计")
+    async def get_adapters_performance():
+        """获取数据适配器的性能统计信息"""
+        try:
+            from app.services.monitoring.adapter_monitoring_service import get_adapter_monitoring_service
+            monitoring_service = get_adapter_monitoring_service()
+            return await monitoring_service.get_performance_summary()
+        except Exception as e:
+            logger.error(f"❌ 获取适配器性能统计失败: {e}")
+            raise HTTPException(status_code=500, detail=f"获取性能统计失败: {str(e)}")
+    
+    @app.get("/adapters/errors", summary="获取适配器错误统计")
+    async def get_adapters_errors():
+        """获取数据适配器的错误统计信息"""
+        try:
+            from app.services.monitoring.adapter_monitoring_service import get_adapter_monitoring_service
+            monitoring_service = get_adapter_monitoring_service()
+            return await monitoring_service.get_error_summary()
+        except Exception as e:
+            logger.error(f"❌ 获取适配器错误统计失败: {e}")
+            raise HTTPException(status_code=500, detail=f"获取错误统计失败: {str(e)}")
+    
+    @app.post("/adapters/diagnostics", summary="运行适配器诊断")
+    async def run_adapters_diagnostics(exchange: str = None):
+        """运行数据适配器的综合诊断"""
+        try:
+            from app.services.monitoring.adapter_monitoring_service import get_adapter_monitoring_service
+            monitoring_service = get_adapter_monitoring_service()
+            return await monitoring_service.run_comprehensive_diagnostics(exchange)
+        except Exception as e:
+            logger.error(f"❌ 运行适配器诊断失败: {e}")
+            raise HTTPException(status_code=500, detail=f"诊断失败: {str(e)}")
+    
+    @app.get("/adapters/monitoring/config", summary="获取监控配置")
+    async def get_monitoring_config():
+        """获取适配器监控配置"""
+        try:
+            from app.services.monitoring.adapter_monitoring_service import get_adapter_monitoring_service
+            monitoring_service = get_adapter_monitoring_service()
+            return monitoring_service.get_monitoring_config()
+        except Exception as e:
+            logger.error(f"❌ 获取监控配置失败: {e}")
+            raise HTTPException(status_code=500, detail=f"获取配置失败: {str(e)}")
+    
+    @app.put("/adapters/monitoring/config", summary="更新监控配置")
+    async def update_monitoring_config(config: dict):
+        """更新适配器监控配置"""
+        try:
+            from app.services.monitoring.adapter_monitoring_service import get_adapter_monitoring_service
+            monitoring_service = get_adapter_monitoring_service()
+            monitoring_service.update_monitoring_config(config)
+            return {"status": "success", "message": "监控配置已更新"}
+        except Exception as e:
+            logger.error(f"❌ 更新监控配置失败: {e}")
+            raise HTTPException(status_code=500, detail=f"更新配置失败: {str(e)}")
+
     # 启动分析结果
     @app.get("/startup-analysis", summary="查看启动分析结果")
     async def get_startup_analysis():
@@ -1120,7 +1247,7 @@ def create_app() -> FastAPI:
     async def test_kronos_opportunities():
         """快速测试Kronos市场机会扫描功能"""
         try:
-            from app.services.kronos_market_opportunity_service import get_kronos_market_opportunity_service
+            from app.services.ml.kronos_market_opportunity_service import get_kronos_market_opportunity_service
             
             market_service = await get_kronos_market_opportunity_service()
             
@@ -1154,9 +1281,10 @@ def create_app() -> FastAPI:
                 # 快速检查前20个热门币种
                 hot_symbols = await funding_monitor.get_top_volume_symbols(limit=20)
                 
-                # 使用OKX服务获取费率数据
-                async with funding_monitor.okx_service:
-                    funding_rates = await funding_monitor.okx_service.get_batch_funding_rates(hot_symbols[:15])
+                # 使用配置的交易所服务获取费率数据
+                from app.services.exchanges.factory import get_default_exchange
+                exchange_service = await get_default_exchange()
+                funding_rates = await exchange_service.get_batch_funding_rates(hot_symbols[:15])
                 
                 # 只分析负费率币种
                 negative_rates = [r for r in funding_rates if r['funding_rate'] < 0]
@@ -1366,7 +1494,7 @@ def create_app() -> FastAPI:
     async def get_kronos_position_analysis():
         """获取基于Kronos预测的持仓分析报告"""
         try:
-            from app.services.kronos_integrated_decision_service import get_kronos_integrated_service
+            from app.services.ml.kronos_integrated_decision_service import get_kronos_integrated_service
             
             kronos_service = await get_kronos_integrated_service()
             
@@ -1404,7 +1532,7 @@ def create_app() -> FastAPI:
     async def get_kronos_live_position_analysis():
         """获取基于实际持仓的Kronos分析报告"""
         try:
-            from app.services.kronos_position_analysis_service import get_kronos_position_service
+            from app.services.analysis.kronos_position_analysis_service import get_kronos_position_service
             
             kronos_position_service = await get_kronos_position_service()
             
@@ -1421,9 +1549,6 @@ def create_app() -> FastAPI:
             logger.error(f"获取实时Kronos持仓分析失败: {e}")
             raise HTTPException(status_code=500, detail="获取实时Kronos持仓分析失败")
     
-    # 调试交易信号分析端点已删除 - intelligent_trading_notification_service已移除
-    
-    # 强制扫描交易机会
     @app.get("/test-technical-config", summary="测试技术分析配置")
     async def test_technical_config():
         """测试技术分析配置是否正确"""
@@ -1461,7 +1586,7 @@ def create_app() -> FastAPI:
     async def test_enhanced_analysis(symbol: str = "BTC-USDT-SWAP"):
         """测试Kronos+技术分析+ML的综合分析"""
         try:
-            from app.services.core_trading_service import get_core_trading_service, AnalysisType
+            from app.services.trading.core_trading_service import get_core_trading_service, AnalysisType
             
             core_trading_service = await get_core_trading_service()
             
@@ -1518,7 +1643,6 @@ def create_app() -> FastAPI:
             logger.error(f"测试增强分析失败: {e}")
             return {"status": "error", "message": str(e)}
     
-    # 强制扫描交易机会端点已删除 - intelligent_trading_notification_service已移除
     
     @app.post("/debug-funding-notification", summary="调试负费率通知")
     async def debug_funding_notification():

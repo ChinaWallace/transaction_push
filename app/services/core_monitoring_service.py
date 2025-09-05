@@ -6,19 +6,17 @@ Core Monitoring Service - 统一管理费率监控、异常检测和系统监控
 """
 
 import asyncio
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List
 from datetime import datetime, timedelta
 from enum import Enum
 from dataclasses import dataclass
-import numpy as np
 
 from app.core.config import get_settings
-from app.core.logging import get_logger, monitor_logger, trading_logger
-from app.services.okx_service import OKXService
-from app.services.core_notification_service import get_core_notification_service
+from app.core.logging import get_logger
+from app.services.exchanges.okx.okx_service import OKXService
+from app.services.notification.core_notification_service import get_core_notification_service
 from app.services.negative_funding_monitor_service import NegativeFundingMonitorService
-from app.services.funding_rate_monitor_service import FundingRateMonitorService
-from app.utils.exceptions import MonitorError
+from app.services.monitoring.funding_rate_monitor_service import FundingRateMonitorService
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -146,15 +144,7 @@ class CoreMonitoringService:
             # 并行执行各种监控
             monitoring_tasks = []
             
-            # 负费率监控 - 已由专门的NegativeFundingMonitorService处理，避免重复
-            # if self.monitoring_config['negative_funding']['enabled']:
-            #     if self._should_check('negative_funding'):
-            #         monitoring_tasks.append(self._run_negative_funding_monitoring())
-            
-            # 费率监控 - 已由专门的NegativeFundingMonitorService处理，避免重复
-            # if self.monitoring_config['funding_rate']['enabled']:
-            #     if self._should_check('funding_rate'):
-            #         monitoring_tasks.append(self._run_funding_rate_monitoring())
+            # 负费率监控和费率监控已由专门的NegativeFundingMonitorService处理
             
             # 系统健康检查
             if self.monitoring_config['system_health']['enabled']:
@@ -559,7 +549,7 @@ class CoreMonitoringService:
             }
             
             # 使用系统警报类型
-            from app.services.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+            from app.services.notification.core_notification_service import NotificationContent, NotificationType, NotificationPriority
             
             content = NotificationContent(
                 type=NotificationType.SYSTEM_ALERT,
@@ -731,7 +721,7 @@ class CoreMonitoringService:
             if not self.notification_service:
                 return
                 
-            from app.services.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+            from app.services.notification.core_notification_service import NotificationContent, NotificationType, NotificationPriority
             
             # 构建通知消息
             message = "📊 持仓量显著变化监控\n\n"

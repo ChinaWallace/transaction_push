@@ -5,14 +5,13 @@ Strategy analysis API routes
 """
 
 from fastapi import APIRouter, HTTPException, Query, Body
-from typing import List, Dict, Any, Optional
-from datetime import datetime
+from typing import List, Dict, Any
 
 from app.core.logging import get_logger
 from app.core.config import get_settings
 from app.data.data_provider import DataProvider
 from app.strategies import SuperTrendStrategy
-from app.strategies.base_strategy import MarketData, SignalType, SignalStrength
+from app.strategies.base_strategy import MarketData, SignalStrength
 
 logger = get_logger(__name__)
 router = APIRouter()

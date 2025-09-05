@@ -10,11 +10,9 @@ from fastapi.responses import JSONResponse
 
 from app.core.logging import get_logger
 from app.schemas.news import (
-    NewsRequest, NewsResponse, NewsAnalysisRequest, NewsAnalysisResponse,
-    NewsItem, NewsAnalysisResult
+    NewsResponse, NewsAnalysisRequest, NewsAnalysisResponse, NewsAnalysisResult
 )
-from app.services.news_analysis_service import NewsAnalysisService
-from app.services.core_notification_service import get_core_notification_service
+from app.services.analysis.news_analysis_service import NewsAnalysisService
 
 logger = get_logger(__name__)
 router = APIRouter()

@@ -4,8 +4,8 @@
 Trading Weight Manager - 统一管理各个交易组件的权重配置
 """
 
-from typing import Dict, Any, Optional
-from datetime import datetime, timedelta
+from typing import Dict, Any
+from datetime import datetime
 from app.core.logging import get_logger
 from app.core.ml_weight_config import get_ml_weight_config, MLMode
 

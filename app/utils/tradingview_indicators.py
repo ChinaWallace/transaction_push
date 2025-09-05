@@ -6,9 +6,7 @@ TradingView-style technical indicators library
 
 import numpy as np
 import pandas as pd
-import talib
-from typing import List, Dict, Any, Tuple, Optional
-from decimal import Decimal
+from typing import List, Dict, Any
 
 from app.core.logging import get_logger
 from app.utils.exceptions import IndicatorCalculationError

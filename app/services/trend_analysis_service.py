@@ -4,18 +4,16 @@
 Trend analysis service with SuperTrend multi-timeframe analysis
 """
 
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from enum import Enum
 from dataclasses import dataclass
 import asyncio
 
 from app.core.logging import get_logger, trading_logger
-from app.services.binance_service import BinanceService
-from app.services.okx_hybrid_service import get_okx_hybrid_service
+from app.services.exchanges.exchange_service_manager import get_exchange_service
 from app.utils.indicators import SuperTrendIndicator
 from app.utils.exceptions import IndicatorCalculationError, DataNotFoundError
-from app.models.signal import TrendSignal, SuperTrendData
 
 logger = get_logger(__name__)
 
@@ -122,8 +120,10 @@ class TrendAnalysisService:
         )
     }
     
-    def __init__(self, exchange: str = 'okx'):
-        self.exchange = exchange.lower()
+    def __init__(self, exchange: str = None):
+        # 从配置获取交易所，而不是硬编码
+        from app.services.exchanges.exchange_service_manager import get_current_exchange_name
+        self.exchange = exchange.lower() if exchange else get_current_exchange_name()
         self.exchange_service = None  # 将在需要时异步初始化
         self._is_okx = self.exchange == 'okx'
         self.supertrend_indicator = SuperTrendIndicator(period=10, multiplier=3.0)
@@ -131,10 +131,8 @@ class TrendAnalysisService:
     async def _ensure_exchange_service(self):
         """确保交易所服务已初始化"""
         if self.exchange_service is None:
-            if self._is_okx:
-                self.exchange_service = await get_okx_hybrid_service()
-            else:
-                self.exchange_service = BinanceService()
+            # 使用统一的交易所服务管理器
+            self.exchange_service = await get_exchange_service()
         # 日内短线交易优化：专注5分钟和15分钟级别
         self.timeframes = ['15m', '5m']
     

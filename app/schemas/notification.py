@@ -5,8 +5,7 @@ Notification related schemas
 """
 
 from pydantic import BaseModel, Field, validator
-from typing import Dict, List, Any, Optional
-from datetime import datetime
+from typing import Dict, Any, Optional
 
 from .base import BaseResponse
 

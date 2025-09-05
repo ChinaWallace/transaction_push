@@ -4,7 +4,7 @@ ML配置管理API
 ML Configuration Management API
 """
 
-from typing import Dict, Any
+from typing import Dict
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 

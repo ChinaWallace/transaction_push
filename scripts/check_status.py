@@ -49,7 +49,6 @@ def check_python_environment():
     
     # Windows服务依赖
     try:
-        import win32serviceutil
         print("✅ pywin32: 已安装 (Windows服务支持)")
     except ImportError:
         print("⚠️ pywin32: 未安装 (无Windows服务支持)")

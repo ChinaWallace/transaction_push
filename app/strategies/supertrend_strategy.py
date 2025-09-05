@@ -5,8 +5,7 @@ Multi-timeframe SuperTrend strategy
 """
 
 import pandas as pd
-import numpy as np
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any
 from datetime import datetime
 
 from .base_strategy import BaseStrategy, SignalType, SignalStrength, StrategySignal

@@ -6,7 +6,7 @@ Unified data provider for multiple exchanges and timeframes
 
 import asyncio
 import pandas as pd
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from abc import ABC, abstractmethod
 
@@ -15,7 +15,8 @@ from app.services.binance_service import BinanceService
 from app.data.data_converter import DataConverter
 from app.data.data_cache import DataCache
 from app.utils.exceptions import DataNotFoundError
-from app.services.unified_data_service import get_unified_data_service, DataRequest, DataSource
+# Temporarily commented out to avoid circular import
+# from app.services.data.unified_data_service import get_unified_data_service, DataRequest, DataSource
 
 logger = get_logger(__name__)
 
@@ -28,12 +29,10 @@ class BaseDataProvider(ABC):
                        since: Optional[datetime] = None,
                        limit: int = 500) -> pd.DataFrame:
         """获取OHLCV数据"""
-        pass
     
     @abstractmethod
     async def get_available_symbols(self) -> List[str]:
         """获取可用交易对"""
-        pass
 
 
 class BinanceDataProvider(BaseDataProvider):

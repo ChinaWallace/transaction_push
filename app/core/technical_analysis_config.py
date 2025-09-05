@@ -4,7 +4,7 @@
 Technical Analysis Configuration - 管理技术指标权重和参数
 """
 
-from typing import Dict, Any
+from typing import Dict
 from dataclasses import dataclass
 from enum import Enum
 
