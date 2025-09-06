@@ -3,7 +3,7 @@
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![AI Powered](https://img.shields.io/badge/AI-Kronos%20Powered-purple.svg)](https://github.com/shiyu-coder/Kronos)
+[![AI Powered](https://img.shields.io/badge/AI-Kronos%20Powered-purple.svg)](https://github.com/NeoQuasar/Kronos)
 
 基于Python的**智能量化交易分析工具**，支持okx和binance交易所,集成Kronos AI预测模型、技术分析和机器学习算法，专为加密货币市场设计的交易决策系统。
 

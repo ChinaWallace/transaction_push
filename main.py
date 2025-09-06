@@ -670,7 +670,7 @@ async def lifespan(app: FastAPI):
         scheduler.add_job(
             funding_monitor_task,
             'interval',
-            minutes=settings.get_task_interval('negative_funding_monitor'),  # 从配置获取间隔
+            minutes=60,
             id='negative_funding_monitor',
             name='负费率吃利息机会监控（增强版）',
             max_instances=1  # 确保同时只有一个实例运行
@@ -687,7 +687,7 @@ async def lifespan(app: FastAPI):
         
         market_anomaly_service = await get_market_anomaly_service()
         
-        # 每30分钟检查一次市场异常 (优化频率)
+        # 每60分钟检查一次市场异常
         async def market_anomaly_task():
             """市场异常监控任务包装器"""
             try:
@@ -705,12 +705,12 @@ async def lifespan(app: FastAPI):
         scheduler.add_job(
             market_anomaly_task,
             'interval',
-            minutes=settings.get_task_interval('market_anomaly_monitor'),  # 从配置获取间隔
+            minutes=60,
             id='market_anomaly_monitor',
             name='市场异常监控（波动率+交易量+持仓量）',
             max_instances=1  # 确保同时只有一个实例运行
         )
-        logger.info("✅ 市场异常监控已调度 - 每30分钟执行一次 (频率优化)")
+        logger.info("✅ Market anomaly monitor scheduled")
         
         # 将市场异常监控服务存储到应用状态
         app.state.market_anomaly_service = market_anomaly_service
@@ -744,11 +744,11 @@ async def lifespan(app: FastAPI):
             if existing_job:
                 logger.warning("⚠️ Kronos持仓分析任务已存在，跳过重复添加")
             else:
-                # 从配置获取Kronos持仓分析间隔
+                # 每60分钟执行一次Kronos持仓分析和推送
                 scheduler.add_job(
                     kronos_position_service.run_scheduled_analysis,
                     'interval',
-                    minutes=settings.get_task_interval('kronos_position_analysis'),  # 从配置获取间隔
+                    minutes=60,
                     id='kronos_position_analysis',
                     name='Kronos持仓分析和风险评估',
                     max_instances=1  # 确保同时只有一个实例运行

@@ -118,7 +118,7 @@ class CoreSchedulerService:
             task_id="core_monitoring",
             name="核心监控",
             func=self._run_core_monitoring,
-            interval_minutes=self.settings.get_task_interval('core_monitoring', 'core_scheduler_tasks'),
+            interval_minutes=30,  # 每30分钟监控一次
             priority=TaskPriority.CRITICAL,
             description="综合监控费率、系统健康等"
         )
@@ -128,7 +128,7 @@ class CoreSchedulerService:
             task_id="opportunity_scan",
             name="机会扫描",
             func=self._run_opportunity_scan,
-            interval_minutes=self.settings.get_task_interval('opportunity_scan', 'core_scheduler_tasks'),
+            interval_minutes=60,  # 每小时扫描一次
             priority=TaskPriority.HIGH,
             description="扫描交易机会、网格机会等"
         )
@@ -138,7 +138,7 @@ class CoreSchedulerService:
             task_id="position_analysis",
             name="持仓分析",
             func=self._run_position_analysis,
-            interval_minutes=self.settings.get_task_interval('position_analysis', 'core_scheduler_tasks'),
+            interval_minutes=120,  # 每2小时分析一次
             priority=TaskPriority.NORMAL,
             description="分析当前持仓状况"
         )
@@ -148,7 +148,7 @@ class CoreSchedulerService:
             task_id="daily_report",
             name="每日报告",
             func=self._run_daily_report,
-            interval_minutes=self.settings.get_task_interval('daily_report', 'core_scheduler_tasks'),
+            interval_minutes=1440,  # 每24小时一次
             priority=TaskPriority.LOW,
             description="生成每日系统报告"
         )
@@ -158,7 +158,7 @@ class CoreSchedulerService:
             task_id="health_check",
             name="健康检查",
             func=self._run_health_check,
-            interval_minutes=self.settings.get_task_interval('health_check', 'core_scheduler_tasks'),
+            interval_minutes=15,  # 每15分钟检查一次
             priority=TaskPriority.HIGH,
             description="系统健康状态检查"
         )

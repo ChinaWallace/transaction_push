@@ -74,26 +74,9 @@ class NotificationRule:
     enabled: bool = True
     min_priority: NotificationPriority = NotificationPriority.NORMAL
     channels: List[NotificationChannel] = None
-    cooldown_minutes: int = None  # 将在 __post_init__ 中从配置获取
+    cooldown_minutes: int = 30
     filter_func: Optional[Callable] = None
     format_func: Optional[Callable] = None
-    
-    def __post_init__(self):
-        """初始化后处理，从配置获取冷却时间"""
-        if self.cooldown_minutes is None:
-            from app.core.config import get_settings
-            settings = get_settings()
-            # 根据通知类型获取对应的冷却时间
-            if self.type == NotificationType.TRADING_SIGNAL:
-                self.cooldown_minutes = settings.get_notification_cooldown('trading_signal')
-            elif self.type == NotificationType.MARKET_ANOMALY:
-                self.cooldown_minutes = settings.get_notification_cooldown('market_anomaly')
-            elif self.type == NotificationType.SYSTEM_ALERT:
-                self.cooldown_minutes = settings.get_notification_cooldown('system_alert')
-            elif self.type == NotificationType.PROFIT_OPPORTUNITY:
-                self.cooldown_minutes = settings.get_notification_cooldown('profit_opportunity')
-            else:
-                self.cooldown_minutes = settings.get_notification_cooldown('trading_signal')  # 默认值
 
 
 class CoreNotificationService:

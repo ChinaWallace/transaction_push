@@ -6,7 +6,7 @@ Configuration management for the trading analysis tool
 
 from typing import Optional, Dict, Any, List
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, validator
 import os
 
 
@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     
     # 应用基础配置
     app_name: str = Field(default="Python Trading Tool", description="应用名称")
-    app_version: str = Field(default="1.1.0", description="应用版本")
+    app_version: str = Field(default="1.0.0", description="应用版本")
     debug: bool = Field(default=False, description="调试模式")
     log_level: str = Field(default="INFO", description="日志级别")
     
@@ -96,82 +96,6 @@ class Settings(BaseSettings):
     grid_opportunities_interval: int = Field(default=30, description="网格机会分析间隔(分钟) - 日内短线优化")
     market_opportunities_interval: int = Field(default=60, description="市场机会分析间隔(分钟) - 日内短线优化")
     
-    # 统一调度配置 - 集中管理所有定时任务的时间间隔
-    scheduler_config: Dict[str, Any] = Field(default_factory=lambda: {
-        # 主要监控任务调度间隔(分钟)
-        'main_tasks': {
-            'negative_funding_monitor': 60,      # 负费率监控，每60分钟
-            'trend_analysis': 30,                # 趋势分析，每30分钟  
-            'kronos_position_analysis': 60,      # Kronos持仓分析，每60分钟
-            'market_anomaly_monitor': 30,        # 市场异常监控，每30分钟
-            'volume_anomaly_monitor': 15,        # 交易量异常监控，每15分钟
-            'open_interest_monitor': 2,          # 持仓量监控，每2分钟
-            'grid_opportunities': 30,            # 网格机会扫描，每30分钟
-            'profit_opportunities': 60,          # 收益机会扫描，每60分钟
-            'health_check': 15,                  # 健康检查，每15分钟
-            'daily_report': 1440,                # 每日报告，每1440分钟(24小时)
-        },
-        
-        # 核心调度器任务间隔(分钟)
-        'core_scheduler_tasks': {
-            'core_monitoring': 30,               # 核心监控，每30分钟
-            'opportunity_scan': 60,              # 机会扫描，每60分钟
-            'position_analysis': 120,            # 持仓分析，每120分钟(2小时)
-            'daily_report': 1440,                # 每日报告，每1440分钟(24小时)
-            'health_check': 15,                  # 健康检查，每15分钟
-        },
-        
-        # Kronos AI 特殊任务间隔(分钟)
-        'kronos_tasks': {
-            'prediction_update': 5,              # Kronos预测更新，每5分钟
-            'market_scan': 3,                    # 强信号扫描，每3分钟
-            'profit_scan': 2,                    # 收益机会扫描，每2分钟
-            'grid_trading_scan': 60,             # 网格交易扫描，每60分钟(1小时)
-        },
-        
-        # 服务缓存和超时配置(秒)
-        'cache_timeouts': {
-            'volume_anomaly_cache': 300,         # 交易量异常缓存，5分钟
-            'market_anomaly_cache': 1800,        # 市场异常缓存，30分钟
-            'price_data_cache': 60,              # 价格数据缓存，1分钟
-            'funding_rate_cache': 900,           # 费率数据缓存，15分钟
-            'exchange_data_cache': 30,           # 交易所数据缓存，30秒
-        },
-        
-        # 通知冷却时间(分钟)
-        'notification_cooldowns': {
-            'trading_signal': 30,                # 交易信号通知冷却，30分钟
-            'market_anomaly': 15,                # 市场异常通知冷却，15分钟
-            'system_alert': 5,                   # 系统告警通知冷却，5分钟
-            'profit_opportunity': 10,            # 收益机会通知冷却，10分钟
-            'emergency_alert': 1,                # 紧急告警通知冷却，1分钟
-        },
-        
-        # HTTP请求超时配置(秒)
-        'http_timeouts': {
-            'exchange_api_timeout': 10,          # 交易所API超时，10秒
-            'notification_timeout': 10,          # 通知发送超时，10秒
-            'database_timeout': 30,              # 数据库查询超时，30秒
-            'model_prediction_timeout': 60,      # 模型预测超时，60秒
-        },
-        
-        # 任务重试配置
-        'task_retries': {
-            'max_retries': 3,                    # 最大重试次数
-            'retry_delay_seconds': 5,            # 重试延迟，5秒
-            'exponential_backoff': True,         # 是否使用指数退避
-            'max_retry_delay_seconds': 300,      # 最大重试延迟，5分钟
-        },
-        
-        # 数据清理配置(小时)
-        'data_cleanup': {
-            'log_retention_hours': 168,          # 日志保留时间，168小时(7天)
-            'anomaly_data_retention_hours': 72,  # 异常数据保留时间，72小时(3天)
-            'cache_cleanup_hours': 24,           # 缓存清理间隔，24小时
-            'temp_data_cleanup_hours': 6,        # 临时数据清理间隔，6小时
-        }
-    }, description="统一调度配置 - 集中管理所有定时任务、缓存、超时和清理策略的时间间隔")
-    
     # 策略配置
     strategy_config: Dict[str, Any] = Field(default_factory=lambda: {
         'supertrend': {
@@ -203,7 +127,7 @@ class Settings(BaseSettings):
             'sample_count': 3  # 减少采样次数，避免内存和张量问题
         },
         'confidence_threshold': 0.25,  # 日内短线：进一步降低阈值，抓住更多短线机会
-        'update_interval_minutes': 5,   # 日内短线：从 scheduler_config.kronos_tasks.prediction_update 获取
+        'update_interval_minutes': 5,   # 日内短线：缩短更新间隔到5分钟
         'cache_predictions': True,
         'use_gpu': False,  # 强制使用CPU避免CUDA张量问题
         'target_symbols': [
@@ -236,9 +160,9 @@ class Settings(BaseSettings):
             'strong_signal_threshold': 0.35,  # 日内短线：降低强信号扫描阈值
             'profit_opportunity_threshold': 2.0,  # 日内短线：降低收益机会阈值到2%
             'scan_intervals': {
-                'strong_signal_minutes': 3,   # 日内短线：从 scheduler_config.kronos_tasks.market_scan 获取
-                'profit_scan_minutes': 2,     # 日内短线：从 scheduler_config.kronos_tasks.profit_scan 获取
-                'grid_trading_hours': 1       # 网格交易扫描从 scheduler_config.kronos_tasks.grid_trading_scan 获取
+                'strong_signal_minutes': 3,   # 日内短线：强信号扫描间隔缩短到3分钟
+                'profit_scan_minutes': 2,     # 日内短线：收益机会扫描2分钟一次
+                'grid_trading_hours': 1       # 网格交易扫描间隔缩短到1小时
             },
             'top_volume_limit': 100,  # 扫描交易量前100的币种
             'notification_config': {
@@ -304,7 +228,7 @@ class Settings(BaseSettings):
         # 专注异常监控而非高频交易
         'anomaly_monitoring': {
             'enable': True,
-            'check_interval_minutes': 5,      # 从 scheduler_config.main_tasks.volume_anomaly_monitor 获取的对应值
+            'check_interval_minutes': 5,      # 5分钟检查一次异常
             'alert_threshold': 0.8,           # 异常严重度阈值
             'auto_notify_kronos': True,       # 自动通知Kronos服务重新预测
             'emergency_threshold': 0.95       # 紧急异常阈值
@@ -323,6 +247,41 @@ class Settings(BaseSettings):
         'DOT-USDT-SWAP'    # Polkadot
     ], description="主要监控的交易对列表 - 包含主流币种，使用Kronos进行深度分析和交易决策")
     
+    # 费率监控币种配置 - 扩展到更多币种，增加收益机会
+    funding_rate_only_symbols: List[str] = Field(default=[
+        # 主流币种
+        'BTC-USDT-SWAP', 'BNB-USDT-SWAP', 'ADA-USDT-SWAP', 'DOT-USDT-SWAP',
+        'AVAX-USDT-SWAP', 'ATOM-USDT-SWAP', 'NEAR-USDT-SWAP', 'ALGO-USDT-SWAP',
+        'LINK-USDT-SWAP', 'UNI-USDT-SWAP', 'SUSHI-USDT-SWAP', 'CRV-USDT-SWAP',
+        'COMP-USDT-SWAP', 'MKR-USDT-SWAP', 'OP-USDT-SWAP', 'ARB-USDT-SWAP',
+        'LTC-USDT-SWAP', 'BCH-USDT-SWAP', 'ETC-USDT-SWAP', 'XRP-USDT-SWAP',
+        'DOGE-USDT-SWAP',
+        
+        # 热门DeFi币种
+        'AAVE-USDT-SWAP', 'SNX-USDT-SWAP', '1INCH-USDT-SWAP', 'YFI-USDT-SWAP',
+        'LPT-USDT-SWAP',  # 添加LPT - 经常有负费率机会
+        
+        # Layer2和新兴币种
+        'HBAR-USDT-SWAP', 'VET-USDT-SWAP', 'THETA-USDT-SWAP', 'ENJ-USDT-SWAP',
+        
+        # NFT和游戏币种
+        'SHIB-USDT-SWAP', 'APT-USDT-SWAP', 'SUI-USDT-SWAP', 'AXS-USDT-SWAP',
+        'SAND-USDT-SWAP', 'MANA-USDT-SWAP', 'GALA-USDT-SWAP', 'CHZ-USDT-SWAP',
+        
+        # 存储和基础设施
+        'FIL-USDT-SWAP', 'AR-USDT-SWAP',
+        
+        # 新兴热门币种
+        'PEPE-USDT-SWAP', 'FLOKI-USDT-SWAP', 'BONK-USDT-SWAP', 'WIF-USDT-SWAP',
+        
+        # AI和科技概念
+        'FET-USDT-SWAP', 'OCEAN-USDT-SWAP',
+        
+        # 其他潜力币种
+        'IMX-USDT-SWAP', 'GMT-USDT-SWAP', 'APE-USDT-SWAP',
+        'DYDX-USDT-SWAP', 'GMX-USDT-SWAP'
+    ], description="费率监控币种列表 - 扩展到70+币种，覆盖各个热门赛道，增加收益机会发现")
+    
     # TradingView集成配置
     tradingview_config: Dict[str, Any] = Field(default_factory=lambda: {
         'enable_pine_indicators': True,
@@ -334,7 +293,7 @@ class Settings(BaseSettings):
     # 收益最大化策略配置 - 币圈专用
     profit_maximization_config: Dict[str, Any] = Field(default_factory=lambda: {
         'enable_profit_scanning': True,
-        'scan_interval_minutes': 3,  # 从 scheduler_config.kronos_tasks.market_scan 获取
+        'scan_interval_minutes': 3,  # 3分钟扫描一次
         'min_expected_return': 3.0,  # 最低预期收益3%
         'min_risk_reward_ratio': 1.5,  # 最低风险收益比1.5:1
         'max_position_risk': 0.03,   # 单笔最大风险3%
@@ -589,8 +548,7 @@ class Settings(BaseSettings):
         extra="ignore"
     )
     
-    @field_validator("log_level")
-    @classmethod
+    @validator("log_level")
     def validate_log_level(cls, v):
         """验证日志级别"""
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -598,16 +556,14 @@ class Settings(BaseSettings):
             raise ValueError(f"Log level must be one of {valid_levels}")
         return v.upper()
     
-    @field_validator("log_path")
-    @classmethod
+    @validator("log_path")
     def validate_log_path(cls, v):
         """验证日志路径"""
         if not os.path.exists(v):
             os.makedirs(v, exist_ok=True)
         return v
     
-    @field_validator("exchange_provider")
-    @classmethod
+    @validator("exchange_provider")
     def validate_exchange_provider(cls, v):
         """验证交易所提供商"""
         valid_exchanges = ["okx", "binance"]
@@ -615,22 +571,45 @@ class Settings(BaseSettings):
             raise ValueError(f"Exchange provider must be one of {valid_exchanges}")
         return v.lower()
     
-    @model_validator(mode='after')
-    def validate_exchange_credentials(self):
-        """验证交易所凭据"""
-        if self.exchange_provider == "binance":
-            if not self.binance_api_key:
-                raise ValueError("Binance API key is required when exchange_provider is 'binance'")
-            if not self.binance_secret_key:
-                raise ValueError("Binance secret key is required when exchange_provider is 'binance'")
-        elif self.exchange_provider == "okx":
-            if not self.okx_api_key:
-                raise ValueError("OKX API key is required when exchange_provider is 'okx'")
-            if not self.okx_secret_key:
-                raise ValueError("OKX secret key is required when exchange_provider is 'okx'")
-            if not self.okx_passphrase:
-                raise ValueError("OKX passphrase is required when exchange_provider is 'okx'")
-        return self
+    @validator("binance_api_key")
+    def validate_binance_api_key(cls, v, values):
+        """验证币安API Key"""
+        exchange_provider = values.get("exchange_provider", "okx")
+        if exchange_provider == "binance" and not v:
+            raise ValueError("Binance API key is required when exchange_provider is 'binance'")
+        return v
+    
+    @validator("binance_secret_key")
+    def validate_binance_secret_key(cls, v, values):
+        """验证币安Secret Key"""
+        exchange_provider = values.get("exchange_provider", "okx")
+        if exchange_provider == "binance" and not v:
+            raise ValueError("Binance secret key is required when exchange_provider is 'binance'")
+        return v
+    
+    @validator("okx_api_key")
+    def validate_okx_api_key(cls, v, values):
+        """验证OKX API Key"""
+        exchange_provider = values.get("exchange_provider", "okx")
+        if exchange_provider == "okx" and not v:
+            raise ValueError("OKX API key is required when exchange_provider is 'okx'")
+        return v
+    
+    @validator("okx_secret_key")
+    def validate_okx_secret_key(cls, v, values):
+        """验证OKX Secret Key"""
+        exchange_provider = values.get("exchange_provider", "okx")
+        if exchange_provider == "okx" and not v:
+            raise ValueError("OKX secret key is required when exchange_provider is 'okx'")
+        return v
+    
+    @validator("okx_passphrase")
+    def validate_okx_passphrase(cls, v, values):
+        """验证OKX Passphrase"""
+        exchange_provider = values.get("exchange_provider", "okx")
+        if exchange_provider == "okx" and not v:
+            raise ValueError("OKX passphrase is required when exchange_provider is 'okx'")
+        return v
     
     @property
     def is_development(self) -> bool:
@@ -775,80 +754,6 @@ class Settings(BaseSettings):
                 "grid_opportunities": self.grid_opportunities_interval,
                 "market_opportunities": self.market_opportunities_interval,
             }
-        }
-    
-    # 新增：调度配置便捷访问方法
-    def get_task_interval(self, task_name: str, task_category: str = 'main_tasks') -> int:
-        """
-        获取指定任务的调度间隔
-        
-        Args:
-            task_name: 任务名称
-            task_category: 任务类别 ('main_tasks', 'core_scheduler_tasks', 'kronos_tasks')
-            
-        Returns:
-            调度间隔（分钟）
-        """
-        return self.scheduler_config.get(task_category, {}).get(task_name, 60)
-    
-    def get_cache_timeout(self, cache_name: str) -> int:
-        """
-        获取指定缓存的超时时间
-        
-        Args:
-            cache_name: 缓存名称
-            
-        Returns:
-            超时时间（秒）
-        """
-        return self.scheduler_config.get('cache_timeouts', {}).get(cache_name, 300)
-    
-    def get_notification_cooldown(self, notification_type: str) -> int:
-        """
-        获取指定通知类型的冷却时间
-        
-        Args:
-            notification_type: 通知类型
-            
-        Returns:
-            冷却时间（分钟）
-        """
-        return self.scheduler_config.get('notification_cooldowns', {}).get(notification_type, 30)
-    
-    def get_http_timeout(self, timeout_type: str) -> int:
-        """
-        获取指定HTTP操作的超时时间
-        
-        Args:
-            timeout_type: 超时类型
-            
-        Returns:
-            超时时间（秒）
-        """
-        return self.scheduler_config.get('http_timeouts', {}).get(timeout_type, 10)
-    
-    @property
-    def all_task_intervals(self) -> Dict[str, int]:
-        """获取所有任务的调度间隔映射"""
-        intervals = {}
-        for category, tasks in self.scheduler_config.items():
-            if category.endswith('_tasks'):
-                for task_name, interval in tasks.items():
-                    intervals[f"{category}.{task_name}"] = interval
-        return intervals
-    
-    @property
-    def scheduler_summary(self) -> Dict[str, Any]:
-        """获取调度配置摘要"""
-        return {
-            'total_main_tasks': len(self.scheduler_config.get('main_tasks', {})),
-            'total_core_tasks': len(self.scheduler_config.get('core_scheduler_tasks', {})),
-            'total_kronos_tasks': len(self.scheduler_config.get('kronos_tasks', {})),
-            'cache_types': len(self.scheduler_config.get('cache_timeouts', {})),
-            'notification_types': len(self.scheduler_config.get('notification_cooldowns', {})),
-            'http_timeout_types': len(self.scheduler_config.get('http_timeouts', {})),
-            'max_retries': self.scheduler_config.get('task_retries', {}).get('max_retries', 3),
-            'retry_delay': self.scheduler_config.get('task_retries', {}).get('retry_delay_seconds', 5),
         }
 
 

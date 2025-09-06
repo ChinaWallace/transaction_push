@@ -61,11 +61,7 @@ class MarketAnomalyMonitorService:
         
         # 缓存历史数据
         self.historical_cache = {}
-        # 从配置获取缓存超时时间
-        from app.core.config import get_settings
-        settings = get_settings()
-        cache_timeout_seconds = settings.get_cache_timeout('market_anomaly_cache')
-        self.cache_expiry = timedelta(seconds=cache_timeout_seconds)
+        self.cache_expiry = timedelta(minutes=30)
         
     async def _ensure_notification_service(self):
         """确保通知服务已初始化"""
