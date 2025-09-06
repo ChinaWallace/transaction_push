@@ -76,7 +76,10 @@ class VolumeAnomalyService:
         # 缓存
         self._volume_cache = {}
         self._cache_expiry = {}
-        self._cache_duration = 300  # 5分钟缓存
+        # 从配置获取缓存持续时间
+        from app.core.config import get_settings
+        settings = get_settings()
+        self._cache_duration = settings.get_cache_timeout('volume_anomaly_cache')  # 从配置获取
     
     async def detect_volume_anomaly(self, symbol: str) -> Optional[VolumeAnomalyData]:
         """

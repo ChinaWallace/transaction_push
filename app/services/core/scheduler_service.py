@@ -121,34 +121,33 @@ class SchedulerService:
         try:
             # 🔄 核心监控任务组 - 高频监控
             
-            # 持仓量监控 - 每30分钟执行一次 (降低频率，减少噪音)
+            # 持仓量监控 - 优化频率，提高市场敏感度
             self.scheduler.add_job(
                 self._open_interest_job,
-                trigger=IntervalTrigger(minutes=30),
+                trigger=IntervalTrigger(minutes=20),  # 缩短到每20分钟，提高市场变化捕获能力
                 id="open_interest_monitor", 
-                name="持仓量变化监控",
+                name="持仓量变化监控 (高频优化)",
                 max_instances=1
             )
             
-            # 交易量异常监控 - 每60分钟执行一次 (降低频率，目前功能不完整)
-            # 注意：当前交易量异常监控没有独立的通知功能，主要用于数据收集
+            # 交易量异常监控 - 优化频率，提高异常检测敏感度
             self.scheduler.add_job(
                 self._volume_anomaly_job,
-                trigger=IntervalTrigger(minutes=60),
+                trigger=IntervalTrigger(minutes=30),  # 缩短到每30分钟，提高异常检测效率
                 id="volume_anomaly_monitor",
-                name="交易量异常监控 (数据收集)",
+                name="交易量异常监控 (高频数据收集)",
                 max_instances=1
             )
             
-            # 完整交易决策分析已暂时禁用，避免重复推送
+            # 核心交易服务分析 - 优化频率，提高分析效率
             self.scheduler.add_job(
                 self._core_trading_analysis_job,
-                trigger=IntervalTrigger(minutes=30),  # 每30分钟执行一次
+                trigger=IntervalTrigger(minutes=15),  # 缩短到每15分钟执行一次，提高响应速度
                 id="core_trading_analysis", 
-                name="核心交易服务分析 (详细推送)",
+                name="核心交易服务分析 (高频详细推送)",
                 max_instances=1
             )
-            logger.info("✅ 核心交易服务定时任务已启用 - 每30分钟执行一次")
+            logger.info("✅ 核心交易服务定时任务已启用 - 每15分钟执行一次 (高频优化)")
             
             # 综合监控报告 - 每天早上9点执行
             self.scheduler.add_job(
@@ -159,12 +158,12 @@ class SchedulerService:
                 max_instances=1
             )
             
-            # 健康检查 - 每30分钟执行一次
+            # 健康检查 - 每天执行一次 (适配器健康检查频率优化)
             self.scheduler.add_job(
                 self._health_check_job,
-                trigger=IntervalTrigger(minutes=30),
+                trigger=CronTrigger(hour=8, minute=0),  # 每天早上8点执行
                 id="health_check",
-                name="系统健康检查",
+                name="系统健康检查 (包含适配器健康检查)",
                 max_instances=1
             )
             
@@ -190,23 +189,23 @@ class SchedulerService:
                 max_instances=1
             )
             
-            # 综合市场机会分析 - 每60分钟执行一次 (宏观分析)
+            # 综合市场机会分析 - 每30分钟执行一次 (优化频率，提高市场异常检测)
             self.scheduler.add_job(
                 self._comprehensive_market_analysis_job,
-                trigger=IntervalTrigger(minutes=60),
+                trigger=IntervalTrigger(minutes=30),
                 id="comprehensive_market_analysis",
-                name="综合市场机会分析 (宏观分析)",
+                name="综合市场机会分析 (半小时频率优化)",
                 max_instances=1
             )
             
             # 🤖 ML增强分析任务组
             
-            # ML预测信号 - 每30分钟执行一次 (辅助验证Kronos信号)
+            # ML预测信号 - 优化频率，提高预测时效性
             self.scheduler.add_job(
                 self._ml_prediction_job,
-                trigger=IntervalTrigger(minutes=30),
+                trigger=IntervalTrigger(minutes=20),  # 缩短到每20分钟，提高ML预测响应速度
                 id="ml_prediction",
-                name="ML预测信号分析 (辅助验证)",
+                name="ML预测信号分析 (高频辅助验证)",
                 max_instances=1
             )
             
@@ -228,7 +227,24 @@ class SchedulerService:
                 max_instances=1
             )
             
-            logger.info("✅ 定时任务设置完成")
+            # 适配器健康检查 - 每天执行一次 (独立任务，降低频率)
+            self.scheduler.add_job(
+                self._adapter_health_check_job,
+                trigger=CronTrigger(hour=9, minute=30),  # 每天早上9:30执行
+                id="adapter_health_check",
+                name="数据适配器健康检查 (每日一次)",
+                max_instances=1
+            )
+            
+            logger.info("✅ 定时任务设置完成 - 频率优化版本")
+            logger.info("📋 任务调度频率总结:")
+            logger.info("   🎯 核心交易分析: 每15分钟 (高频优化)")
+            logger.info("   📊 持仓量监控: 每20分钟 (提高敏感度)")
+            logger.info("   🔊 交易量异常: 每30分钟 (高频检测)")
+            logger.info("   🚨 综合市场分析: 每30分钟 (市场异常监控优化)")
+            logger.info("   🤖 ML预测信号: 每20分钟 (高频验证)")
+            logger.info("   🔧 适配器健康检查: 每日9:30 (降低频率)")
+            logger.info("   🏥 系统健康检查: 每日8:00 (降低频率)")
             
         except Exception as e:
             logger.error(f"❌ 定时任务设置失败: {e}")
@@ -577,9 +593,9 @@ class SchedulerService:
             logger.error(f"Daily report job failed: {e}")
     
     async def _health_check_job(self):
-        """健康检查任务"""
+        """系统健康检查任务 - 每日执行，不包含适配器检查"""
         try:
-            monitor_logger.info("Executing system health check")
+            monitor_logger.info("🔍 执行系统健康检查 (每日版本)")
             
             # 检查各个服务的健康状态
             from app.core.database import db_manager
@@ -612,12 +628,86 @@ class SchedulerService:
                 )
             
             monitor_logger.info(
-                f"Health check completed: DB={'OK' if db_healthy else 'FAIL'}, "
-                f"API={'OK' if api_healthy else 'FAIL'}"
+                f"✅ 系统健康检查完成: 数据库={'正常' if db_healthy else '异常'}, "
+                f"交易所API={'正常' if api_healthy else '异常'}"
             )
             
         except Exception as e:
-            logger.error(f"Health check job failed: {e}")
+            logger.error(f"❌ 系统健康检查失败: {e}")
+    
+    async def _adapter_health_check_job(self):
+        """数据适配器健康检查任务 - 每日执行一次"""
+        try:
+            monitor_logger.info("🔧 执行数据适配器健康检查 (每日版本)")
+            
+            from app.services.exchanges.adapters.adapter_factory import AdapterFactory
+            from app.core.config import get_settings
+            
+            settings = get_settings()
+            exchange_provider = settings.exchange_provider
+            
+            # 检查当前配置的交易所适配器
+            health_info = AdapterFactory.validate_adapter_health(exchange_provider)
+            
+            # 记录健康检查结果
+            if health_info["status"] == "healthy":
+                monitor_logger.info(f"✅ 适配器健康检查通过: {exchange_provider}")
+                monitor_logger.info(f"   📊 适配器信息: {health_info.get('adapter_info', {})}")
+            else:
+                monitor_logger.warning(f"⚠️ 适配器健康检查异常: {exchange_provider}")
+                monitor_logger.warning(f"   ❌ 错误信息: {health_info.get('error', '未知错误')}")
+                
+                # 发送适配器异常警报
+                from app.services.notification.notification_service import NotificationService
+                notification_service = NotificationService()
+                
+                error_message = f"""🔧 数据适配器健康检查警报
+
+⏰ 检查时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+🏢 交易所：{exchange_provider.upper()}
+
+❌ 适配器状态：{health_info["status"]}
+📝 错误信息：{health_info.get('error', '未知错误')}
+🔧 错误类型：{health_info.get('error_type', '未知类型')}
+
+建议检查：
+• 交易所API连接状态
+• 适配器配置是否正确
+• 网络连接是否正常"""
+                
+                await notification_service.send_notification(
+                    error_message,
+                    priority="normal",
+                    subject="数据适配器健康检查警报"
+                )
+            
+            # 检查缓存信息
+            cache_info = AdapterFactory.get_cache_info()
+            monitor_logger.info(f"📦 适配器缓存状态: {cache_info['cache_size']} 个实例缓存")
+            
+        except Exception as e:
+            logger.error(f"❌ 数据适配器健康检查失败: {e}")
+            
+            # 发送检查失败警报
+            try:
+                from app.services.notification.notification_service import NotificationService
+                notification_service = NotificationService()
+                
+                error_message = f"""🚨 数据适配器健康检查执行失败
+
+⏰ 检查时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+❌ 执行错误：{str(e)}
+
+请检查系统状态和日志文件！"""
+                
+                await notification_service.send_notification(
+                    error_message,
+                    priority="urgent",
+                    subject="适配器健康检查执行失败"
+                )
+            except Exception as notify_error:
+                logger.error(f"发送适配器检查失败通知时出错: {notify_error}")
     
     async def _dynamic_weight_monitoring_job(self):
         """动态权重监控任务 - 展示权重调整效果"""
