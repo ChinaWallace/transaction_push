@@ -239,3 +239,5 @@ local/
 *.pkl
 models/
 docs/
+
+.codebuddy
