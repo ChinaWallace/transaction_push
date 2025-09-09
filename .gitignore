@@ -235,9 +235,19 @@ local/
 .cursor/
 .kiro/
 
+# 机器学习模型文件
 *.joblib
 *.pkl
-models/
+*.h5
+*.pth
+*.onnx
+*.safetensors
+*.bin
+
+# 只忽略根目录下的 models 文件夹（机器学习模型存储）
+/models/
+
+# 文档目录
 docs/
 
 .codebuddy
