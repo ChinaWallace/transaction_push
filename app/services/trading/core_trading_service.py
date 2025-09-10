@@ -491,13 +491,20 @@ class CoreTradingService:
         reasoning_parts = []
         enhancement_factors = []  # 增强因子
         
-        # Kronos分析
+        # Kronos分析 - 增强失败处理和权重转移
+        kronos_weight_transferred = 0.0
         if kronos_result:
             signals.append(kronos_result.final_action)
             confidences.append(kronos_result.final_confidence * analysis_weights['kronos'])
             reasoning_parts.append(f"Kronos: {kronos_result.final_action} ({kronos_result.final_confidence:.2f})")
+        else:
+            # Kronos 分析失败，将权重转移给技术分析
+            kronos_weight_transferred = analysis_weights['kronos']
+            analysis_weights['technical'] += kronos_weight_transferred
+            self.logger.info(f"⚠️ Kronos分析失败，权重({kronos_weight_transferred:.2f})转移给技术分析")
+            reasoning_parts.append(f"Kronos: 分析失败，权重转移给技术分析")
         
-        # 技术分析
+        # 技术分析 - 支持Kronos权重转移
         if technical_result:
             tech_action_enum = technical_result.get('action', 'HOLD')
             # 处理TradingAction枚举对象
@@ -507,8 +514,14 @@ class CoreTradingService:
                 tech_action = str(tech_action_enum)
             tech_confidence = technical_result.get('confidence', 0.5)
             signals.append(tech_action)
-            confidences.append(tech_confidence * analysis_weights['technical'])
-            reasoning_parts.append(f"技术: {tech_action} ({tech_confidence:.2f})")
+            # 使用更新后的技术分析权重（可能包含从Kronos转移的权重）
+            tech_weight_used = analysis_weights['technical']
+            confidences.append(tech_confidence * tech_weight_used)
+            
+            if kronos_weight_transferred > 0:
+                reasoning_parts.append(f"技术(含Kronos权重): {tech_action} ({tech_confidence:.2f}, 权重:{tech_weight_used:.2f})")
+            else:
+                reasoning_parts.append(f"技术: {tech_action} ({tech_confidence:.2f})")
         
         # ML分析
         if ml_result:

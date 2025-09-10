@@ -1896,9 +1896,32 @@ class KronosPositionAnalysisService:
                 pnl_emoji = "🟢" if unrealized_pnl >= 0 else "🔴"
                 
                 message_parts.append(f"{i}. **{symbol}** ({direction})")
-                message_parts.append(f"   💰 仓位: {abs(pos_size):.4f} @ ${mark_price:,.2f}")
+                # 获取开仓价格 - 尝试多个可能的字段
+                original_data = result.current_position.get('original_data', {})
+                entry_price = (
+                    original_data.get('avgPx') or  # OKX API 字段
+                    original_data.get('avg_px') or  # 可能的字段名
+                    result.current_position.get('avgPx') or  # 直接从 current_position
+                    result.current_position.get('avg_px') or  # 可能的字段名
+                    result.current_position.get('avg_price') or  # 平均价格
+                    result.current_position.get('entry_price') or  # 开仓价格
+                    mark_price  # 最后回退到标记价格
+                )
+                message_parts.append(f"   💰 仓位: {abs(pos_size):.4f}")
+                message_parts.append(f"   📈 开仓价: ${float(entry_price):,.4f}")
+                message_parts.append(f"   💲 现价: ${mark_price:,.4f}")
                 message_parts.append(f"   📊 价值: ${position_value:,.2f} ({position_ratio:.1f}%)")
-                message_parts.append(f"   {pnl_emoji} 盈亏: ${unrealized_pnl:+,.2f}")
+                
+                # 处理币本位合约的盈亏显示
+                if symbol.endswith('-USD-SWAP'):
+                    # 币本位合约，盈亏以基础币种计算
+                    base_currency = symbol.split('-')[0]  # 提取基础币种，如 DOGE
+                    # 计算USDT等值：币种盈亏 × 当前币价
+                    usdt_equivalent = unrealized_pnl * mark_price
+                    message_parts.append(f"   {pnl_emoji} 盈亏: {unrealized_pnl:+,.2f} {base_currency} (≈${usdt_equivalent:+,.2f})")
+                else:
+                    # USDT本位合约，盈亏以USDT计算
+                    message_parts.append(f"   {pnl_emoji} 盈亏: ${unrealized_pnl:+,.2f}")
                 
                 # 添加涨跌预测信息
                 if result.price_prediction:
