@@ -976,22 +976,6 @@ class NegativeFundingMonitorService:
         if remaining_count > 0:
             message += f"📋 其他机会: {remaining_count}个 (评分较低或风险较高)\n\n"
         
-        # 添加操作建议
-        message += "💡 操作建议:\n"
-        if enhanced:
-            # 增强模式建议
-            message += "• 优先选择「趋势套利」机会，双重收益\n"
-            message += "• 严格按照建议仓位和杠杆操作\n"
-            message += "• 设置止损止盈，控制风险\n"
-            message += "• 关注价格预测置信度，高置信度优先\n"
-            message += "• 「立即」和「尽快」机会及时把握\n\n"
-        else:
-            # 普通模式建议
-            message += "• 优先选择主流币种和高流动性标的\n"
-            message += "• 关注价格稳定性，避免高波动币种\n"
-            message += "• 建议分散投资，单币种不超过总资金20%\n"
-            message += "• 密切监控费率变化，及时调整仓位\n\n"
-        
         message += "⏰ 下次检查: 60分钟后\n"
         message += f"📋 筛选标准: 负费率 ≤ -0.05% (动态调整)\n"
         
@@ -1078,22 +1062,19 @@ class NegativeFundingMonitorService:
             if not all_funding_rates:
                 return {'success': False, 'error': '未获取到费率数据'}
             
-            # 2. 筛选出负费率币种进行详细分析 - 降低阈值，确保有内容显示
-            primary_threshold = -0.0005  # -0.05% 主要阈值
-            secondary_threshold = -0.0001  # -0.01% 次要阈值
+            # 2. 筛选出负费率币种进行详细分析 - 严格按照-0.05%阈值筛选
+            primary_threshold = -0.0005  # -0.05% 主要阈值（严格执行）
             
-            # 优先分析负费率低于-0.05%的币种
+            # 只分析负费率低于-0.05%的币种，不再降低标准
             primary_negative_rates = [r for r in all_funding_rates if r['funding_rate'] <= primary_threshold]
+            negative_funding_rates = primary_negative_rates
+            used_threshold = primary_threshold
             
-            # 如果主要阈值的币种少于3个，则扩展到-0.01%
-            if len(primary_negative_rates) < 3:
-                secondary_negative_rates = [r for r in all_funding_rates if r['funding_rate'] <= secondary_threshold]
-                negative_funding_rates = secondary_negative_rates
-                used_threshold = secondary_threshold
-                logger.info(f"📊 主要阈值(-0.05%)币种不足，扩展到-0.01%阈值")
+            # 如果没有符合条件的币种，也不降低标准，而是报告无机会
+            if len(primary_negative_rates) == 0:
+                logger.info(f"📊 当前无符合-0.05%阈值的负费率币种")
             else:
-                negative_funding_rates = primary_negative_rates
-                used_threshold = primary_threshold
+                logger.info(f"📊 发现 {len(primary_negative_rates)} 个符合-0.05%阈值的负费率币种")
             
             total_negative_count = len([r for r in all_funding_rates if r['funding_rate'] < 0])
             logger.info(f"📊 发现 {total_negative_count} 个负费率币种，其中 {len(negative_funding_rates)} 个低于{used_threshold*100:.2f}%，开始详细分析...")

@@ -283,7 +283,7 @@ class CoreNotificationService:
             if is_trading_signal:
                 return self._build_trading_signal_card(actual_message, lines, theme_color)
             elif is_funding_rate:
-                return self._build_funding_rate_card(actual_message, lines, theme_color)
+                return self._build_funding_rate_card(actual_message, lines, theme_color, metadata)
             elif is_system_alert:
                 return self._build_system_alert_card(actual_message, lines, theme_color)
             else:
@@ -387,17 +387,21 @@ class CoreNotificationService:
         
         return card
     
-    def _build_funding_rate_card(self, message: str, lines: List[str], theme_color: str) -> Dict[str, Any]:
+    def _build_funding_rate_card(self, message: str, lines: List[str], theme_color: str, metadata: Dict[str, Any] = None) -> Dict[str, Any]:
         """构建负费率卡片"""
-        # 提取负费率信息
+        # 优先从 metadata 中获取机会数量
         opportunities_count = 0
-        for line in lines:
-            if "发现" in line and "个机会" in line:
-                try:
-                    opportunities_count = int(''.join(filter(str.isdigit, line)))
-                except:
-                    opportunities_count = 0
-                break
+        if metadata and 'opportunities_count' in metadata:
+            opportunities_count = metadata.get('opportunities_count', 0)
+        else:
+            # 备用方案：从消息文本中提取
+            for line in lines:
+                if "发现" in line and ("个机会" in line or "个负费率" in line):
+                    try:
+                        opportunities_count = int(''.join(filter(str.isdigit, line)))
+                    except:
+                        opportunities_count = 0
+                    break
         
         card = {
             "config": {

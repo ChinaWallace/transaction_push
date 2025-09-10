@@ -108,7 +108,7 @@ class Settings(BaseSettings):
             'consecutive_periods': 3
         },
         'funding_rate': {
-            'negative_threshold': -0.0001,  # -0.01% 阈值，降低阈值以捕获更多负费率机会
+            'negative_threshold': -0.0005,  # -0.05% 阈值，只推送显著的负费率机会
             'high_threshold': 0.1
         }
     }, description="策略参数配置")

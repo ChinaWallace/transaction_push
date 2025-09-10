@@ -543,58 +543,6 @@ class MarketAnomalyMonitorService:
         reasons = []
         risk_factors = []
         
-        # 基本条件：交易量足够大
-        if current_data['volume_24h'] < 1000000:  # 小于100万USDT
-            risk_factors.append("交易量偏小，流动性风险")
-        
-        # 波动率分析
-        if volatility_anomaly in [AnomalyLevel.HIGH, AnomalyLevel.EXTREME]:
-            if trend_direction in [TrendDirection.STRONG_UP, TrendDirection.UP]:
-                reasons.append("🚀 波动率异常上升，上涨动能强劲")
-            else:
-                risk_factors.append("波动率异常，价格不稳定")
-        
-        # 交易量分析
-        if volume_anomaly in [AnomalyLevel.HIGH, AnomalyLevel.EXTREME]:
-            if trend_direction in [TrendDirection.STRONG_UP, TrendDirection.UP]:
-                reasons.append("📈 交易量异常放大，资金大量流入")
-            elif trend_direction in [TrendDirection.STRONG_DOWN, TrendDirection.DOWN]:
-                reasons.append("📉 交易量异常放大，可能触底反弹")
-            else:
-                reasons.append("💰 交易量异常活跃，关注度高")
-        
-        # 持仓量分析
-        if oi_anomaly and oi_anomaly in [AnomalyLevel.HIGH, AnomalyLevel.EXTREME]:
-            if current_data['oi_change_24h'] > 0:
-                if trend_direction in [TrendDirection.STRONG_UP, TrendDirection.UP]:
-                    reasons.append("🔥 持仓量大幅增加，多头信心强")
-                else:
-                    reasons.append("⚡ 持仓量大幅增加，市场分歧加大")
-            else:
-                reasons.append("🔄 持仓量大幅减少，可能变盘在即")
-        
-        # 趋势方向分析
-        if trend_direction == TrendDirection.STRONG_UP:
-            reasons.append("🚀 强势上涨趋势，动能充足")
-        elif trend_direction == TrendDirection.UP:
-            reasons.append("📈 上涨趋势确立")
-        elif trend_direction == TrendDirection.STRONG_DOWN:
-            if volume_anomaly in [AnomalyLevel.HIGH, AnomalyLevel.EXTREME]:
-                reasons.append("🔄 大跌放量，可能接近底部")
-            else:
-                risk_factors.append("强势下跌，风险较高")
-        
-        # 价格变化分析
-        price_change = current_data['price_change_24h']
-        if price_change > 0.2:  # 上涨超过20%
-            reasons.append("🔥 24小时大幅上涨")
-        elif price_change > 0.1:  # 上涨超过10%
-            reasons.append("📈 24小时显著上涨")
-        elif price_change < -0.2:  # 下跌超过20%
-            if volume_anomaly in [AnomalyLevel.HIGH, AnomalyLevel.EXTREME]:
-                reasons.append("💎 大跌放量，抄底机会")
-            else:
-                risk_factors.append("大幅下跌，谨慎操作")
         
         # 综合评估
         is_recommended = False
@@ -617,8 +565,6 @@ class MarketAnomalyMonitorService:
             volume_anomaly in [AnomalyLevel.HIGH, AnomalyLevel.EXTREME] and
             current_data['volume_24h'] > 5000000):  # 交易量大于500万
             is_recommended = True
-            if "🌟 多重异常共振，强烈推荐" not in reasons:
-                reasons.insert(0, "🌟 多重异常共振，强烈推荐")
         
         return is_recommended, reasons, risk_factors
     
@@ -758,7 +704,6 @@ class MarketAnomalyMonitorService:
         message += f"⏰ 检测时间: {datetime.now().strftime('%m-%d %H:%M')}\n"
         message += f"📊 总检查币种: {summary.total_symbols_checked}个\n"
         message += f"🔍 发现异常: {summary.anomalies_found}个\n"
-        message += f"⭐ 推荐关注: {summary.recommended_count}个\n\n"
         
         # 显示推荐的异常（按评分排序）
         recommended_anomalies = [a for a in anomalies if a.is_recommended][:8]
@@ -798,11 +743,6 @@ class MarketAnomalyMonitorService:
                 display_volume_ratio = min(volume_ratio, 9999.9)
                 message += f"   {trend_icon} 24h涨跌: {price_change:+.1f}% | 24h量比: {display_volume_ratio:.1f}倍\n"
                 
-                # 显示技术分析和推荐理由
-                technical_analysis = self._get_technical_analysis(anomaly)
-                if technical_analysis:
-                    message += f"   📊 技术分析: {technical_analysis}\n"
-                
                 if anomaly.recommendation_reason:
                     main_reason = anomaly.recommendation_reason[0]
                     message += f"   💡 {main_reason}\n"
@@ -818,9 +758,6 @@ class MarketAnomalyMonitorService:
                 if anomaly.oi_anomaly_level and anomaly.oi_anomaly_level != AnomalyLevel.NORMAL:
                     level_name = self._get_anomaly_level_chinese(anomaly.oi_anomaly_level)
                     anomaly_types.append(f"持仓量{level_name}")
-                
-                if anomaly_types:
-                    message += f"   🔍 异常类型: {' | '.join(anomaly_types)}\n"
                 
                 message += "\n"
         
@@ -838,18 +775,7 @@ class MarketAnomalyMonitorService:
                 trend_name = trend_names.get(trend, trend)
                 message += f"   • {trend_name}: {count}个\n"
             message += "\n"
-        
-        # 操作建议
-        message += "💡 操作建议:\n"
-        message += "• 24h量比：当前24小时交易量 ÷ 过去7天平均交易量\n"
-        message += "• 极端异常：通常预示重大行情变化，需密切关注\n"
-        message += "• 优先关注「强势上涨」+「成交量爆发」的币种\n"
-        message += "• 「深度回调」+「成交量放大」可能是抄底机会\n"
-        message += "• 建议分批建仓，严格设置止损止盈\n\n"
-        
-        message += "⏰ 下次检查: 30分钟后\n"
-        message += f"📋 筛选标准: {summary.recommended_count}个推荐 / {summary.anomalies_found}个异常"
-        
+         
         return message
     
     def _get_anomaly_level_chinese(self, level: AnomalyLevel) -> str:
