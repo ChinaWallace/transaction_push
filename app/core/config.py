@@ -4,14 +4,89 @@
 Configuration management for the trading analysis tool
 """
 
-from typing import Optional, Dict, Any, List
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, validator
+import json
 import os
+from typing import Any, Dict, List, Optional
+
+from pydantic import Field, validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """应用配置类"""
+    
+    def _build_kronos_config(self) -> Dict[str, Any]:
+        """从环境变量构建Kronos配置"""
+        # 解析target_symbols字符串为列表
+        target_symbols_str = os.getenv('KRONOS_CONFIG__TARGET_SYMBOLS', '["BTC-USDT-SWAP","ETH-USDT-SWAP","SOL-USDT-SWAP","ADA-USDT-SWAP","DOGE-USDT-SWAP"]')
+        try:
+            target_symbols = json.loads(target_symbols_str)
+        except json.JSONDecodeError:
+            target_symbols = ['BTC-USDT-SWAP', 'ETH-USDT-SWAP', 'SOL-USDT-SWAP', 'ADA-USDT-SWAP', 'DOGE-USDT-SWAP']
+        
+        return {
+            'enable_kronos_prediction': os.getenv('KRONOS_CONFIG__ENABLE_KRONOS_PREDICTION', 'true').lower() == 'true',
+            'model_name': os.getenv('KRONOS_CONFIG__MODEL_NAME', 'NeoQuasar/Kronos-Tokenizer-base'),
+            'tokenizer_name': os.getenv('KRONOS_CONFIG__TOKENIZER_NAME', 'NeoQuasar/Kronos-Tokenizer-base'),
+            'max_context': int(os.getenv('KRONOS_CONFIG__MAX_CONTEXT', '256')),
+            'lookback_periods': int(os.getenv('KRONOS_CONFIG__LOOKBACK_PERIODS', '100')),
+            'prediction_horizon': int(os.getenv('KRONOS_CONFIG__PREDICTION_HORIZON', '12')),
+            'sampling_params': {
+                'temperature': float(os.getenv('KRONOS_CONFIG__TEMPERATURE', '0.8')),
+                'top_p': float(os.getenv('KRONOS_CONFIG__TOP_P', '0.9')),
+                'sample_count': int(os.getenv('KRONOS_CONFIG__SAMPLE_COUNT', '3'))
+            },
+            'confidence_threshold': float(os.getenv('KRONOS_CONFIG__CONFIDENCE_THRESHOLD', '0.25')),
+            'update_interval_minutes': int(os.getenv('KRONOS_CONFIG__UPDATE_INTERVAL_MINUTES', '5')),
+            'cache_predictions': os.getenv('KRONOS_CONFIG__CACHE_PREDICTIONS', 'true').lower() == 'true',
+            'use_gpu': os.getenv('KRONOS_CONFIG__USE_GPU', 'false').lower() == 'true',
+            'device': os.getenv('KRONOS_CONFIG__DEVICE', 'cpu'),
+            'prediction_timeout': int(os.getenv('KRONOS_CONFIG__PREDICTION_TIMEOUT', '120')),
+            'max_retries': int(os.getenv('KRONOS_CONFIG__MAX_RETRIES', '2')),
+            'target_symbols': target_symbols,
+            'enhanced_analysis': os.getenv('KRONOS_CONFIG__ENHANCED_ANALYSIS', 'true').lower() == 'true',
+            'strict_kronos_only': os.getenv('KRONOS_CONFIG__STRICT_KRONOS_ONLY', 'true').lower() == 'true',
+            'disable_traditional_signals': os.getenv('KRONOS_CONFIG__DISABLE_TRADITIONAL_SIGNALS', 'true').lower() == 'true',
+            
+            'notification_config': {
+                'enable_strong_signal_notification': True,
+                'strong_signal_threshold': 0.35,
+                'medium_signal_threshold': 0.25,
+                'notification_channels': ['feishu', 'wechat'],
+                'notification_priority': 'high',
+                'batch_notification': False,
+                'enable_immediate_alerts': True,
+                'enable_enhanced_analysis': True,
+                'include_technical_details': True,
+                'include_trade_params': True,
+                'profit_opportunity_threshold': 3.0,
+                'require_kronos_validation': True,
+                'unified_signal_analysis': True
+            },
+            'market_scan_config': {
+                'enable_market_scan': True,
+                'enable_profit_scan': True,
+                'strong_signal_threshold': 0.35,
+                'profit_opportunity_threshold': 2.0,
+                'scan_intervals': {
+                    'strong_signal_minutes': 3,
+                    'profit_scan_minutes': 2,
+                    'grid_trading_hours': 1
+                },
+                'top_volume_limit': 100,
+                'notification_config': {
+                    'enable_opportunity_notifications': True,
+                    'max_opportunities_per_notification': 3,
+                    'priority_mapping': {
+                        'strong_signal': 'high',
+                        'profit_opportunity': 'urgent',
+                        'grid_trading': 'medium'
+                    },
+                    'auto_notify_high_return': True,
+                    'high_return_threshold': 3.0
+                }
+            }
+        }
     
     # 应用基础配置
     app_name: str = Field(default="Python Trading Tool", description="应用名称")
@@ -113,71 +188,11 @@ class Settings(BaseSettings):
         }
     }, description="策略参数配置")
     
-    # Kronos预测模型配置 - 专门分析ETH和SOL，增加收益机会扫描
-    kronos_config: Dict[str, Any] = Field(default_factory=lambda: {
-        'enable_kronos_prediction': True,
-        'model_name': 'NeoQuasar/Kronos-Tokenizer-base', 
-        'tokenizer_name': 'NeoQuasar/Kronos-Tokenizer-base',
-        'max_context': 256,  # 降低上下文长度避免张量形状问题
-        'lookback_periods': 100,  # 减少历史数据回看期数，避免张量维度不匹配
-        'prediction_horizon': 12,  # 减少预测时长，避免张量形状问题
-        'sampling_params': {
-            'temperature': 0.8,
-            'top_p': 0.9,
-            'sample_count': 3  # 减少采样次数，避免内存和张量问题
-        },
-        'confidence_threshold': 0.25,  # 日内短线：进一步降低阈值，抓住更多短线机会
-        'update_interval_minutes': 5,   # 日内短线：缩短更新间隔到5分钟
-        'cache_predictions': True,
-        'use_gpu': False,  # 强制使用CPU避免CUDA张量问题
-        'target_symbols': [
-            'BTC-USDT-SWAP', 'ETH-USDT-SWAP', 'SOL-USDT-SWAP','ADA-USDT-SWAP', 'DOGE-USDT-SWAP',
-        ],  # 主要币种分析
-        'enhanced_analysis': True,  # 对目标币种进行增强分析
-        # 强制只推送Kronos分析的信号
-        'strict_kronos_only': True,  # 严格模式：只推送经过Kronos分析的信号
-        'disable_traditional_signals': True,  # 禁用传统技术分析信号推送
-        # 强信号通知配置 - 优化整合后
-        'notification_config': {
-            'enable_strong_signal_notification': True,  # 启用强信号通知
-            'strong_signal_threshold': 0.35,  # 日内短线：降低强信号阈值
-            'medium_signal_threshold': 0.25,  # 日内短线：降低中等信号阈值
-            'notification_channels': ['feishu', 'wechat'],  # 通知渠道
-            'notification_priority': 'high',  # 通知优先级
-            'batch_notification': False,      # 关闭批量通知，立即推送
-            'enable_immediate_alerts': True,  # 启用立即告警
-            'enable_enhanced_analysis': True,  # 启用增强版技术分析
-            'include_technical_details': True,  # 包含详细技术指标
-            'include_trade_params': True,     # 包含精准交易参数
-            'profit_opportunity_threshold': 3.0,  # 预期收益3%以上立即通知
-            'require_kronos_validation': True,    # 要求所有信号都必须经过Kronos验证
-            'unified_signal_analysis': True      # 启用统一信号分析 (整合趋势+扫描)
-        },
-        # 市场机会扫描配置 - 增强版
-        'market_scan_config': {
-            'enable_market_scan': True,  # 启用市场机会扫描
-            'enable_profit_scan': True,  # 启用收益机会扫描
-            'strong_signal_threshold': 0.35,  # 日内短线：降低强信号扫描阈值
-            'profit_opportunity_threshold': 2.0,  # 日内短线：降低收益机会阈值到2%
-            'scan_intervals': {
-                'strong_signal_minutes': 3,   # 日内短线：强信号扫描间隔缩短到3分钟
-                'profit_scan_minutes': 2,     # 日内短线：收益机会扫描2分钟一次
-                'grid_trading_hours': 1       # 网格交易扫描间隔缩短到1小时
-            },
-            'top_volume_limit': 100,  # 扫描交易量前100的币种
-            'notification_config': {
-                'enable_opportunity_notifications': True,
-                'max_opportunities_per_notification': 3,  # 减少到3个，提高质量
-                'priority_mapping': {
-                    'strong_signal': 'high',
-                    'profit_opportunity': 'urgent',  # 收益机会最高优先级
-                    'grid_trading': 'medium'
-                },
-                'auto_notify_high_return': True,  # 自动推送高收益机会
-                'high_return_threshold': 3.0     # 日内短线：3%以上收益自动推送
-            }
-        }
-    }, description="Kronos金融预测模型配置 - 专门分析ETH和SOL，增强收益机会扫描，币圈高频交易优化")
+    # Kronos预测模型配置 - 从环境变量读取
+    @property
+    def kronos_config(self) -> Dict[str, Any]:
+        """动态从环境变量构建Kronos配置"""
+        return self._build_kronos_config()
     
     # 机器学习增强配置 - 与Kronos协同工作，专注异常检测和特征工程
     ml_config: Dict[str, Any] = Field(default_factory=lambda: {
