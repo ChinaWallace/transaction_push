@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.utils.exceptions import TradingToolError
+from app.utils.feishu_table_card import FeishuTableCardBuilder
 
 logger = get_logger(__name__)
 
@@ -276,14 +277,18 @@ class CoreNotificationService:
             theme_color = priority_colors.get(priority, "green")
             
             # 检测消息类型
-            is_trading_signal = any(keyword in actual_message for keyword in ["交易信号", "强信号", "买入", "卖出", "BTC", "ETH"])
+            is_tradingview_scanner = "TV强势标的筛选器" in actual_message
+            is_trading_signal = (not is_tradingview_scanner and 
+                               any(keyword in actual_message for keyword in ["交易信号", "强信号", "买入", "卖出", "BTC", "ETH"]))
             is_funding_rate = "负费率" in actual_message or "funding" in actual_message.lower()
             is_system_alert = "系统" in actual_message or "启动" in actual_message
             
-            if is_trading_signal:
+            if is_tradingview_scanner:
+                return FeishuTableCardBuilder.build_tradingview_table_card(actual_message, lines)
+            elif is_trading_signal:
                 return self._build_trading_signal_card(actual_message, lines, theme_color)
             elif is_funding_rate:
-                return self._build_funding_rate_card(actual_message, lines, theme_color, metadata)
+                return self._build_funding_rate_card(actual_message, lines, theme_color, {})
             elif is_system_alert:
                 return self._build_system_alert_card(actual_message, lines, theme_color)
             else:

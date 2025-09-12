@@ -93,6 +93,8 @@ from app.api.trading_pairs import router as trading_pairs_router
 from app.api.unified_data import router as unified_data_router
 from app.api.ml_config import router as ml_config_router
 from app.api.enhanced_trading import router as enhanced_trading_router
+from app.api.tradingview_scanner import router as tradingview_scanner_router
+from app.api.tradingview_scheduler import router as tradingview_scheduler_router
 from app.services.core.scheduler_service import SchedulerService
 from app.services.ml.ml_enhanced_service import MLEnhancedService
 from app.services.negative_funding_monitor_service import NegativeFundingMonitorService
@@ -715,6 +717,40 @@ async def lifespan(app: FastAPI):
         # 将市场异常监控服务存储到应用状态
         app.state.market_anomaly_service = market_anomaly_service
         
+        # 添加TradingView扫描器定时任务
+        from app.services.core.tradingview_scheduler_service import get_tradingview_scheduler_service
+        
+        tradingview_scheduler_service = await get_tradingview_scheduler_service()
+        
+        # 启动时立即执行一次TradingView扫描
+        try:
+            logger.info("📊 启动时立即执行TradingView强势币种扫描...")
+            startup_scan_result = await tradingview_scheduler_service.scan_and_notify()
+            app.state.startup_tradingview_scan = startup_scan_result
+            
+            if startup_scan_result.get("status") == "success":
+                symbols_count = startup_scan_result.get("symbols_count", 0)
+                logger.info(f"✅ 启动TradingView扫描完成: 发现 {symbols_count} 个强势币种")
+            else:
+                logger.warning(f"⚠️ 启动TradingView扫描异常: {startup_scan_result.get('error', '未知')}")
+        except Exception as e:
+            logger.warning(f"⚠️ 启动TradingView扫描失败: {e}")
+            app.state.startup_tradingview_scan = {"status": "error", "error": str(e)}
+        
+        # 每60分钟执行一次TradingView扫描
+        scheduler.add_job(
+            tradingview_scheduler_service.scan_and_notify,
+            'interval',
+            minutes=60,
+            id='tradingview_scanner',
+            name='TradingView强势币种扫描',
+            max_instances=1  # 确保同时只有一个实例运行
+        )
+        logger.info("✅ TradingView扫描器定时任务已启动 (每60分钟)")
+        
+        # 将服务存储到应用状态
+        app.state.tradingview_scheduler_service = tradingview_scheduler_service
+        
         # 添加Kronos持仓分析定时任务
         if settings.kronos_config.get('enable_kronos_prediction', False):
             from app.services.analysis.kronos_position_analysis_service import get_kronos_position_service
@@ -1052,6 +1088,10 @@ def create_app() -> FastAPI:
     app.include_router(unified_data_router, prefix="/api", tags=["统一数据服务"])
     app.include_router(ml_config_router, prefix="/api/ml-config", tags=["ML配置管理"])
     app.include_router(news_router, prefix="/api/news", tags=["新闻分析"])
+    
+    # TradingView扫描器API
+    app.include_router(tradingview_scanner_router, prefix="/api/tradingview", tags=["TradingView扫描器"])
+    app.include_router(tradingview_scheduler_router, prefix="/api/tradingview", tags=["TradingView调度器"])
     
     # 交易所管理API
     from app.api.exchange_management import router as exchange_management_router
@@ -1688,6 +1728,70 @@ def create_app() -> FastAPI:
                 "message": str(e),
                 "traceback": str(e.__traceback__)
             }
+    
+    # TradingView扫描器测试端点
+    @app.post("/test-tradingview-scanner", summary="测试TradingView扫描器")
+    async def test_tradingview_scanner():
+        """测试TradingView扫描器功能"""
+        try:
+            if hasattr(app.state, 'tradingview_scheduler_service'):
+                scheduler_service = app.state.tradingview_scheduler_service
+                logger.info("🧪 手动测试TradingView扫描器...")
+                
+                # 执行手动扫描
+                result = await scheduler_service.scan_and_notify()
+                
+                return {
+                    "status": "success",
+                    "message": f"TradingView扫描完成，发现 {result.get('symbols_count', 0)} 个强势币种",
+                    "data": {
+                        "symbols_count": result.get('symbols_count', 0),
+                        "symbols": result.get('symbols', []),
+                        "notification_sent": result.get('notification_sent', False),
+                        "execution_time": result.get('execution_time')
+                    },
+                    "timestamp": datetime.now().isoformat()
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": "TradingView调度服务未启动",
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            logger.error(f"测试TradingView扫描器失败: {e}")
+            raise HTTPException(status_code=500, detail=f"测试失败: {str(e)}")
+    
+    # TradingView扫描器状态查看
+    @app.get("/tradingview-scanner-status", summary="查看TradingView扫描器状态")
+    async def get_tradingview_scanner_status():
+        """获取TradingView扫描器状态信息"""
+        try:
+            if hasattr(app.state, 'tradingview_scheduler_service'):
+                scheduler_service = app.state.tradingview_scheduler_service
+                
+                # 获取调度器状态
+                status = await scheduler_service.get_scheduler_status()
+                
+                # 获取健康检查
+                health = await scheduler_service.health_check()
+                
+                return {
+                    "status": "success",
+                    "scheduler_status": status,
+                    "health_check": health,
+                    "startup_scan_result": getattr(app.state, 'startup_tradingview_scan', None),
+                    "timestamp": datetime.now().isoformat()
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": "TradingView调度服务未启动",
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            logger.error(f"获取TradingView扫描器状态失败: {e}")
+            raise HTTPException(status_code=500, detail=f"获取状态失败: {str(e)}")
     
     return app
 
