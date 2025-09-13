@@ -1449,7 +1449,11 @@ class KronosPositionAnalysisService:
                 return "紧急"
             
             if kronos_decision and kronos_decision.kronos_confidence > 0.8:
-                predicted_change = kronos_decision.kronos_prediction.price_change_pct if kronos_decision.kronos_prediction else 0
+                predicted_change = kronos_decision.kronos_prediction.price_change_pct
+            
+            # 修复：确保 predicted_change 是小数形式，不是百分比形式
+            if abs(predicted_change) > 1:
+                predicted_change = predicted_change / 100 if kronos_decision.kronos_prediction else 0
                 if abs(predicted_change) > 0.05:  # 预测变化超过5%
                     return "高"
             
@@ -1467,18 +1471,34 @@ class KronosPositionAnalysisService:
             if not kronos_decision or not kronos_decision.kronos_prediction:
                 return 0.0
             
+            # 获取持仓价值和方向
             pos_size = float(position.get('pos', 0))
-            mark_price = float(position.get('markPx', 0))
+            
+            # 优先使用 position_value_usd，如果没有则使用 pos * markPx 计算
+            original_data = position.get('original_data', {})
+            position_value = original_data.get('position_value_usd') or position.get('position_value_usd')
+            
+            if not position_value:
+                # 如果没有 position_value_usd，则使用 pos_size * mark_price 计算
+                mark_price = float(position.get('markPx', 0))
+                position_value = abs(pos_size) * mark_price
+            else:
+                position_value = float(position_value)
+            
             predicted_change = kronos_decision.kronos_prediction.price_change_pct
             
-            # 计算预测价格
-            predicted_price = mark_price * (1 + predicted_change)
+            # 修复：确保 predicted_change 是小数形式，不是百分比形式
+            if abs(predicted_change) > 1:
+                predicted_change = predicted_change / 100
             
-            # 计算潜在盈亏
+            # 基于持仓价值计算潜在盈亏
             if pos_size > 0:  # 多头
-                potential_pnl = pos_size * (predicted_price - mark_price)
+                potential_pnl = position_value * predicted_change
             else:  # 空头
-                potential_pnl = abs(pos_size) * (mark_price - predicted_price)
+                potential_pnl = position_value * (-predicted_change)
+            
+            # 添加详细调试日志 - 使用实际交易对名称
+            symbol = position.get('instId', 'UNKNOWN')
             
             return potential_pnl
             

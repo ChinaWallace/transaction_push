@@ -278,13 +278,16 @@ class CoreNotificationService:
             
             # 检测消息类型
             is_tradingview_scanner = "TV强势标的筛选器" in actual_message
-            is_trading_signal = (not is_tradingview_scanner and 
+            is_position_analysis = any(keyword in actual_message for keyword in ["持仓分析", "账户持仓", "持仓报告", "持仓建议", "持仓风险"])
+            is_trading_signal = (not is_tradingview_scanner and not is_position_analysis and 
                                any(keyword in actual_message for keyword in ["交易信号", "强信号", "买入", "卖出", "BTC", "ETH"]))
             is_funding_rate = "负费率" in actual_message or "funding" in actual_message.lower()
             is_system_alert = "系统" in actual_message or "启动" in actual_message
             
             if is_tradingview_scanner:
                 return FeishuTableCardBuilder.build_tradingview_table_card(actual_message, lines)
+            elif is_position_analysis:
+                return self._build_position_analysis_card(actual_message, lines, theme_color)
             elif is_trading_signal:
                 return self._build_trading_signal_card(actual_message, lines, theme_color)
             elif is_funding_rate:
@@ -384,6 +387,101 @@ class CoreNotificationService:
                         {
                             "tag": "plain_text",
                             "content": f"⏰ 信号时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        return card
+    
+    def _build_position_analysis_card(self, message: str, lines: List[str], theme_color: str) -> Dict[str, Any]:
+        """构建持仓分析卡片"""
+        # 提取持仓分析关键信息
+        total_positions = "0"
+        total_pnl = "0%"
+        risk_level = "未知"
+        overall_score = "0"
+        
+        for line in lines:
+            if "总持仓:" in line or "持仓数量:" in line:
+                total_positions = line.split(":")[-1].strip()
+            elif "总盈亏:" in line or "整体盈亏:" in line:
+                total_pnl = line.split(":")[-1].strip()
+            elif "风险等级:" in line or "风险评级:" in line:
+                risk_level = line.split(":")[-1].strip()
+            elif "评分:" in line or "得分:" in line:
+                overall_score = line.split(":")[-1].strip().replace("/100", "")
+        
+        # 根据风险等级设置颜色
+        risk_color = "green"
+        if "高风险" in risk_level or "危险" in risk_level:
+            risk_color = "red"
+        elif "中等风险" in risk_level:
+            risk_color = "orange"
+        
+        # 构建卡片内容
+        card = {
+            "config": {
+                "wide_screen_mode": True
+            },
+            "header": {
+                "template": "blue",  # 持仓分析使用蓝色主题
+                "title": {
+                    "content": "💼 持仓分析报告",
+                    "tag": "plain_text"
+                }
+            },
+            "elements": [
+                {
+                    "tag": "div",
+                    "fields": [
+                        {
+                            "is_short": True,
+                            "text": {
+                                "content": f"**持仓数量**\n{total_positions}",
+                                "tag": "lark_md"
+                            }
+                        },
+                        {
+                            "is_short": True,
+                            "text": {
+                                "content": f"**整体盈亏**\n{total_pnl}",
+                                "tag": "lark_md"
+                            }
+                        },
+                        {
+                            "is_short": True,
+                            "text": {
+                                "content": f"**风险等级**\n<font color='{risk_color}'>{risk_level}</font>",
+                                "tag": "lark_md"
+                            }
+                        },
+                        {
+                            "is_short": True,
+                            "text": {
+                                "content": f"**综合评分**\n{overall_score}/100",
+                                "tag": "lark_md"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "tag": "hr"
+                },
+                {
+                    "tag": "div",
+                    "text": {
+                        "content": self._format_message_for_card(message),
+                        "tag": "lark_md"
+                    }
+                },
+                {
+                    "tag": "note",
+                    "elements": [
+                        {
+                            "tag": "plain_text",
+                            "content": f"⏰ 分析时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                         }
                     ]
                 }

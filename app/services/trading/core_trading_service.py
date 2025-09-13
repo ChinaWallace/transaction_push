@@ -1186,11 +1186,74 @@ class CoreTradingService:
             
             title = f"{strength_emoji} 强信号 - {symbol} {action}"
             
+            # 构建详细的交易信号消息
+            message_lines = [
+                f"🚀 交易信号 - {symbol}",
+                f"",
+                f"交易动作: {action}",
+                f"信号强度: {strength_value.upper()}",
+                f"置信度: {metadata['confidence']:.1f}%",
+            ]
+            
+            # 添加当前价格
+            if metadata.get('current_price'):
+                message_lines.append(f"当前价格: ${metadata['current_price']:.4f}")
+            
+            # 添加置信度分解
+            if 'kronos_confidence' in metadata:
+                message_lines.extend([
+                    "",
+                    "📊 分析置信度分解:",
+                    f"  • Kronos AI: {metadata['kronos_confidence']:.1f}%",
+                    f"  • 技术分析: {metadata['technical_confidence']:.1f}%",
+                    f"  • ML预测: {metadata['ml_confidence']:.1f}%"
+                ])
+            
+            # 添加风险管理信息
+            risk_info = []
+            if metadata.get('stop_loss'):
+                risk_info.append(f"止损: ${metadata['stop_loss']:.4f}")
+            if metadata.get('take_profit'):
+                risk_info.append(f"止盈: ${metadata['take_profit']:.4f}")
+            if metadata.get('target_price'):
+                risk_info.append(f"目标: ${metadata['target_price']:.4f}")
+            
+            if risk_info:
+                message_lines.extend(["", "🛡️ 风险管理:"] + [f"  • {info}" for info in risk_info])
+            
+            # 添加仓位建议
+            position_info = []
+            if metadata.get('position_size'):
+                position_info.append(f"建议仓位: ${metadata['position_size']:.0f}")
+            if metadata.get('leverage'):
+                position_info.append(f"杠杆: {metadata['leverage']}x")
+            
+            if position_info:
+                message_lines.extend(["", "💰 仓位建议:"] + [f"  • {info}" for info in position_info])
+            
+            # 添加分析推理
+            if metadata.get('reasoning'):
+                message_lines.extend([
+                    "",
+                    "🧠 分析推理:",
+                    f"  {metadata['reasoning']}"
+                ])
+            
+            # 添加关键因素
+            if metadata.get('key_factors'):
+                message_lines.extend([
+                    "",
+                    "🔑 关键因素:"
+                ] + [f"  • {factor}" for factor in metadata['key_factors']])
+            
+            # 构建最终消息
+            message = "".join(message_lines)
+            
             content = NotificationContent(
                 type=NotificationType.TRADING_SIGNAL,
                 priority=priority,
                 title=title,
-                message="",  # 将在格式化函数中生成详细消息
+                message=message,
                 metadata=metadata
             )
             
