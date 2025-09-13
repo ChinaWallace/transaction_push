@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>价值观纠正器</title>
+    
+    <!-- Favicon 完整支持 -->
+    <link rel="apple-touch-icon" sizes="180x180" href="favicon/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="favicon/favicon-16x16.png">
+    <link rel="manifest" href="favicon/site.webmanifest">
+    <link rel="icon" type="image/x-icon" href="favicon/favicon.ico">
+    <link rel="shortcut icon" type="image/x-icon" href="favicon/favicon.ico">
+    <meta name="theme-color" content="#667eea">
+    
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XEZ049M5R2"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-XEZ049M5R2');
+    </script>
+    
+    <style>
+        body {
+            font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .container {
+            padding: 50px 50px 30px 50px;
+            text-align: center;
+            transform: scale(1.3);
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .field {
+            margin: 20px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+        
+        select {
+            padding: 15px 45px 15px 20px;
+            font-size: 16px;
+            border: 2px solid #e1e8ff;
+            border-radius: 12px;
+            background: linear-gradient(145deg, #ffffff, #f0f4ff);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            min-width: 140px;
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23667eea' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-size: 16px 16px;
+            background-position: calc(100% - 15px) center;
+            background-repeat: no-repeat;
+        }
+        
+        select:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.15);
+        }
+        
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        select option {
+            padding: 12px 20px;
+            background: rgba(255, 255, 255, 0.95);
+            color: #333;
+            font-size: 16px;
+            border: none;
+            margin: 2px 0;
+        }
+        
+        select option:hover {
+            background: linear-gradient(145deg, #667eea, #764ba2);
+            color: white;
+        }
+        
+        select option:checked {
+            background: linear-gradient(145deg, #667eea, #764ba2);
+            color: white;
+            font-weight: 600;
+        }
+        
+        select optgroup {
+            font-weight: bold;
+            font-size: 14px;
+            color: #667eea;
+            background: #f0f4ff;
+            padding: 8px 12px;
+            margin: 4px 0;
+        }
+        
+        input {
+            width: 220px;
+            padding: 15px 20px;
+            font-size: 16px;
+            border: 2px solid #e1e8ff;
+            border-radius: 12px;
+            background: linear-gradient(145deg, #ffffff, #f9fbff);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+            text-align: right;
+            font-weight: 500;
+        }
+        
+        input:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.15);
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        input::placeholder {
+            color: #a0a0a0;
+            font-weight: normal;
+        }
+        
+        h1 {
+            font-size: 2.8em;
+            margin-bottom: 35px;
+            margin-top: -5px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+        }
+        
+
+        
+        /* 移动端响应式设计 */
+        @media screen and (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+            
+            .container {
+                padding: 30px 20px 20px 20px;
+                transform: scale(1);
+                margin: 10px;
+                border-radius: 15px;
+            }
+            
+            h1 {
+                font-size: 2.2em;
+                margin-bottom: 15px;
+                margin-top: 5px;
+            }
+            
+
+            
+            .field {
+                margin: 15px 0;
+                flex-direction: row;
+                align-items: center;
+                gap: 12px;
+            }
+            
+            select {
+                min-width: 130px;
+                width: 40%;
+                padding: 10px 35px 10px 12px;
+                font-size: 13px;
+                margin-bottom: 0;
+            }
+            
+            input {
+                width: 55%;
+                padding: 10px 12px;
+                font-size: 16px;
+                text-align: right;
+            }
+        }
+        
+        @media screen and (max-width: 480px) {
+            .container {
+                padding: 20px 15px 20px 15px;
+                margin: 5px;
+            }
+            
+            h1 {
+                font-size: 1.8em;
+                margin-bottom: 12px;
+            }
+            
+
+            
+            .field {
+                margin: 10px 0;
+                gap: 8px;
+            }
+            
+            select {
+                min-width: 110px;
+                width: 50%;
+                padding: 8px 30px 8px 10px;
+                font-size: 12px;
+            }
+            
+            input {
+                width: 46%;
+                padding: 8px 10px;
+                font-size: 16px;
+                text-align: right;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>价值观纠正器</h1>
+        
+        <div class="field">
+        <select id="currency1">
+            <optgroup label="加密货币">
+                <option value="BTC" selected>🟠 BTC</option>
+                <option value="ETH">♦️ ETH</option>
+                <option value="SOL">🟣 SOL</option>
+                <option value="BNB">🟡 BNB</option>
+                <option value="OKB">⚫ OKB</option>
+                <option value="DOGE">🐕 DOGE</option>
+            </optgroup>
+            <optgroup label="法币">
+                <option value="USD">🇺🇸 USD</option>
+                <option value="CNY">🇨🇳 CNY</option>
+                <option value="JPY">🇯🇵 JPY</option>
+                <option value="KRW">🇰🇷 KRW</option>
+                <option value="SGD">🇸🇬 SGD</option>
+                <option value="AED">🇦🇪 AED</option>
+                <option value="HKD">🇭🇰 HKD</option>
+                <option value="MYR">🇲🇾 MYR</option>
+            </optgroup>
+            <optgroup label="实物">
+                <option value="ZHUJIAO">🍚 猪脚饭</option>
+                <option value="KFC">🍗 KFC</option>
+                <option value="IN11">💃 in11嫩模</option>
+                <option value="IPHONE17">📱 iPhone17</option>
+                <option value="MACBOOK">💻 MacBook Air</option>
+                <option value="ROLEX">⌚ Rolex</option>
+                <option value="XIAOMISU7">🏎️ Xiaomi Su7</option>
+                <option value="PORSCHE">🏎️ Porsche 718</option>
+                <option value="FERRARI">🏎️ Ferrari Roma</option>
+            </optgroup>
+        </select>
+        <input type="text" id="amount1" placeholder="输入数量">
+    </div>
+    
+    <div class="field">
+        <select id="currency2">
+            <optgroup label="加密货币">
+                <option value="BTC">🟠 BTC</option>
+                <option value="ETH" selected>♦️ ETH</option>
+                <option value="SOL">🟣 SOL</option>
+                <option value="BNB">🟡 BNB</option>
+                <option value="OKB">⚫ OKB</option>
+                <option value="DOGE">🐕 DOGE</option>
+            </optgroup>
+            <optgroup label="法币">
+                <option value="USD">🇺🇸 USD</option>
+                <option value="CNY">🇨🇳 CNY</option>
+                <option value="JPY">🇯🇵 JPY</option>
+                <option value="KRW">🇰🇷 KRW</option>
+                <option value="SGD">🇸🇬 SGD</option>
+                <option value="AED">🇦🇪 AED</option>
+                <option value="HKD">🇭🇰 HKD</option>
+                <option value="MYR">🇲🇾 MYR</option>
+            </optgroup>
+            <optgroup label="实物">
+                <option value="ZHUJIAO">🍚 猪脚饭</option>
+                <option value="KFC">🍗 KFC</option>
+                <option value="IN11">💃 in11嫩模</option>
+                <option value="IPHONE17">📱 iPhone17</option>
+                <option value="MACBOOK">💻 MacBook Air</option>
+                <option value="ROLEX">⌚ Rolex</option>
+                <option value="XIAOMISU7">🏎️ Xiaomi Su7</option>
+                <option value="PORSCHE">🏎️ Porsche 718</option>
+                <option value="FERRARI">🏎️ Ferrari Roma</option>
+            </optgroup>
+        </select>
+        <input type="text" id="amount2" placeholder="输入金额">
+    </div>
+    
+    <div class="field">
+        <select id="currency3">
+            <optgroup label="加密货币">
+                <option value="BTC">🟠 BTC</option>
+                <option value="ETH">♦️ ETH</option>
+                <option value="SOL" selected>🟣 SOL</option>
+                <option value="BNB">🟡 BNB</option>
+                <option value="OKB">⚫ OKB</option>
+                <option value="DOGE">🐕 DOGE</option>
+            </optgroup>
+            <optgroup label="法币">
+                <option value="USD">🇺🇸 USD</option>
+                <option value="CNY">🇨🇳 CNY</option>
+                <option value="JPY">🇯🇵 JPY</option>
+                <option value="KRW">🇰🇷 KRW</option>
+                <option value="SGD">🇸🇬 SGD</option>
+                <option value="AED">🇦🇪 AED</option>
+                <option value="HKD">🇭🇰 HKD</option>
+                <option value="MYR">🇲🇾 MYR</option>
+            </optgroup>
+            <optgroup label="实物">
+                <option value="ZHUJIAO">🍚 猪脚饭</option>
+                <option value="KFC">🍗 KFC</option>
+                <option value="IN11">💃 in11嫩模</option>
+                <option value="IPHONE17">📱 iPhone17</option>
+                <option value="MACBOOK">💻 MacBook Air</option>
+                <option value="ROLEX">⌚ Rolex</option>
+                <option value="XIAOMISU7">🏎️ Xiaomi Su7</option>
+                <option value="PORSCHE">🏎️ Porsche 718</option>
+                <option value="FERRARI">🏎️ Ferrari Roma</option>
+            </optgroup>
+        </select>
+        <input type="text" id="amount3" placeholder="输入金额">
+    </div>
+    
+    <div class="field">
+        <select id="currency4">
+            <optgroup label="加密货币">
+                <option value="BTC">🟠 BTC</option>
+                <option value="ETH">♦️ ETH</option>
+                <option value="SOL">🟣 SOL</option>
+                <option value="BNB">🟡 BNB</option>
+                <option value="OKB">⚫ OKB</option>
+                <option value="DOGE">🐕 DOGE</option>
+            </optgroup>
+            <optgroup label="法币">
+                <option value="USD" selected>🇺🇸 USD</option>
+                <option value="CNY">🇨🇳 CNY</option>
+                <option value="JPY">🇯🇵 JPY</option>
+                <option value="KRW">🇰🇷 KRW</option>
+                <option value="SGD">🇸🇬 SGD</option>
+                <option value="AED">🇦🇪 AED</option>
+                <option value="HKD">🇭🇰 HKD</option>
+                <option value="MYR">🇲🇾 MYR</option>
+            </optgroup>
+            <optgroup label="实物">
+                <option value="ZHUJIAO">🍚 猪脚饭</option>
+                <option value="KFC">🍗 KFC</option>
+                <option value="IN11">💃 in11嫩模</option>
+                <option value="IPHONE17">📱 iPhone17</option>
+                <option value="MACBOOK">💻 MacBook Air</option>
+                <option value="ROLEX">⌚ Rolex</option>
+                <option value="XIAOMISU7">🏎️ Xiaomi Su7</option>
+                <option value="PORSCHE">🏎️ Porsche 718</option>
+                <option value="FERRARI">🏎️ Ferrari Roma</option>
+            </optgroup>
+        </select>
+        <input type="text" id="amount4" placeholder="输入金额">
+    </div>
+    
+    <div class="field">
+        <select id="currency5">
+            <optgroup label="加密货币">
+                <option value="BTC">🟠 BTC</option>
+                <option value="ETH">♦️ ETH</option>
+                <option value="SOL">🟣 SOL</option>
+                <option value="BNB">🟡 BNB</option>
+                <option value="OKB">⚫ OKB</option>
+                <option value="DOGE">🐕 DOGE</option>
+            </optgroup>
+            <optgroup label="法币">
+                <option value="USD">🇺🇸 USD</option>
+                <option value="CNY" selected>🇨🇳 CNY</option>
+                <option value="JPY">🇯🇵 JPY</option>
+                <option value="KRW">🇰🇷 KRW</option>
+                <option value="SGD">🇸🇬 SGD</option>
+                <option value="AED">🇦🇪 AED</option>
+                <option value="HKD">🇭🇰 HKD</option>
+                <option value="MYR">🇲🇾 MYR</option>
+            </optgroup>
+            <optgroup label="实物">
+                <option value="ZHUJIAO">🍚 猪脚饭</option>
+                <option value="KFC">🍗 KFC</option>
+                <option value="IN11">💃 in11嫩模</option>
+                <option value="IPHONE17">📱 iPhone17</option>
+                <option value="MACBOOK">💻 MacBook Air</option>
+                <option value="ROLEX">⌚ Rolex</option>
+                <option value="XIAOMISU7">🏎️ Xiaomi Su7</option>
+                <option value="PORSCHE">🏎️ Porsche 718</option>
+                <option value="FERRARI">🏎️ Ferrari Roma</option>
+            </optgroup>
+        </select>
+        <input type="text" id="amount5" placeholder="输入金额">
+    </div>
+    
+    <div class="field">
+        <select id="currency6">
+            <optgroup label="加密货币">
+                <option value="BTC">🟠 BTC</option>
+                <option value="ETH">♦️ ETH</option>
+                <option value="SOL">🟣 SOL</option>
+                <option value="BNB">🟡 BNB</option>
+                <option value="OKB">⚫ OKB</option>
+                <option value="DOGE">🐕 DOGE</option>
+            </optgroup>
+            <optgroup label="法币">
+                <option value="USD">🇺🇸 USD</option>
+                <option value="CNY">🇨🇳 CNY</option>
+                <option value="JPY">🇯🇵 JPY</option>
+                <option value="KRW">🇰🇷 KRW</option>
+                <option value="SGD">🇸🇬 SGD</option>
+                <option value="AED">🇦🇪 AED</option>
+                <option value="HKD" selected>🇭🇰 HKD</option>
+                <option value="MYR">🇲🇾 MYR</option>
+            </optgroup>
+            <optgroup label="实物">
+                <option value="ZHUJIAO">🍚 猪脚饭</option>
+                <option value="KFC">🍗 KFC</option>
+                <option value="IN11">💃 in11嫩模</option>
+                <option value="IPHONE17">📱 iPhone17</option>
+                <option value="MACBOOK">💻 MacBook Air</option>
+                <option value="ROLEX">⌚ Rolex</option>
+                <option value="XIAOMISU7">🏎️ Xiaomi Su7</option>
+                <option value="PORSCHE">🏎️ Porsche 718</option>
+                <option value="FERRARI">🏎️ Ferrari Roma</option>
+            </optgroup>
+        </select>
+        <input type="text" id="amount6" placeholder="输入金额">
+    </div>
+    
+
+
+    <script>
+        let rates = {};
+        let updating = false;
+        let lastInputField = 1; // 记录最后一次输入数字的栏位
+        
+        // 获取真实汇率
+        async function loadRates() {
+            try {
+                // 获取加密货币价格 (USD)
+                const cryptoResponse = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,binancecoin,okb,dogecoin&vs_currencies=usd');
+                const cryptoData = await cryptoResponse.json();
+                
+                // 获取法币汇率 (USD基准)
+                const fiatResponse = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+                const fiatData = await fiatResponse.json();
+                
+                const btcPrice = cryptoData.bitcoin.usd;
+                const ethPrice = cryptoData.ethereum.usd;
+                const solPrice = cryptoData.solana.usd;
+                const bnbPrice = cryptoData.binancecoin.usd;
+                const okbPrice = cryptoData.okb.usd;
+                const dogePrice = cryptoData.dogecoin.usd;
+                
+                const currencies = ['CNY', 'JPY', 'KRW', 'SGD', 'AED', 'HKD', 'MYR'];
+                const cryptos = ['BTC', 'ETH', 'SOL', 'BNB', 'OKB', 'DOGE'];
+                const products = ['ZHUJIAO', 'KFC', 'IN11', 'IPHONE17', 'FERRARI', 'PORSCHE', 'XIAOMISU7', 'ROLEX', 'MACBOOK'];
+                const cryptoPrices = { BTC: btcPrice, ETH: ethPrice, SOL: solPrice, BNB: bnbPrice, OKB: okbPrice, DOGE: dogePrice };
+                const productPrices = { 
+                    ZHUJIAO: 20 / fiatData.rates.CNY,       // 20 CNY 转换为 USD
+                    KFC: 50 / fiatData.rates.CNY,           // 50 CNY 转换为 USD
+                    IN11: 3000 / fiatData.rates.CNY,        // 3000 CNY 转换为 USD
+                    IPHONE17: 799,                          // 799 USD
+                    FERRARI: 1750000 / fiatData.rates.CNY,  // 1,750,000 CNY 转换为 USD
+                    PORSCHE: 550000 / fiatData.rates.CNY,   // 550,000 CNY 转换为 USD
+                    XIAOMISU7: 215900 / fiatData.rates.CNY, // 215,900 CNY 转换为 USD
+                    ROLEX: 56500 / fiatData.rates.CNY,      // 56,500 CNY 转换为 USD
+                    MACBOOK: 999                            // 999 USD
+                };
+                
+                rates = {};
+                
+                // 构建汇率矩阵
+                const allCurrencies = [...cryptos, 'USD', ...currencies, ...products];
+                allCurrencies.forEach(from => {
+                    rates[from] = {};
+                    allCurrencies.forEach(to => {
+                        if (from === to) {
+                            rates[from][to] = 1;
+                        } else if (cryptos.includes(from) && cryptos.includes(to)) {
+                            // 加密货币之间
+                            rates[from][to] = cryptoPrices[from] / cryptoPrices[to];
+                        } else if (cryptos.includes(from) && to === 'USD') {
+                            // 加密货币到美元
+                            rates[from][to] = cryptoPrices[from];
+                        } else if (from === 'USD' && cryptos.includes(to)) {
+                            // 美元到加密货币
+                            rates[from][to] = 1 / cryptoPrices[to];
+                        } else if (cryptos.includes(from) && currencies.includes(to)) {
+                            // 加密货币到其他法币
+                            rates[from][to] = cryptoPrices[from] * fiatData.rates[to];
+                        } else if (currencies.includes(from) && cryptos.includes(to)) {
+                            // 其他法币到加密货币
+                            rates[from][to] = 1 / (cryptoPrices[to] * fiatData.rates[from]);
+                        } else if (from === 'USD' && currencies.includes(to)) {
+                            // 美元到其他法币
+                            rates[from][to] = fiatData.rates[to];
+                        } else if (currencies.includes(from) && to === 'USD') {
+                            // 其他法币到美元
+                            rates[from][to] = 1 / fiatData.rates[from];
+                        } else if (currencies.includes(from) && currencies.includes(to)) {
+                            // 法币之间
+                            rates[from][to] = fiatData.rates[to] / fiatData.rates[from];
+                        } else if (products.includes(from) && to === 'USD') {
+                            // 产品到美元 (1 iPhone17 = 799 USD)
+                            rates[from][to] = productPrices[from];
+                        } else if (from === 'USD' && products.includes(to)) {
+                            // 美元到产品 (1 USD = 1/799 iPhone17)
+                            rates[from][to] = 1 / productPrices[to];
+                        } else if (products.includes(from) && currencies.includes(to)) {
+                            // 产品到其他法币
+                            rates[from][to] = productPrices[from] * fiatData.rates[to];
+                        } else if (currencies.includes(from) && products.includes(to)) {
+                            // 其他法币到产品
+                            rates[from][to] = 1 / (productPrices[to] * fiatData.rates[from]);
+                        } else if (cryptos.includes(from) && products.includes(to)) {
+                            // 加密货币到产品
+                            rates[from][to] = cryptoPrices[from] / productPrices[to];
+                        } else if (products.includes(from) && cryptos.includes(to)) {
+                            // 产品到加密货币
+                            rates[from][to] = productPrices[from] / cryptoPrices[to];
+                        } else if (products.includes(from) && products.includes(to)) {
+                            // 产品之间
+                            rates[from][to] = productPrices[from] / productPrices[to];
+                        }
+                    });
+                });
+                
+                console.log('汇率加载成功:', rates);
+            } catch (error) {
+                console.error('汇率加载失败:', error);
+                // 使用备用汇率
+                rates = {
+                    BTC: { USD: 65000, ETH: 24.5, SOL: 300, BNB: 100, OKB: 1444, DOGE: 162500, CNY: 460000, JPY: 9500000, KRW: 87000000, SGD: 87000, AED: 240000, HKD: 507000, MYR: 280000, ZHUJIAO: 23000, KFC: 9200, IN11: 153.3, IPHONE17: 81.35, FERRARI: 0.26, PORSCHE: 0.83, XIAOMISU7: 2.13, ROLEX: 8.15, MACBOOK: 65.07 },
+                    ETH: { USD: 2650, BTC: 0.041, SOL: 12, BNB: 4.1, OKB: 58.9, DOGE: 6625, CNY: 18800, JPY: 390000, KRW: 3550000, SGD: 3550, AED: 9750, HKD: 20670, MYR: 11400, ZHUJIAO: 940, KFC: 376, IN11: 6.27, IPHONE17: 3.32, FERRARI: 0.011, PORSCHE: 0.034, XIAOMISU7: 0.087, ROLEX: 0.33, MACBOOK: 2.65 },
+                    SOL: { USD: 220, BTC: 0.0034, ETH: 0.083, BNB: 0.34, OKB: 4.89, DOGE: 550, CNY: 1560, JPY: 32400, KRW: 295000, SGD: 295, AED: 810, HKD: 1716, MYR: 950, ZHUJIAO: 78, KFC: 31.2, IN11: 0.52, IPHONE17: 0.275, FERRARI: 0.00089, PORSCHE: 0.0028, XIAOMISU7: 0.0072, ROLEX: 0.0276, MACBOOK: 0.22 },
+                    BNB: { USD: 650, BTC: 0.01, ETH: 0.245, SOL: 2.95, OKB: 14.4, DOGE: 1625, CNY: 4600, JPY: 95700, KRW: 872000, SGD: 872, AED: 2390, HKD: 5070, MYR: 2800, ZHUJIAO: 230, KFC: 92, IN11: 1.53, IPHONE17: 0.814, FERRARI: 0.0026, PORSCHE: 0.0084, XIAOMISU7: 0.021, ROLEX: 0.082, MACBOOK: 0.65 },
+                    OKB: { USD: 45, BTC: 0.00069, ETH: 0.017, SOL: 0.204, BNB: 0.069, DOGE: 112.5, CNY: 319.5, JPY: 6615, KRW: 60300, SGD: 60.3, AED: 165.15, HKD: 351, MYR: 193.5, ZHUJIAO: 15.97, KFC: 6.39, IN11: 0.106, IPHONE17: 0.056, FERRARI: 0.00018, PORSCHE: 0.00058, XIAOMISU7: 0.0015, ROLEX: 0.0057, MACBOOK: 0.045 },
+                    DOGE: { USD: 0.4, BTC: 0.00000615, ETH: 0.000151, SOL: 0.00182, BNB: 0.000615, OKB: 0.0089, CNY: 2.84, JPY: 58.8, KRW: 536, SGD: 0.536, AED: 1.47, HKD: 3.12, MYR: 1.72, ZHUJIAO: 0.14, KFC: 0.056, IN11: 0.00095, IPHONE17: 0.0005, FERRARI: 0.00000162, PORSCHE: 0.0000052, XIAOMISU7: 0.000013, ROLEX: 0.00005, MACBOOK: 0.0004 },
+                    USD: { BTC: 0.0000154, ETH: 0.00038, SOL: 0.0045, BNB: 0.0015, OKB: 0.022, DOGE: 2.5, CNY: 7.1, JPY: 147, KRW: 1340, SGD: 1.34, AED: 3.67, HKD: 7.8, MYR: 4.3, ZHUJIAO: 0.35, KFC: 0.14, IN11: 0.0024, IPHONE17: 0.00125, FERRARI: 0.0000041, PORSCHE: 0.000013, XIAOMISU7: 0.000033, ROLEX: 0.000126, MACBOOK: 0.001 },
+                    CNY: { USD: 0.141, BTC: 0.00000217, ETH: 0.000053, SOL: 0.00064, BNB: 0.00022, OKB: 0.0031, DOGE: 0.352, JPY: 20.7, KRW: 189, SGD: 0.189, AED: 0.52, HKD: 1.1, MYR: 0.61, ZHUJIAO: 0.05, KFC: 0.02, IN11: 0.00033, IPHONE17: 0.000176, FERRARI: 0.00000057, PORSCHE: 0.0000018, XIAOMISU7: 0.0000046, ROLEX: 0.0000177, MACBOOK: 0.000141 },
+                    HKD: { USD: 0.128, BTC: 0.00000197, ETH: 0.0000484, SOL: 0.000583, BNB: 0.0002, OKB: 0.0028, DOGE: 0.32, CNY: 0.91, JPY: 18.8, KRW: 172, SGD: 0.172, AED: 0.47, MYR: 0.55, ZHUJIAO: 0.046, KFC: 0.018, IN11: 0.0003, IPHONE17: 0.00016, FERRARI: 0.00000052, PORSCHE: 0.0000016, XIAOMISU7: 0.0000042, ROLEX: 0.0000161, MACBOOK: 0.000128 },
+                    JPY: { USD: 0.0068, BTC: 0.000000105, ETH: 0.0000026, SOL: 0.000031, BNB: 0.0000104, OKB: 0.000151, DOGE: 0.017, CNY: 0.048, KRW: 9.1, SGD: 0.009, AED: 0.025, HKD: 0.053, MYR: 0.029, ZHUJIAO: 0.0024, KFC: 0.00096, IN11: 0.000016, IPHONE17: 0.0000085, FERRARI: 0.000000028, PORSCHE: 0.000000087, XIAOMISU7: 0.00000022, ROLEX: 0.00000085, MACBOOK: 0.0000068 },
+                    MYR: { USD: 0.23, BTC: 0.0000036, ETH: 0.000088, SOL: 0.00105, BNB: 0.00036, OKB: 0.0052, DOGE: 0.58, CNY: 1.64, JPY: 34.2, KRW: 308, SGD: 0.31, AED: 0.85, HKD: 1.8, ZHUJIAO: 0.082, KFC: 0.033, IN11: 0.00055, IPHONE17: 0.000287, FERRARI: 0.00000094, PORSCHE: 0.00000296, XIAOMISU7: 0.0000076, ROLEX: 0.0000289, MACBOOK: 0.00023 },
+                    SGD: { USD: 0.745, BTC: 0.0000115, ETH: 0.00028, SOL: 0.0034, BNB: 0.0011, OKB: 0.017, DOGE: 1.86, CNY: 5.29, JPY: 110, KRW: 1000, AED: 2.74, HKD: 5.82, MYR: 3.2, ZHUJIAO: 0.26, KFC: 0.105, IN11: 0.00175, IPHONE17: 0.000931, FERRARI: 0.000003, PORSCHE: 0.0000096, XIAOMISU7: 0.000025, ROLEX: 0.0000937, MACBOOK: 0.000745 },
+                    AED: { USD: 0.272, BTC: 0.0000042, ETH: 0.0001, SOL: 0.00123, BNB: 0.00042, OKB: 0.0061, DOGE: 0.68, CNY: 1.93, JPY: 40, KRW: 364, SGD: 0.36, HKD: 2.12, MYR: 1.17, ZHUJIAO: 0.099, KFC: 0.0385, IN11: 0.00064, IPHONE17: 0.00034, FERRARI: 0.0000011, PORSCHE: 0.000035, XIAOMISU7: 0.000089, ROLEX: 0.000342, MACBOOK: 0.000272 },
+                    KRW: { USD: 0.00075, BTC: 0.0000000115, ETH: 0.00000028, SOL: 0.0000034, BNB: 0.00000115, OKB: 0.0000166, DOGE: 0.00187, CNY: 0.0053, JPY: 0.11, SGD: 0.001, AED: 0.0028, HKD: 0.0058, MYR: 0.0032, ZHUJIAO: 0.000378, KFC: 0.0001512, IN11: 0.0000025, IPHONE17: 0.00000094, FERRARI: 0.00000000031, PORSCHE: 0.00000000096, XIAOMISU7: 0.0000000025, ROLEX: 0.0000000094, MACBOOK: 0.00000075 },
+                    ZHUJIAO: { USD: 2.82, BTC: 0.0000434, ETH: 0.00106, SOL: 0.0128, BNB: 0.00434, OKB: 0.063, DOGE: 7.05, CNY: 20, JPY: 414, KRW: 3774, SGD: 3.78, AED: 10.35, HKD: 22, MYR: 12.1, KFC: 0.4, IN11: 0.0067, IPHONE17: 0.0035, FERRARI: 0.0000114, PORSCHE: 0.0000364, XIAOMISU7: 0.0000926, ROLEX: 0.00035, MACBOOK: 0.0028 },
+                    KFC: { USD: 7.04, BTC: 0.000108, ETH: 0.00266, SOL: 0.032, BNB: 0.0108, OKB: 0.156, DOGE: 17.6, CNY: 50, JPY: 1036, KRW: 9436, SGD: 9.44, AED: 25.88, HKD: 55, MYR: 30.3, ZHUJIAO: 2.5, IN11: 0.0167, IPHONE17: 0.0088, FERRARI: 0.0000286, PORSCHE: 0.0000909, XIAOMISU7: 0.000232, ROLEX: 0.00088, MACBOOK: 0.007 },
+                    IN11: { USD: 422.5, BTC: 0.0065, ETH: 0.1594, SOL: 1.92, BNB: 0.65, OKB: 9.39, DOGE: 1056.25, CNY: 3000, JPY: 62125, KRW: 566000, SGD: 566.15, AED: 1551.5, HKD: 3297, MYR: 1816.75, ZHUJIAO: 150, KFC: 60, IPHONE17: 0.529, FERRARI: 0.00171, PORSCHE: 0.00545, XIAOMISU7: 0.0139, ROLEX: 0.053, MACBOOK: 0.423 },
+                    IPHONE17: { USD: 799, BTC: 0.0123, ETH: 0.3017, SOL: 3.63, BNB: 1.23, OKB: 17.76, DOGE: 1997.5, CNY: 5673, JPY: 117453, KRW: 1070000, SGD: 1071, AED: 2932, HKD: 6232, MYR: 3436, ZHUJIAO: 284, KFC: 113.6, IN11: 1.89, FERRARI: 0.0036, PORSCHE: 0.0115, XIAOMISU7: 0.0297, ROLEX: 0.10, MACBOOK: 0.8 },
+                    FERRARI: { USD: 246479, BTC: 3.79, ETH: 93, SOL: 1120, BNB: 379, OKB: 5477, DOGE: 616197.5, CNY: 1750000, JPY: 36232353, KRW: 330000000, SGD: 330564, AED: 905237, HKD: 1923538, MYR: 1059859, ZHUJIAO: 87500, KFC: 35000, IN11: 583.3, IPHONE17: 308.5, PORSCHE: 3.18, XIAOMISU7: 8.11, ROLEX: 30.97, MACBOOK: 246.73 },
+                    PORSCHE: { USD: 77465, BTC: 1.19, ETH: 29.2, SOL: 352, BNB: 119, OKB: 1721.4, DOGE: 193662.5, CNY: 550000, JPY: 11389706, KRW: 103800000, SGD: 103922, AED: 284638, HKD: 604227, MYR: 333100, ZHUJIAO: 27500, KFC: 11000, IN11: 183.3, IPHONE17: 97, FERRARI: 0.314, XIAOMISU7: 2.55, ROLEX: 9.73, MACBOOK: 77.5 },
+                    XIAOMISU7: { USD: 30408, BTC: 0.468, ETH: 11.47, SOL: 138.2, BNB: 46.8, OKB: 675.7, DOGE: 76020, CNY: 215900, JPY: 4470016, KRW: 40760000, SGD: 40767, AED: 111699, HKD: 237182, MYR: 130757, ZHUJIAO: 10795, KFC: 4318, IN11: 71.97, IPHONE17: 38.1, FERRARI: 0.123, PORSCHE: 0.393, ROLEX: 3.82, MACBOOK: 30.44 },
+                    ROLEX: { USD: 7958, BTC: 0.122, ETH: 3.00, SOL: 36.17, BNB: 12.24, OKB: 176.8, DOGE: 19895, CNY: 56500, JPY: 1170026, KRW: 10660000, SGD: 10668, AED: 29229, HKD: 62072, MYR: 34220, ZHUJIAO: 2825, KFC: 1130, IN11: 18.83, IPHONE17: 9.96, FERRARI: 0.032, PORSCHE: 0.103, XIAOMISU7: 0.262, MACBOOK: 7.97 },
+                    MACBOOK: { USD: 999, BTC: 0.0154, ETH: 0.377, SOL: 4.54, BNB: 1.54, OKB: 22.2, DOGE: 2497.5, CNY: 7092, JPY: 146853, KRW: 1338000, SGD: 1339, AED: 3667, HKD: 7792, MYR: 4297, ZHUJIAO: 355, KFC: 142, IN11: 2.36, IPHONE17: 1.25, FERRARI: 0.0041, PORSCHE: 0.013, XIAOMISU7: 0.033, ROLEX: 0.126 }
+                };
+            }
+        }
+        
+        // 先恢复状态，再加载API
+        restoreState();
+        
+        // 页面加载时获取汇率，加载完成后重新计算
+        loadRates().then(() => {
+            // API加载完成后，如果有数据就重新计算一次以获得最新汇率
+            const hasData = Array.from({length: 6}, (_, i) => i + 1).some(i => 
+                document.getElementById(`amount${i}`).value.trim() !== ''
+            );
+            if (hasData) {
+                // API加载完成后，以最后输入的栏位为基准重新计算
+                const lastAmount = document.getElementById(`amount${lastInputField}`).value.trim();
+                if (lastAmount !== '') {
+                    console.log(`API加载完成，以栏位${lastInputField}为基准重新计算最新汇率`);
+                    convert(lastInputField);
+                }
+            }
+        });
+        
+        // 保存状态到本地存储
+        function saveState() {
+            const state = {};
+            for (let i = 1; i <= 6; i++) {
+                state[`amount${i}`] = document.getElementById(`amount${i}`).value;
+                state[`currency${i}`] = document.getElementById(`currency${i}`).value;
+            }
+            state.lastInputField = lastInputField; // 保存最后输入的栏位
+            localStorage.setItem('valueConverterState', JSON.stringify(state));
+        }
+        
+        // 从本地存储恢复状态
+        function restoreState() {
+            const savedState = localStorage.getItem('valueConverterState');
+            if (savedState) {
+                try {
+                    const state = JSON.parse(savedState);
+                    for (let i = 1; i <= 6; i++) {
+                        if (state[`amount${i}`]) {
+                            document.getElementById(`amount${i}`).value = state[`amount${i}`];
+                        }
+                        if (state[`currency${i}`]) {
+                            document.getElementById(`currency${i}`).value = state[`currency${i}`];
+                        }
+                    }
+                    // 恢复最后输入的栏位
+                    if (state.lastInputField) {
+                        lastInputField = state.lastInputField;
+                    }
+                    console.log('状态已恢复:', state);
+                } catch (error) {
+                    console.log('恢复状态失败:', error);
+                }
+            }
+        }
+        
+        function convert(sourceIndex) {
+            if (updating) return;
+            updating = true;
+            
+            const sourceAmount = document.getElementById(`amount${sourceIndex}`).value.replace(/,/g, '');
+            const sourceCurrency = document.getElementById(`currency${sourceIndex}`).value;
+            
+            if (!sourceAmount || sourceAmount === '') {
+                for (let i = 1; i <= 6; i++) {
+                    if (i !== sourceIndex) {
+                        document.getElementById(`amount${i}`).value = '';
+                    }
+                }
+                updating = false;
+                return;
+            }
+            
+            const amount = parseFloat(sourceAmount);
+            if (isNaN(amount)) {
+                updating = false;
+                return;
+            }
+            
+            for (let i = 1; i <= 6; i++) {
+                if (i !== sourceIndex) {
+                    const targetCurrency = document.getElementById(`currency${i}`).value;
+                    let result;
+                    
+                    if (sourceCurrency === targetCurrency) {
+                        result = amount;
+                    } else if (rates[sourceCurrency] && rates[sourceCurrency][targetCurrency]) {
+                        result = amount * rates[sourceCurrency][targetCurrency];
+                    } else {
+                        result = 0;
+                    }
+                    
+                    // 根据目标货币类型决定小数位数
+                    let decimals = 2;
+                    if (targetCurrency === 'DOGE') {
+                        // DOGE 显示更多小数位，确保显示完整精度
+                        if (result >= 1000) {
+                            decimals = 2;
+                        } else if (result >= 100) {
+                            decimals = 3;
+                        } else if (result >= 10) {
+                            decimals = 4;
+                        } else if (result >= 1) {
+                            decimals = 5;
+                        } else if (result >= 0.1) {
+                            decimals = 6;
+                        } else {
+                            decimals = 8;
+                        }
+                    } else if (['BTC', 'ETH'].includes(targetCurrency)) {
+                        // BTC 和 ETH 也需要更多小数位
+                        if (result >= 1) {
+                            decimals = 4;
+                        } else {
+                            decimals = 6;
+                        }
+                    } else if (['JPY', 'KRW'].includes(targetCurrency)) {
+                        // 日元和韩元通常不显示小数
+                        decimals = 0;
+                    } else if (targetCurrency === 'USD') {
+                        // USD 对于小额显示更多小数位
+                        if (result >= 1) {
+                            decimals = 5;  // 显示5位小数，如 0.28445
+                        } else if (result >= 0.01) {
+                            decimals = 6;
+                        } else {
+                            decimals = 8;
+                        }
+                    }
+                    
+                    document.getElementById(`amount${i}`).value = result.toLocaleString(undefined, {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
+                }
+            }
+            
+            updating = false;
+        }
+        
+        for (let i = 1; i <= 6; i++) {
+            document.getElementById(`amount${i}`).addEventListener('input', () => {
+                lastInputField = i; // 更新最后输入的栏位
+                convert(i);
+                saveState(); // 保存状态
+            });
+            document.getElementById(`currency${i}`).addEventListener('change', () => {
+                // 货币选择变更时，以最后输入的栏位为基准重新计算
+                convert(lastInputField);
+                saveState(); // 保存状态
+            });
+        }
+        
+    </script>
+    </div>
+</body>
+</html>
