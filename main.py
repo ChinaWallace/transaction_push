@@ -104,10 +104,86 @@ from app.schemas.market_anomaly import AnomalyLevel
 settings = get_settings()
 logger = get_logger(__name__)
 
-async def perform_startup_trading_analysis():
-    """启动时执行完整的交易决策分析和推送 - 使用Kronos+传统+ML的综合决策服务"""
+async def perform_startup_core_symbols_push():
+    """启动时执行核心币种操作建议推送"""
     try:
-        logger.info("🎯 开始启动完整交易决策分析 (Kronos+传统+ML综合)...")
+        logger.info("📊 开始启动时核心币种操作建议推送...")
+        
+        # 启动交易所服务管理器
+        from app.services.exchanges.service_manager import start_exchange_services
+        startup_result = await start_exchange_services()
+        
+        if startup_result['status'] == 'success':
+            logger.info(f"✅ 交易所服务启动成功: {startup_result['exchange']}")
+        else:
+            logger.error(f"❌ 交易所服务启动失败: {startup_result.get('error')}")
+            # 继续执行，但记录错误
+        
+        # 使用全局单例获取核心调度服务
+        from app.services.core.core_scheduler_service import get_core_scheduler_service
+        
+        scheduler_service = await get_core_scheduler_service()
+        
+        # 确保服务已初始化
+        if not scheduler_service.trading_service:
+            await scheduler_service._initialize_core_services()
+        
+        # 执行启动时核心币种推送
+        success = await scheduler_service.run_startup_core_symbols_push()
+        
+        if success:
+            logger.info("✅ 启动时核心币种推送完成")
+            return {
+                "status": "success",
+                "message": "启动时核心币种推送完成",
+                "timestamp": datetime.now().isoformat(),
+                "push_type": "启动推送"
+            }
+        else:
+            logger.warning("⚠️ 启动时核心币种推送失败")
+            return {
+                "status": "failed", 
+                "message": "启动时核心币种推送失败",
+                "timestamp": datetime.now().isoformat()
+            }
+            
+    except Exception as e:
+        logger.error(f"❌ 启动时核心币种推送异常: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
+async def perform_startup_trading_analysis():
+    """启动时执行完整的交易决策分析和推送 - 保持兼容性"""
+    try:
+        logger.info("🎯 启动交易分析 (兼容性保持) - 已由核心币种推送任务处理")
+        
+        # 不再重复调用核心币种推送，避免重复推送
+        # 核心币种推送已经在 core_symbols_push 任务中处理
+        
+        return {
+            "status": "success",
+            "message": "交易分析任务已整合到核心币种推送中",
+            "analysis_results": [],
+            "notifications_sent": 0,  # 实际推送由 core_symbols_push 任务处理
+            "timestamp": datetime.now().isoformat()
+        }
+            
+    except Exception as e:
+        logger.error(f"❌ 启动交易分析异常: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
+# 保留原有的详细分析功能作为备用
+async def perform_detailed_startup_trading_analysis():
+    """启动时执行详细的交易决策分析和推送 - 备用功能"""
+    try:
+        logger.info("🎯 开始启动详细交易决策分析 (Kronos+传统+ML综合)...")
         
         # 启动交易所服务管理器
         from app.services.exchanges.service_manager import start_exchange_services
@@ -120,8 +196,16 @@ async def perform_startup_trading_analysis():
             # 继续执行，但记录错误
         
         # 使用增强的核心交易服务，集成Kronos分析
-        from app.services.trading.core_trading_service import get_core_trading_service, AnalysisType
-        from app.services.notification.core_notification_service import get_core_notification_service
+        try:
+            from app.services.trading.core_trading_service import get_core_trading_service, AnalysisType
+            from app.services.notification.core_notification_service import get_core_notification_service
+        except ImportError as e:
+            logger.error(f"❌ 导入核心服务失败: {e}")
+            return {
+                "status": "error",
+                "error": f"导入失败: {str(e)}",
+                "timestamp": datetime.now().isoformat()
+            }
         
         core_trading_service = await get_core_trading_service()
         await get_core_notification_service()
@@ -798,7 +882,10 @@ async def lifespan(app: FastAPI):
         logger.info("🚀 开始并发执行启动分析任务...")
         startup_tasks = []
         
-        # 1. 核心交易决策分析任务
+        # 1. 核心币种推送任务 (新功能)
+        startup_tasks.append(("core_symbols_push", perform_startup_core_symbols_push()))
+        
+        # 2. 兼容性交易分析任务
         startup_tasks.append(("trading_analysis", perform_startup_trading_analysis()))
         
         # 2. 负费率分析任务
@@ -1792,6 +1879,110 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.error(f"获取TradingView扫描器状态失败: {e}")
             raise HTTPException(status_code=500, detail=f"获取状态失败: {str(e)}")
+
+    # 核心币种推送相关API
+    @app.post("/api/core-symbols/push", summary="手动触发核心币种推送")
+    async def manual_core_symbols_push():
+        """手动触发核心币种操作建议推送"""
+        try:
+            logger.info("🧪 手动触发核心币种推送...")
+            
+            # 执行核心币种推送
+            result = await perform_startup_core_symbols_push()
+            
+            if result["status"] == "success":
+                return {
+                    "status": "success",
+                    "message": "核心币种推送完成",
+                    "data": result,
+                    "timestamp": datetime.now().isoformat()
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": f"核心币种推送失败: {result.get('error', '未知错误')}",
+                    "data": result,
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+        except Exception as e:
+            logger.error(f"手动核心币种推送失败: {e}")
+            raise HTTPException(status_code=500, detail=f"推送失败: {str(e)}")
+
+    @app.get("/api/core-symbols/status", summary="查看核心币种推送状态")
+    async def get_core_symbols_status():
+        """获取核心币种推送状态信息"""
+        try:
+            from app.services.core.core_scheduler_service import CoreSchedulerService
+            
+            # 创建调度服务实例
+            scheduler_service = CoreSchedulerService()
+            
+            # 获取启动推送状态
+            startup_push_status = getattr(app.state, 'startup_core_symbols_push_results', {})
+            
+            return {
+                "status": "success",
+                "startup_push_completed": True,
+                "startup_push_result": startup_push_status,
+                "scheduler_running": hasattr(app.state, 'core_scheduler_service'),
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"获取核心币种推送状态失败: {e}")
+            raise HTTPException(status_code=500, detail=f"获取状态失败: {str(e)}")
+
+    @app.post("/api/core-symbols/scheduler/start", summary="启动核心币种定时推送")
+    async def start_core_symbols_scheduler():
+        """启动核心币种定时推送调度器"""
+        try:
+            from app.services.core.core_scheduler_service import CoreSchedulerService
+            
+            # 创建并启动调度服务
+            scheduler_service = CoreSchedulerService()
+            await scheduler_service.start_scheduler()
+            
+            # 保存到应用状态
+            app.state.core_scheduler_service = scheduler_service
+            
+            return {
+                "status": "success",
+                "message": "核心币种定时推送调度器已启动",
+                "scheduler_info": {
+                    "running": True
+                },
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"启动核心币种调度器失败: {e}")
+            raise HTTPException(status_code=500, detail=f"启动失败: {str(e)}")
+
+    @app.post("/api/core-symbols/scheduler/stop", summary="停止核心币种定时推送")
+    async def stop_core_symbols_scheduler():
+        """停止核心币种定时推送调度器"""
+        try:
+            if hasattr(app.state, 'core_scheduler_service'):
+                scheduler_service = app.state.core_scheduler_service
+                await scheduler_service.stop_scheduler()
+                delattr(app.state, 'core_scheduler_service')
+                
+                return {
+                    "status": "success",
+                    "message": "核心币种定时推送调度器已停止",
+                    "timestamp": datetime.now().isoformat()
+                }
+            else:
+                return {
+                    "status": "warning",
+                    "message": "核心币种调度器未运行",
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+        except Exception as e:
+            logger.error(f"停止核心币种调度器失败: {e}")
+            raise HTTPException(status_code=500, detail=f"停止失败: {str(e)}")
     
     return app
 

@@ -9,6 +9,7 @@ from .monitor import *
 from .notification import *
 from .news import *
 from .base import *
+from .trading import *
 
 __all__ = [
     "TrendAnalysisRequest",
@@ -24,5 +25,18 @@ __all__ = [
     "NewsResponse",
     "NewsAnalysisResponse",
     "KronosNewsAnalysisData",
-    "BaseResponse"
+    "BaseResponse",
+    # Trading schemas
+    "TradingSignal",
+    "AnalysisType",
+    "SignalStrength",
+    "TradingAction",
+    "TradingAnalysisRequest",
+    "TradingSignalResponse",
+    "BatchAnalysisRequest",
+    "CoreSymbolsAnalysisResponse",
+    "TechnicalIndicators",
+    "MarketData",
+    "PositionInfo",
+    "TradingRecommendation"
 ]

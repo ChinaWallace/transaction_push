@@ -291,7 +291,6 @@ class OKXDataAdapter(ExchangeDataAdapter):
                 logger.warning(f"⚠️ 跳过无效的持仓数据: {e}")
                 continue
         
-        logger.info(f"✅ OKX持仓批量适配完成: {len(unified_positions)}/{len(raw_data)}")
         return unified_positions
     
     def _normalize_state(self, state: str) -> str:

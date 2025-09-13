@@ -15,10 +15,17 @@ from .kronos_integrated_decision_service import (
 from .kronos_market_opportunity_service import KronosMarketOpportunityService
 from .anomaly_state_manager import AnomalyStateManager
 
+# 全局服务实例
+_ml_enhanced_service = None
+
 # 便利函数
-def get_ml_enhanced_service():
-    """获取ML增强服务的便利函数"""
-    return MLEnhancedService()
+async def get_ml_enhanced_service():
+    """获取ML增强服务的便利函数 - 异步单例模式"""
+    global _ml_enhanced_service
+    if _ml_enhanced_service is None:
+        _ml_enhanced_service = MLEnhancedService()
+        # 这里可以添加异步初始化逻辑
+    return _ml_enhanced_service
 
 def get_prediction_service():
     """获取Kronos预测服务的便利函数"""

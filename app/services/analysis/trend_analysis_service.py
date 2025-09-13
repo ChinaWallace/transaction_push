@@ -527,3 +527,15 @@ class TrendAnalysisService:
             '信号混乱': '❔'
         }
         return emoji_map.get(signal_name, '📈')
+
+
+# 全局服务实例
+_trend_analysis_service: Optional[TrendAnalysisService] = None
+
+async def get_trend_analysis_service() -> TrendAnalysisService:
+    """获取趋势分析服务实例 - 单例模式"""
+    global _trend_analysis_service
+    if _trend_analysis_service is None:
+        _trend_analysis_service = TrendAnalysisService()
+        logger.info("✅ 趋势分析服务初始化完成")
+    return _trend_analysis_service

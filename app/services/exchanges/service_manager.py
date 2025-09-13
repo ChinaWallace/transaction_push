@@ -14,6 +14,7 @@ from app.core.config import get_settings
 from app.utils.exceptions import TradingToolError
 from .factory import ExchangeFactory
 from .base.exchange_interface import ExchangeInterface
+from .exchange_service_manager import get_exchange_service
 
 logger = get_logger(__name__)
 

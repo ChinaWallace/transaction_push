@@ -1298,3 +1298,16 @@ class PositionAnalysisService:
         except Exception as e:
             logger.error(f"❌ 发送市场分析通知失败: {e}")
             return False
+
+
+# 全局服务实例
+_position_analysis_service = None
+
+async def get_position_analysis_service() -> PositionAnalysisService:
+    """获取持仓分析服务实例 - 单例模式"""
+    global _position_analysis_service
+    if _position_analysis_service is None:
+        _position_analysis_service = PositionAnalysisService()
+        # 这里可以添加异步初始化逻辑
+        logger.info("✅ 持仓分析服务初始化完成")
+    return _position_analysis_service

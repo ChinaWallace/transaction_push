@@ -1447,3 +1447,16 @@ class TradingDecisionService:
                 continue
         
         return formatted_anomalies
+
+
+# 全局服务实例
+_trading_decision_service: Optional[TradingDecisionService] = None
+
+async def get_trading_decision_service() -> TradingDecisionService:
+    """获取交易决策服务实例 - 单例模式"""
+    global _trading_decision_service
+    if _trading_decision_service is None:
+        _trading_decision_service = TradingDecisionService()
+        # 这里可以添加异步初始化逻辑
+        logger.info("✅ 交易决策服务初始化完成")
+    return _trading_decision_service

@@ -1064,6 +1064,7 @@ class NegativeFundingMonitorService:
             
             # 2. 筛选出负费率币种进行详细分析 - 严格按照-0.05%阈值筛选
             primary_threshold = -0.0005  # -0.05% 主要阈值（严格执行）
+            secondary_threshold = -0.0001  # -0.01% 次要阈值（用于统计）
             
             # 只分析负费率低于-0.05%的币种，不再降低标准
             primary_negative_rates = [r for r in all_funding_rates if r['funding_rate'] <= primary_threshold]

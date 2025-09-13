@@ -118,7 +118,7 @@ class CoreNotificationService:
     
     async def send_notification(
         self,
-        message: Union[str, NotificationContent],
+        message: Union[str, NotificationContent, Dict[str, Any]],
         priority: Union[NotificationPriority, int] = NotificationPriority.NORMAL,
         channels: Optional[List[str]] = None
     ) -> Dict[str, bool]:
@@ -141,13 +141,20 @@ class CoreNotificationService:
             self.logger.info("📴 通知功能已禁用")
             return {"disabled": True}
         
-        # 处理 NotificationContent 对象
+        # 处理不同类型的消息
         if isinstance(message, NotificationContent):
             actual_message = message.message
             if isinstance(priority, NotificationPriority):
                 priority_value = priority
             else:
                 priority_value = message.priority
+        elif isinstance(message, dict):
+            # 预构建的卡片数据，直接使用
+            actual_message = "预构建卡片"
+            if isinstance(priority, int):
+                priority_value = NotificationPriority(priority)
+            else:
+                priority_value = priority
         else:
             actual_message = str(message)
             if isinstance(priority, int):
@@ -186,11 +193,18 @@ class CoreNotificationService:
         
         return results
     
-    async def _send_feishu(self, message: Union[str, NotificationContent], priority: NotificationPriority) -> bool:
-        """发送飞书卡片消息 - 支持 NotificationContent 对象"""
+    async def _send_feishu(self, message: Union[str, NotificationContent, Dict[str, Any]], priority: NotificationPriority) -> bool:
+        """发送飞书卡片消息 - 支持 NotificationContent 对象和预构建卡片"""
         try:
-            # 构建飞书卡片 - 传递原始消息对象
-            card_data = self._build_feishu_card(message, priority.value)
+            # 检查是否是预构建的卡片数据
+            if isinstance(message, dict) and "header" in message and "elements" in message:
+                # 直接使用预构建的卡片数据
+                card_data = message
+                self.logger.info("📋 使用预构建的专用卡片数据")
+            else:
+                # 构建飞书卡片 - 传递原始消息对象
+                card_data = self._build_feishu_card(message, priority.value)
+                self.logger.info("🔧 使用通用卡片构建器")
             
             payload = {
                 "msg_type": "interactive",
@@ -647,6 +661,43 @@ class CoreNotificationService:
                 }
             ]
         }
+    
+    async def send_core_symbols_report(self, signals: List[Any]) -> bool:
+        """发送核心币种分析报告"""
+        try:
+            if not self.initialized:
+                await self.initialize()
+            
+            if not signals:
+                self.logger.warning("⚠️ 没有分析信号，跳过核心币种报告推送")
+                return False
+            
+            # 导入卡片构建器
+            from app.utils.core_symbols_card_builder import CoreSymbolsCardBuilder
+            
+            # 构建卡片
+            card_builder = CoreSymbolsCardBuilder()
+            card_content = card_builder.build_core_symbols_card(signals)
+            
+            # 发送卡片通知
+            result = await self.send_notification(
+                message=card_content,
+                priority=NotificationPriority.NORMAL
+            )
+            
+            # 检查发送结果
+            success = any(result.values()) if isinstance(result, dict) else bool(result)
+            
+            if success:
+                self.logger.info(f"✅ 核心币种报告推送成功 ({len(signals)}个币种)")
+            else:
+                self.logger.warning("❌ 核心币种报告推送失败")
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"❌ 发送核心币种报告失败: {e}")
+            return False
     
     def _format_message_for_card(self, message: str) -> str:
         """格式化消息内容适配卡片显示"""

@@ -6,7 +6,7 @@ Core Scheduler Service - 统一管理所有定时任务和核心服务调度
 """
 
 import asyncio
-from typing import Dict, Any, List, Callable
+from typing import Dict, Any, List, Callable, Optional
 from datetime import datetime, timedelta
 from enum import Enum
 import traceback
@@ -98,6 +98,9 @@ class CoreSchedulerService:
         self.running = False
         self.scheduler_task = None
         
+        # 核心币种推送状态
+        self.startup_push_completed = False
+        
         # 性能统计
         self.stats = {
             'total_tasks_run': 0,
@@ -143,7 +146,17 @@ class CoreSchedulerService:
             description="分析当前持仓状况"
         )
         
-        # 4. 系统报告任务 - 低优先级
+        # 4. 核心币种推送任务 - 高优先级
+        self.register_task(
+            task_id="core_symbols_push",
+            name="核心币种推送",
+            func=self._run_core_symbols_push,
+            interval_minutes=60,  # 每小时推送一次
+            priority=TaskPriority.HIGH,
+            description="推送核心币种操作建议"
+        )
+        
+        # 5. 系统报告任务 - 低优先级
         self.register_task(
             task_id="daily_report",
             name="每日报告",
@@ -153,7 +166,7 @@ class CoreSchedulerService:
             description="生成每日系统报告"
         )
         
-        # 5. 健康检查任务 - 高优先级
+        # 6. 健康检查任务 - 高优先级
         self.register_task(
             task_id="health_check",
             name="健康检查",
@@ -512,6 +525,46 @@ class CoreSchedulerService:
         
         return {'status': 'success', 'result': result}
     
+    async def _run_core_symbols_push(self) -> Dict[str, Any]:
+        """运行核心币种推送任务"""
+        if not self.trading_service:
+            raise Exception("交易服务未初始化")
+        
+        trading_logger.info("📊 执行核心币种推送任务")
+        
+        try:
+            # 获取核心币种分析
+            signals = await self.trading_service.get_core_symbols_analysis()
+            
+            if signals and len(signals) > 0:
+                # 发送核心币种报告
+                success = await self.trading_service.send_core_symbols_report()
+                
+                trading_logger.info(
+                    f"核心币种推送完成: 分析 {len(signals)} 个币种, "
+                    f"成功 {len(signals)} 个, "
+                    f"通知发送: {'成功' if success else '失败'}"
+                )
+                
+                return {
+                    'status': 'success',
+                    'total_symbols': len(signals),
+                    'successful_analyses': len(signals),
+                    'notification_sent': success,
+                    'timestamp': datetime.now().isoformat()
+                }
+            else:
+                trading_logger.warning("核心币种分析失败或无有效结果")
+                return {
+                    'status': 'warning',
+                    'message': '核心币种分析失败或无有效结果',
+                    'timestamp': datetime.now()
+                }
+                
+        except Exception as e:
+            trading_logger.error(f"核心币种推送任务失败: {e}")
+            raise
+    
     async def _run_daily_report(self) -> Dict[str, Any]:
         """运行每日报告任务"""
         monitor_logger.info("📊 生成每日系统报告")
@@ -585,173 +638,171 @@ class CoreSchedulerService:
             if task.enabled and task.status == TaskStatus.FAILED:
                 failed_tasks.append(task.name)
         
-        health_status['tasks']['total'] = len(self.tasks)
-        health_status['tasks']['failed'] = len(failed_tasks)
-        
         if failed_tasks:
             health_status['overall_healthy'] = False
             health_status['issues'].extend([f"任务失败: {name}" for name in failed_tasks])
         
-        # 如果有问题，发送健康检查警报
+        health_status['tasks'] = {
+            'total': len(self.tasks),
+            'enabled': len([t for t in self.tasks.values() if t.enabled]),
+            'failed': len(failed_tasks),
+            'running': len([t for t in self.tasks.values() if t.is_running])
+        }
+        
+        # 如果有严重问题，发送警报
         if not health_status['overall_healthy']:
-            monitor_logger.warning(f"系统健康检查发现 {len(health_status['issues'])} 个问题")
-            
-            if self.notification_service:
-                await self._send_health_check_alert(health_status)
+            await self._send_health_alert(health_status)
         
         return health_status
     
-    async def _send_daily_report_notification(self, report_data: Dict[str, Any]):
-        """发送每日报告通知"""
-        try:
-            from app.services.notification.core_notification_service import NotificationContent, NotificationType, NotificationPriority
-            
-            # 构建报告消息
-            scheduler_stats = report_data.get('scheduler_stats', {})
-            
-            message = f"""📊 每日系统报告 - {report_data['date']}
-
-🔧 调度器统计:
-• 任务总数: {scheduler_stats.get('total_tasks', 0)}
-• 运行任务: {scheduler_stats.get('total_runs', 0)}
-• 成功率: {scheduler_stats.get('success_rate', 0):.1%}
-
-📈 系统状态: 正常运行
-
-详细报告请查看系统日志。"""
-            
-            content = NotificationContent(
-                type=NotificationType.DAILY_REPORT,
-                priority=NotificationPriority.NORMAL,
-                title="📊 每日系统报告",
-                message=message,
-                metadata=report_data
-            )
-            
-            await self.notification_service.send_notification(content)
-            
-        except Exception as e:
-            self.logger.error(f"发送每日报告通知失败: {e}")
-    
-    async def _send_health_check_alert(self, health_status: Dict[str, Any]):
+    async def _send_health_alert(self, health_status: Dict[str, Any]):
         """发送健康检查警报"""
         try:
-            from app.services.notification.core_notification_service import NotificationContent, NotificationType, NotificationPriority
-            
-            issues = health_status.get('issues', [])
-            
-            message = f"""🚨 系统健康检查警报
-
-⏰ 检查时间: {health_status['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}
-
-❌ 发现 {len(issues)} 个问题:
-""" + "\n".join(f"• {issue}" for issue in issues) + """
-
-请及时检查和修复！"""
-            
-            content = NotificationContent(
-                type=NotificationType.SYSTEM_ALERT,
-                priority=NotificationPriority.HIGH,
-                title="🚨 系统健康警报",
-                message=message,
-                metadata=health_status
-            )
-            
-            await self.notification_service.send_notification(content)
+            if self.notification_service:
+                from app.services.notification.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+                
+                issues_text = "\n".join(health_status['issues'])
+                
+                content = NotificationContent(
+                    type=NotificationType.SYSTEM_ALERT,
+                    priority=NotificationPriority.HIGH,
+                    title="🚨 系统健康检查警报",
+                    message=f"发现系统问题:\n{issues_text}\n\n时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    metadata=health_status
+                )
+                
+                await self.notification_service.send_notification(content)
             
         except Exception as e:
             self.logger.error(f"发送健康检查警报失败: {e}")
     
-    # ========== 管理方法 ==========
+    async def _send_daily_report_notification(self, report_data: Dict[str, Any]):
+        """发送每日报告通知"""
+        try:
+            if self.notification_service:
+                from app.services.notification.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+                
+                # 构建报告消息
+                stats = report_data['scheduler_stats']
+                message = f"📊 **每日系统报告** - {report_data['date']}\n\n"
+                message += f"🔧 **调度器统计**\n"
+                message += f"• 总任务执行: {stats['total_tasks_run']}\n"
+                message += f"• 成功: {stats['total_successes']}\n"
+                message += f"• 失败: {stats['total_failures']}\n"
+                message += f"• 成功率: {stats.get('success_rate', 0):.1f}%\n\n"
+                
+                if report_data.get('monitoring_summary'):
+                    message += f"🔍 **监控摘要**\n"
+                    # 添加监控摘要信息
+                
+                if report_data.get('opportunity_summary'):
+                    message += f"🎯 **机会摘要**\n"
+                    # 添加机会摘要信息
+                
+                content = NotificationContent(
+                    type=NotificationType.SYSTEM_ALERT,
+                    priority=NotificationPriority.NORMAL,
+                    title="📊 每日系统报告",
+                    message=message,
+                    metadata=report_data
+                )
+                
+                await self.notification_service.send_notification(content)
+            
+        except Exception as e:
+            self.logger.error(f"发送每日报告通知失败: {e}")
+    
+    # ========== 启动时核心币种推送 ==========
+    
+    async def run_startup_core_symbols_push(self) -> bool:
+        """执行启动时核心币种推送"""
+        try:
+            self.logger.info("🚀 执行启动时核心币种推送...")
+            
+            # 确保交易服务已初始化
+            if not self.trading_service:
+                await self._initialize_core_services()
+            
+            if not self.trading_service:
+                self.logger.error("❌ 交易服务未初始化，无法执行核心币种推送")
+                return False
+            
+            # 执行核心币种推送任务
+            result = await self._run_core_symbols_push()
+            
+            if result.get('status') == 'success':
+                self.startup_push_completed = True
+                self.logger.info("✅ 启动时核心币种推送完成")
+                return True
+            else:
+                self.logger.warning(f"⚠️ 启动时核心币种推送失败: {result.get('message', '未知错误')}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"❌ 启动时核心币种推送异常: {e}")
+            return False
+    
+    # ========== 状态查询方法 ==========
     
     def get_scheduler_stats(self) -> Dict[str, Any]:
         """获取调度器统计信息"""
-        total_runs = sum(task.run_count for task in self.tasks.values())
-        total_successes = sum(task.success_count for task in self.tasks.values())
-        total_failures = sum(task.failure_count for task in self.tasks.values())
+        total_tasks = len(self.tasks)
+        enabled_tasks = len([t for t in self.tasks.values() if t.enabled])
+        running_tasks = len([t for t in self.tasks.values() if t.is_running])
+        failed_tasks = len([t for t in self.tasks.values() if t.status == TaskStatus.FAILED])
+        
+        success_rate = 0
+        if self.stats['total_tasks_run'] > 0:
+            success_rate = (self.stats['total_successes'] / self.stats['total_tasks_run']) * 100
         
         return {
-            'running': self.running,
-            'total_tasks': len(self.tasks),
-            'enabled_tasks': len([t for t in self.tasks.values() if t.enabled]),
-            'total_runs': total_runs,
-            'total_successes': total_successes,
-            'total_failures': total_failures,
-            'success_rate': total_successes / total_runs if total_runs > 0 else 0,
-            'last_cycle_time': self.stats.get('last_cycle_time')
+            'total_tasks': total_tasks,
+            'enabled_tasks': enabled_tasks,
+            'running_tasks': running_tasks,
+            'failed_tasks': failed_tasks,
+            'total_tasks_run': self.stats['total_tasks_run'],
+            'total_successes': self.stats['total_successes'],
+            'total_failures': self.stats['total_failures'],
+            'success_rate': success_rate,
+            'last_cycle_time': self.stats['last_cycle_time'],
+            'scheduler_running': self.running,
+            'startup_push_completed': self.startup_push_completed
         }
     
-    def get_task_status(self, task_id: str = None) -> Dict[str, Any]:
-        """获取任务状态"""
-        if task_id:
-            task = self.tasks.get(task_id)
-            if not task:
-                return {}
-            
-            return {
-                'task_id': task.task_id,
-                'name': task.name,
-                'status': task.status.value,
-                'enabled': task.enabled,
-                'last_run_time': task.last_run_time,
-                'next_run_time': task.next_run_time,
-                'run_count': task.run_count,
-                'success_count': task.success_count,
-                'failure_count': task.failure_count,
-                'last_error': task.last_error,
-                'last_duration': task.last_duration,
-                'is_running': task.is_running
-            }
-        else:
-            # 返回所有任务状态
-            return {
-                task_id: {
-                    'name': task.name,
-                    'status': task.status.value,
-                    'enabled': task.enabled,
-                    'next_run_time': task.next_run_time,
-                    'success_rate': task.success_count / task.run_count if task.run_count > 0 else 0
-                }
-                for task_id, task in self.tasks.items()
-            }
-    
-    def enable_task(self, task_id: str) -> bool:
-        """启用任务"""
-        task = self.tasks.get(task_id)
-        if task:
-            task.enabled = True
-            self.logger.info(f"✅ 已启用任务: {task.name}")
-            return True
-        return False
-    
-    def disable_task(self, task_id: str) -> bool:
-        """禁用任务"""
-        task = self.tasks.get(task_id)
-        if task:
-            task.enabled = False
-            task.status = TaskStatus.DISABLED
-            self.logger.info(f"⏸️ 已禁用任务: {task.name}")
-            return True
-        return False
-    
-    async def run_task_manually(self, task_id: str) -> bool:
-        """手动运行任务"""
-        task = self.tasks.get(task_id)
-        if not task:
-            return False
+    def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """获取特定任务状态"""
+        if task_id not in self.tasks:
+            return None
         
-        if task.is_running:
-            self.logger.warning(f"任务 {task.name} 正在运行中")
-            return False
-        
-        self.logger.info(f"🚀 手动执行任务: {task.name}")
-        await self._execute_single_task(task)
-        return True
+        task = self.tasks[task_id]
+        return {
+            'task_id': task.task_id,
+            'name': task.name,
+            'status': task.status.value,
+            'enabled': task.enabled,
+            'is_running': task.is_running,
+            'last_run_time': task.last_run_time,
+            'next_run_time': task.next_run_time,
+            'run_count': task.run_count,
+            'success_count': task.success_count,
+            'failure_count': task.failure_count,
+            'last_error': task.last_error,
+            'last_duration': task.last_duration,
+            'interval_minutes': task.interval_minutes,
+            'priority': task.priority.name,
+            'description': task.description
+        }
+    
+    def get_all_tasks_status(self) -> Dict[str, Dict[str, Any]]:
+        """获取所有任务状态"""
+        return {
+            task_id: self.get_task_status(task_id)
+            for task_id in self.tasks.keys()
+        }
 
 
-# 全局服务实例
-_core_scheduler_service = None
-
+# 全局单例实例
+_core_scheduler_service: Optional[CoreSchedulerService] = None
 
 async def get_core_scheduler_service() -> CoreSchedulerService:
     """获取核心调度服务实例"""
