@@ -6,27 +6,28 @@ TradingView Scanner Service
 实现TradingView强势标的扫描功能，包括数据获取、解析和通知推送
 """
 
-import json
 import asyncio
-from typing import List, Optional, Dict, Any
+import json
 from datetime import datetime, timedelta
 from decimal import Decimal
+from typing import Any, Dict, List, Optional
 
 import aiohttp
+
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.tradingview_config import (
-    get_tradingview_config,
     get_default_scan_request_data,
     get_proxy_config,
+    get_request_cookies,
     get_request_headers,
-    get_request_cookies
+    get_tradingview_config,
 )
 from app.schemas.tradingview import (
-    TradingViewScanRequest, 
+    TradingViewNotificationMessage,
+    TradingViewScanRequest,
     TradingViewScanResponse,
     TradingViewStrongSymbolVO,
-    TradingViewNotificationMessage
 )
 from app.utils.exceptions import TradingToolError
 
@@ -59,7 +60,9 @@ class TradingViewScannerService:
         
         try:
             # 初始化通知服务
-            from app.services.notification.core_notification_service import get_core_notification_service
+            from app.services.notification.core_notification_service import (
+                get_core_notification_service,
+            )
             self.notification_service = await get_core_notification_service()
             
             self.initialized = True
@@ -222,6 +225,7 @@ class TradingViewScannerService:
                 # 解析数据字段 (根据columns顺序)
                 symbol = data_array[0] if data_array[0] else "UNKNOWN"
                 crypto_total_rank = data_array[7] if len(data_array) > 7 else None
+                current_price = data_array[8] if len(data_array) > 8 else None  # close价格
                 change_24h = data_array[14] if len(data_array) > 14 else None
                 vol_to_market_cap = data_array[15] if len(data_array) > 15 else None
                 volatility = data_array[21] if len(data_array) > 21 else None
@@ -233,6 +237,7 @@ class TradingViewScannerService:
                 # 创建强势标的对象
                 strong_symbol = TradingViewStrongSymbolVO(
                     symbol=symbol,
+                    current_price=Decimal(str(current_price)) if current_price else None,
                     rank=crypto_total_rank if crypto_total_rank and crypto_total_rank > 0 else None,
                     effective_liquidity=Decimal(str(vol_to_market_cap)) if vol_to_market_cap else None,
                     volatility=Decimal(str(volatility)) if volatility else None,

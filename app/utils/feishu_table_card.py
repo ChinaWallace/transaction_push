@@ -3,8 +3,8 @@
 飞书表格卡片构建器
 """
 
-from typing import List, Dict, Any
 import re
+from typing import Any, Dict, List
 
 
 class FeishuTableCardBuilder:
@@ -39,9 +39,9 @@ class FeishuTableCardBuilder:
                     if len(parts) >= 5:
                         symbols_data.append({
                             "symbol": parts[0],
-                            "liquidity": parts[1],
-                            "volatility": parts[2],
-                            "count": parts[3],
+                            "current_price": parts[1],
+                            "liquidity": parts[2],
+                            "volatility": parts[3],
                             "rank": parts[4] if parts[4] != '-' else '0',
                             "tags": " ".join(parts[5:]) if len(parts) > 5 else ""
                         })
@@ -72,7 +72,7 @@ class FeishuTableCardBuilder:
                 elements.append({
                     "tag": "div",
                     "text": {
-                        "content": "**🪙 交易对     💧 流动性     📈 波动率     🎯 入选次数   📊 市值排名   🏷️ 标签**",
+                        "content": "**🪙 交易对     💰 当前价格   💧 流动性     📈 波动率     📊 市值排名   🏷️ 标签**",
                         "tag": "lark_md"
                     }
                 })
@@ -81,10 +81,10 @@ class FeishuTableCardBuilder:
                 
                 for data in symbols_data:
                     symbol = f"{data['symbol']:<10}"
+                    current_price = f"{data['current_price']:<12}"
                     liquidity = f"{data['liquidity']:<10}"
                     volatility = f"{data['volatility']}%"
                     volatility = f"{volatility:<10}"
-                    count = f"{data['count']:<10}"
                     rank = data['rank'] if data['rank'] != '0' else '-'
                     rank = f"{rank:<10}"
                     tags = data['tags'][:15] + "..." if len(data['tags']) > 15 else data['tags']
@@ -93,7 +93,7 @@ class FeishuTableCardBuilder:
                     elements.append({
                         "tag": "div",
                         "text": {
-                            "content": f"{symbol}{liquidity}{volatility}{count}{rank}{tags}",
+                            "content": f"{symbol}{current_price}{liquidity}{volatility}{rank}{tags}",
                             "tag": "plain_text"
                         }
                     })

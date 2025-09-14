@@ -5,16 +5,21 @@ Market Anomaly Monitor Service - 监控波动率、交易量、持仓量异常�
 """
 
 import asyncio
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass
 import statistics
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.logging import get_logger
-from app.services.exchanges.okx.okx_service import OKXService
-from app.services.notification.core_notification_service import get_core_notification_service
 from app.schemas.market_anomaly import (
-    MarketAnomalyData, AnomalyLevel, TrendDirection, AnomalySummary
+    AnomalyLevel,
+    AnomalySummary,
+    MarketAnomalyData,
+    TrendDirection,
+)
+from app.services.exchanges.okx.okx_service import OKXService
+from app.services.notification.core_notification_service import (
+    get_core_notification_service,
 )
 from app.utils.exceptions import TradingToolError
 
@@ -700,7 +705,7 @@ class MarketAnomalyMonitorService:
             return "📊 当前市场无显著异常\n⏰ 下次检查: 30分钟后"
         
         # 构建消息标题
-        message = f"🚨 市场异常监控报告\n"
+        message = "🚨 市场异常监控报告\n"
         message += f"⏰ 检测时间: {datetime.now().strftime('%m-%d %H:%M')}\n"
         message += f"📊 总检查币种: {summary.total_symbols_checked}个\n"
         message += f"🔍 发现异常: {summary.anomalies_found}个\n"
@@ -741,6 +746,10 @@ class MarketAnomalyMonitorService:
                 
                 # 限制量比显示的最大值，避免显示过大的数字
                 display_volume_ratio = min(volume_ratio, 9999.9)
+                # 添加当前价格显示
+                current_price = anomaly.current_price
+                price_str = f"${current_price:.4f}" if current_price >= 1 else f"${current_price:.6f}"
+                message += f"   💰 当前价格: {price_str}\n"
                 message += f"   {trend_icon} 24h涨跌: {price_change:+.1f}% | 24h量比: {display_volume_ratio:.1f}倍\n"
                 
                 if anomaly.recommendation_reason:
@@ -852,7 +861,11 @@ class MarketAnomalyMonitorService:
                 
                 notification_message = self.format_notification_message(anomalies, summary)
                 
-                from app.services.notification.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+                from app.services.notification.core_notification_service import (
+                    NotificationContent,
+                    NotificationPriority,
+                    NotificationType,
+                )
                 
                 content = NotificationContent(
                     type=NotificationType.SYSTEM_ALERT,

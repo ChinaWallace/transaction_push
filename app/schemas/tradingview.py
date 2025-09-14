@@ -6,9 +6,10 @@ TradingView Data Models
 定义TradingView扫描相关的数据结构和验证模式
 """
 
-from typing import List, Optional, Dict, Any
 from datetime import datetime
 from decimal import Decimal
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -30,6 +31,7 @@ class TradingViewStrongSymbolVO(BaseModel):
     
     symbol: str = Field(..., description="交易对符号")
     full_name: str = Field(default="", description="完整名称")
+    current_price: Optional[Decimal] = Field(None, description="当前价格")
     change_24h: Optional[Decimal] = Field(None, description="24小时涨跌幅")
     effective_liquidity: Optional[Decimal] = Field(None, description="有效流动性")
     volatility: Optional[Decimal] = Field(None, description="波动率")
@@ -93,31 +95,32 @@ class TradingViewNotificationMessage(BaseModel):
         
         # 表头 - 使用字符宽度感知的对齐
         header = (
-            self._pad_to_display_width("交易对", 12) +
-            self._pad_to_display_width("流动性", 12) +
-            self._pad_to_display_width("波动率", 12) +
-            self._pad_to_display_width("入选次数", 12) +
-            self._pad_to_display_width("市值排名", 12) +
-            "标签"
+            self._pad_to_display_width("🪙 交易对", 14) +
+            self._pad_to_display_width("💰 当前价格", 14) +
+            self._pad_to_display_width("💧 流动性", 12) +
+            self._pad_to_display_width("📈 波动率", 12) +
+            self._pad_to_display_width("📊 市值排名", 14) +
+            "🏷️ 标签"
         )
         lines.append(header)
         
         # 数据行
         for symbol_vo in self.symbols:
+            current_price = symbol_vo.current_price or Decimal('0')
             liquidity = symbol_vo.effective_liquidity or Decimal('0')
             volatility = symbol_vo.volatility or Decimal('0')
-            selection_count = symbol_vo.selection_count or 1
             rank = symbol_vo.rank or 0
             tags_formatted = self._format_tags_for_display(symbol_vo.tags)
             
-            # 考虑中英文字符宽度差异的格式化
-            symbol_str = self._pad_to_display_width(symbol_vo.symbol, 12)
-            liquidity_str = self._pad_to_display_width(f"{liquidity:.2f}", 12)
-            volatility_str = self._pad_to_display_width(f"{volatility:.2f}", 12)
-            count_str = self._pad_to_display_width(str(selection_count), 12)
-            rank_str = self._pad_to_display_width(str(rank), 12)
+            # 左对齐格式化 - 不填充右侧空格，保持左对齐
+            symbol_str = self._pad_left_align(symbol_vo.symbol, 14)
+            price_str = self._pad_left_align(f"{current_price:.4f}", 14)
+            liquidity_str = self._pad_left_align(f"{liquidity:.2f}", 12)
+            volatility_str = self._pad_left_align(f"{volatility:.2f}", 12)
+            rank_str = self._pad_left_align(str(rank), 14)
             
-            line = symbol_str + liquidity_str + volatility_str + count_str + rank_str + tags_formatted
+            line = (symbol_str + price_str + liquidity_str + volatility_str + 
+                   rank_str + tags_formatted)
             lines.append(line)
         
         lines.append("")
@@ -143,6 +146,17 @@ class TradingViewNotificationMessage(BaseModel):
             return self._truncate_to_display_width(text, target_width)
         else:
             # 补充空格到目标宽度
+            padding = target_width - current_width
+            return text + " " * padding
+    
+    def _pad_left_align(self, text: str, target_width: int) -> str:
+        """左对齐填充到指定显示宽度"""
+        current_width = self._get_display_width(text)
+        if current_width >= target_width:
+            # 如果超长，截断到目标宽度
+            return self._truncate_to_display_width(text, target_width - 1) + " "
+        else:
+            # 右侧补充空格到目标宽度，实现左对齐
             padding = target_width - current_width
             return text + " " * padding
     
