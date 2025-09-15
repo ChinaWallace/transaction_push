@@ -44,8 +44,9 @@ class NotificationPriority(Enum):
     """通知优先级"""
     LOW = 1
     NORMAL = 2
-    HIGH = 3
-    URGENT = 4
+    MEDIUM = 3
+    HIGH = 4
+    URGENT = 5
 
 @dataclass
 class NotificationContent:

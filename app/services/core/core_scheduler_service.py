@@ -114,67 +114,8 @@ class CoreSchedulerService:
         self._initialize_tasks()
     
     def _initialize_tasks(self):
-        """初始化所有定时任务"""
+        """初始化所有定时任务 - 已简化，避免与主调度器重复"""
         
-        # 1. 监控任务 - 最高优先级
-        self.register_task(
-            task_id="core_monitoring",
-            name="核心监控",
-            func=self._run_core_monitoring,
-            interval_minutes=30,  # 每30分钟监控一次
-            priority=TaskPriority.CRITICAL,
-            description="综合监控费率、系统健康等"
-        )
-        
-        # 2. 机会扫描任务 - 高优先级
-        self.register_task(
-            task_id="opportunity_scan",
-            name="机会扫描",
-            func=self._run_opportunity_scan,
-            interval_minutes=60,  # 每小时扫描一次
-            priority=TaskPriority.HIGH,
-            description="扫描交易机会、网格机会等"
-        )
-        
-        # 3. 持仓分析任务 - 正常优先级
-        self.register_task(
-            task_id="position_analysis",
-            name="持仓分析",
-            func=self._run_position_analysis,
-            interval_minutes=120,  # 每2小时分析一次
-            priority=TaskPriority.NORMAL,
-            description="分析当前持仓状况"
-        )
-        
-        # 4. 核心币种推送任务 - 高优先级
-        self.register_task(
-            task_id="core_symbols_push",
-            name="核心币种推送",
-            func=self._run_core_symbols_push,
-            interval_minutes=60,  # 每小时推送一次
-            priority=TaskPriority.HIGH,
-            description="推送核心币种操作建议"
-        )
-        
-        # 5. 系统报告任务 - 低优先级
-        self.register_task(
-            task_id="daily_report",
-            name="每日报告",
-            func=self._run_daily_report,
-            interval_minutes=1440,  # 每24小时一次
-            priority=TaskPriority.LOW,
-            description="生成每日系统报告"
-        )
-        
-        # 6. 健康检查任务 - 高优先级
-        self.register_task(
-            task_id="health_check",
-            name="健康检查",
-            func=self._run_health_check,
-            interval_minutes=15,  # 每15分钟检查一次
-            priority=TaskPriority.HIGH,
-            description="系统健康状态检查"
-        )
     
     def register_task(
         self,
@@ -526,43 +467,40 @@ class CoreSchedulerService:
         return {'status': 'success', 'result': result}
     
     async def _run_core_symbols_push(self) -> Dict[str, Any]:
-        """运行核心币种推送任务"""
+        """运行核心币种总体推送任务（只推送汇总报告）"""
         if not self.trading_service:
             raise Exception("交易服务未初始化")
         
-        trading_logger.info("📊 执行核心币种推送任务")
+        trading_logger.info("📊 执行核心币种总体推送任务")
         
         try:
-            # 获取核心币种分析
-            signals = await self.trading_service.get_core_symbols_analysis()
+            # 调用修改后的推送方法
+            result = await self.trading_service.run_core_symbols_push()
             
-            if signals and len(signals) > 0:
-                # 发送核心币种报告
-                success = await self.trading_service.send_core_symbols_report()
-                
+            if result.get('success', False):
                 trading_logger.info(
-                    f"核心币种推送完成: 分析 {len(signals)} 个币种, "
-                    f"成功 {len(signals)} 个, "
-                    f"通知发送: {'成功' if success else '失败'}"
+                    f"核心币种总体推送完成: 分析 {result.get('total_analyzed', 0)} 个币种, "
+                    f"汇总报告发送: {'成功' if result.get('summary_report_sent', False) else '失败'}, "
+                    f"单独信号发送: {result.get('individual_signals_sent', 0)} 个（已禁用）"
                 )
                 
                 return {
                     'status': 'success',
-                    'total_symbols': len(signals),
-                    'successful_analyses': len(signals),
-                    'notification_sent': success,
+                    'total_analyzed': result.get('total_analyzed', 0),
+                    'summary_report_sent': result.get('summary_report_sent', False),
+                    'individual_signals_sent': result.get('individual_signals_sent', 0),
                     'timestamp': datetime.now().isoformat()
                 }
             else:
-                trading_logger.warning("核心币种分析失败或无有效结果")
+                trading_logger.warning(f"核心币种总体推送失败: {result.get('error', '未知错误')}")
                 return {
                     'status': 'warning',
-                    'message': '核心币种分析失败或无有效结果',
-                    'timestamp': datetime.now()
+                    'message': result.get('error', '核心币种总体推送失败'),
+                    'timestamp': datetime.now().isoformat()
                 }
                 
         except Exception as e:
-            trading_logger.error(f"核心币种推送任务失败: {e}")
+            trading_logger.error(f"核心币种总体推送任务失败: {e}")
             raise
     
     async def _run_daily_report(self) -> Dict[str, Any]:

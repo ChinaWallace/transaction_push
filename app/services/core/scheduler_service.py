@@ -140,15 +140,6 @@ class SchedulerService:
                 max_instances=1
             )
             
-            # 完整交易决策分析已暂时禁用，避免重复推送
-            self.scheduler.add_job(
-                self._core_trading_analysis_job,
-                trigger=IntervalTrigger(minutes=30),  # 每30分钟执行一次
-                id="core_trading_analysis", 
-                name="核心交易服务分析 (详细推送)",
-                max_instances=1
-            )
-            logger.info("✅ 核心交易服务定时任务已启用 - 每30分钟执行一次")
             
             # 综合监控报告 - 每天早上9点执行
             self.scheduler.add_job(
@@ -209,6 +200,16 @@ class SchedulerService:
                 name="ML预测信号分析 (辅助验证)",
                 max_instances=1
             )
+            
+            # 🎯 核心币种推送任务 - 每30分钟执行一次
+            self.scheduler.add_job(
+                self._core_symbols_push_job,
+                trigger=IntervalTrigger(minutes=30),
+                id="core_symbols_push",
+                name="核心币种总体推送",
+                max_instances=1
+            )
+            logger.info("✅ 核心币种推送任务已启用 - 每30分钟执行一次")
             
             # 🔄 ML模型重训练 - 每天凌晨2点执行
             self.scheduler.add_job(
@@ -1359,3 +1360,23 @@ class SchedulerService:
             
         except Exception as e:
             logger.error(f"发送综合分析报告失败: {e}")
+    
+    async def _core_symbols_push_job(self):
+        """核心币种推送任务 - 每30分钟推送总体操作建议"""
+        try:
+            logger.info("🚀 开始核心币种总体推送...")
+            
+            # 获取核心交易服务
+            from app.services.trading.core_trading_service import get_core_trading_service
+            trading_service = await get_core_trading_service()
+            
+            # 执行核心币种推送 - 只推送汇总报告
+            result = await trading_service.run_core_symbols_push()
+            
+            if result.get("success"):
+                logger.info(f"✅ 核心币种总体推送完成: {result.get('message', '成功')}")
+            else:
+                logger.warning(f"⚠️ 核心币种推送部分失败: {result.get('message', '未知错误')}")
+                
+        except Exception as e:
+            logger.error(f"❌ 核心币种推送任务失败: {e}")

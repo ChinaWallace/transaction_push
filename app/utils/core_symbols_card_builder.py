@@ -15,8 +15,8 @@ class CoreSymbolsCardBuilder:
     """核心币种操作建议卡片构建器"""
     
     @staticmethod
-    def build_core_symbols_card(signals: List[Any], notification_type: str = "定时推送") -> Dict[str, Any]:
-        """构建核心币种操作建议卡片 - 专用优化版本"""
+    def build_core_symbols_card(signals: List[Any], notification_type: str = "核心币种总体推送") -> Dict[str, Any]:
+        """构建核心币种操作建议卡片"""
         try:
             if not signals:
                 return CoreSymbolsCardBuilder._build_empty_card(notification_type)
@@ -39,7 +39,7 @@ class CoreSymbolsCardBuilder:
                 "config": {"wide_screen_mode": True},
                 "header": {
                     "template": "blue",
-                    "title": {"content": f"🎯 核心币种操作建议 | {notification_type}", "tag": "plain_text"}
+                    "title": {"content": f"🎯 核心币种总体操作建议 | {notification_type}", "tag": "plain_text"}
                 },
                 "elements": [
                     # 市场概览

@@ -727,10 +727,10 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"⚠️ Database health check failed: {e} - running in memory mode")
                 app.state.database_available = False
         
-        # 启动调度器
+        # 启动统一调度器（包含核心币种推送任务）
         scheduler = SchedulerService()
         await scheduler.start()
-        logger.info("✅ Scheduler started successfully")
+        logger.info("✅ 统一调度器启动成功（包含核心币种推送任务）")
         
         if settings.kronos_config.get('enable_kronos_prediction', False):
             logger.info("✅ Kronos预测已启用，核心信号分析由调度器统一管理")
@@ -998,14 +998,21 @@ async def lifespan(app: FastAPI):
         # 1. 停止调度器
         try:
             if hasattr(app.state, 'scheduler') and app.state.scheduler:
-                await app.state.scheduler.shutdown()
-                logger.info("✅ Scheduler stopped")
+                await app.state.scheduler.stop()
+                logger.info("✅ General scheduler stopped")
         except Exception as e:
-            logger.warning(f"⚠️ Error stopping scheduler: {e}")
+            logger.warning(f"⚠️ Error stopping general scheduler: {e}")
+        
+        # 1.1 停止核心币种推送调度器
+        try:
+            # 核心币种推送任务已整合到统一调度器中，无需单独停止
+            pass
+        except Exception as e:
+            logger.warning(f"⚠️ Error stopping core scheduler: {e}")
         
         # 2. 清理核心HTTP客户端
         try:
-            from app.core.http_client import cleanup_http_resources
+            from app.utils.http_manager import cleanup_http_resources
             await cleanup_http_resources()
             logger.info("✅ Core HTTP client cleaned up")
         except Exception as e:
@@ -1066,8 +1073,9 @@ async def lifespan(app: FastAPI):
         # 4. 清理数据库连接
         try:
             if hasattr(app.state, 'database_available') and app.state.database_available and db_manager:
-                await db_manager.close_all_connections()
-                logger.info("✅ Database connections closed")
+                if hasattr(db_manager, 'close_all_connections'):
+                    await db_manager.close_all_connections()
+                    logger.info("✅ Database connections closed")
         except Exception as e:
             logger.warning(f"⚠️ Error closing database connections: {e}")
         
@@ -1112,7 +1120,7 @@ async def lifespan(app: FastAPI):
         
         # 清理数据库连接
         try:
-            if db_manager:
+            if db_manager and hasattr(db_manager, 'close_all_connections'):
                 db_manager.close_all_connections()
                 logger.info("✅ Database connections closed")
         except Exception as e:
@@ -1913,19 +1921,18 @@ def create_app() -> FastAPI:
     async def get_core_symbols_status():
         """获取核心币种推送状态信息"""
         try:
-            from app.services.core.core_scheduler_service import CoreSchedulerService
-            
-            # 创建调度服务实例
-            scheduler_service = CoreSchedulerService()
-            
             # 获取启动推送状态
             startup_push_status = getattr(app.state, 'startup_core_symbols_push_results', {})
+            
+            # 检查统一调度器状态
+            scheduler_running = hasattr(app.state, 'scheduler') and app.state.scheduler.is_running()
             
             return {
                 "status": "success",
                 "startup_push_completed": True,
                 "startup_push_result": startup_push_status,
-                "scheduler_running": hasattr(app.state, 'core_scheduler_service'),
+                "scheduler_running": scheduler_running,
+                "integration_status": "核心币种推送已整合到统一调度器",
                 "timestamp": datetime.now().isoformat()
             }
             
@@ -1937,48 +1944,38 @@ def create_app() -> FastAPI:
     async def start_core_symbols_scheduler():
         """启动核心币种定时推送调度器"""
         try:
-            from app.services.core.core_scheduler_service import CoreSchedulerService
-            
-            # 创建并启动调度服务
-            scheduler_service = CoreSchedulerService()
-            await scheduler_service.start_scheduler()
-            
-            # 保存到应用状态
-            app.state.core_scheduler_service = scheduler_service
-            
-            return {
-                "status": "success",
-                "message": "核心币种定时推送调度器已启动",
-                "scheduler_info": {
-                    "running": True
-                },
-                "timestamp": datetime.now().isoformat()
-            }
+            # 检查统一调度器状态
+            if hasattr(app.state, 'scheduler') and app.state.scheduler.is_running():
+                return {
+                    "status": "success",
+                    "message": "核心币种推送任务已在统一调度器中运行",
+                    "scheduler_info": {
+                        "running": True,
+                        "integration_status": "已整合到统一调度器"
+                    },
+                    "timestamp": datetime.now().isoformat()
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": "统一调度器未运行",
+                    "timestamp": datetime.now().isoformat()
+                }
             
         except Exception as e:
-            logger.error(f"启动核心币种调度器失败: {e}")
-            raise HTTPException(status_code=500, detail=f"启动失败: {str(e)}")
+            logger.error(f"检查核心币种调度器状态失败: {e}")
+            raise HTTPException(status_code=500, detail=f"检查失败: {str(e)}")
 
     @app.post("/api/core-symbols/scheduler/stop", summary="停止核心币种定时推送")
     async def stop_core_symbols_scheduler():
         """停止核心币种定时推送调度器"""
         try:
-            if hasattr(app.state, 'core_scheduler_service'):
-                scheduler_service = app.state.core_scheduler_service
-                await scheduler_service.stop_scheduler()
-                delattr(app.state, 'core_scheduler_service')
-                
-                return {
-                    "status": "success",
-                    "message": "核心币种定时推送调度器已停止",
-                    "timestamp": datetime.now().isoformat()
-                }
-            else:
-                return {
-                    "status": "warning",
-                    "message": "核心币种调度器未运行",
-                    "timestamp": datetime.now().isoformat()
-                }
+            return {
+                "status": "info",
+                "message": "核心币种推送任务已整合到统一调度器中，无法单独停止",
+                "note": "如需停止，请停止整个应用或使用统一调度器管理接口",
+                "timestamp": datetime.now().isoformat()
+            }
                 
         except Exception as e:
             logger.error(f"停止核心币种调度器失败: {e}")

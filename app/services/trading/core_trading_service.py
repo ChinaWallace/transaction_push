@@ -1117,6 +1117,121 @@ class CoreTradingService:
         except Exception as e:
             self.logger.error(f"❌ 清理核心交易服务资源失败: {e}")
 
+    async def run_core_symbols_push(self) -> Dict[str, Any]:
+        """运行核心币种推送任务 - 供调度器调用 (只推送总体报告，不推送单独信号)"""
+        try:
+            self.logger.info("🎯 开始执行核心币种推送任务...")
+            
+            # 获取核心币种分析结果
+            analysis_results = await self.get_core_symbols_analysis()
+            
+            if analysis_results:
+                # 只发送核心币种汇总报告，不发送单独信号
+                try:
+                    success = await self.send_core_symbols_report("定时推送")
+                    
+                    self.logger.info(f"✅ 核心币种推送完成: 分析 {len(analysis_results)} 个币种，汇总报告发送{'成功' if success else '失败'}")
+                    
+                    return {
+                        'success': True,
+                        'total_analyzed': len(analysis_results),
+                        'summary_report_sent': success,
+                        'individual_signals_sent': 0,  # 不再发送单独信号
+                        'signal_details': analysis_results
+                    }
+                    
+                except Exception as e:
+                    self.logger.error(f"发送核心币种汇总报告失败: {e}")
+                    return {
+                        'success': False,
+                        'error': f"汇总报告发送失败: {str(e)}",
+                        'total_analyzed': len(analysis_results),
+                        'summary_report_sent': False,
+                        'individual_signals_sent': 0
+                    }
+            else:
+                self.logger.warning("⚠️ 没有有效的核心币种分析结果")
+                return {
+                    'success': False,
+                    'error': "没有有效的分析结果",
+                    'total_analyzed': 0,
+                    'summary_report_sent': False,
+                    'individual_signals_sent': 0
+                }
+            
+        except Exception as e:
+            self.logger.error(f"核心币种推送任务失败: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'total_analyzed': 0,
+                'summary_report_sent': False,
+                'individual_signals_sent': 0
+            }
+    
+    async def perform_startup_core_symbols_push(self) -> bool:
+        """执行启动时核心币种推送"""
+        try:
+            self.logger.info("🚀 执行启动时核心币种推送...")
+            
+            result = await self.run_core_symbols_push()
+            
+            if result.get('success', False):
+                self.logger.info(f"✅ 启动时核心币种推送完成: {result.get('notifications_sent', 0)} 个通知")
+                return True
+            else:
+                self.logger.warning(f"⚠️ 启动时核心币种推送失败: {result.get('error', '未知错误')}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"启动时核心币种推送异常: {e}")
+            return False
+    
+    async def send_trading_signal_notification(self, trading_signal: TradingSignal) -> bool:
+        """发送交易信号通知"""
+        try:
+            if not self.notification_service:
+                from app.services.notification.core_notification_service import get_core_notification_service
+                self.notification_service = await get_core_notification_service()
+            
+            # 构建通知内容
+            from app.services.notification.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+            
+            symbol_name = trading_signal.symbol.replace('-USDT-SWAP', '')
+            confidence_percent = trading_signal.final_confidence * 100 if trading_signal.final_confidence <= 1 else trading_signal.final_confidence
+            
+            # 根据置信度确定优先级
+            if confidence_percent >= 80:
+                priority = NotificationPriority.HIGH
+            elif confidence_percent >= 60:
+                priority = NotificationPriority.NORMAL
+            else:
+                priority = NotificationPriority.LOW
+            
+            content = NotificationContent(
+                type=NotificationType.TRADING_SIGNAL,
+                priority=priority,
+                title=f"🎯 {symbol_name} 交易信号",
+                message=f"""交易对: {symbol_name}
+                    建议: {trading_signal.final_action}
+                    置信度: {confidence_percent:.1f}%
+                    信号强度: {trading_signal.signal_strength}
+                    分析: {trading_signal.reasoning}""",
+                metadata={
+                    'symbol': trading_signal.symbol,
+                    'action': trading_signal.final_action,
+                    'confidence': confidence_percent,
+                    'signal_strength': str(trading_signal.signal_strength)
+                }
+            )
+            
+            await self.notification_service.send_notification(content)
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"发送交易信号通知失败: {e}")
+            return False
+
 # 全局服务实例
 _core_trading_service: Optional[CoreTradingService] = None
 
