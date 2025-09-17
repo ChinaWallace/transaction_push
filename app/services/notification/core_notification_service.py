@@ -475,7 +475,7 @@ class CoreNotificationService:
                         {
                             "is_short": True,
                             "text": {
-                                "content": f"**综合评分**\n{overall_score}/100",
+                                "content": f"**健康评分**\n{overall_score}/100",
                                 "tag": "lark_md"
                             }
                         }

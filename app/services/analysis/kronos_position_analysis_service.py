@@ -1823,18 +1823,32 @@ class KronosPositionAnalysisService:
             else:
                 risk_level = "🔵 VERY LOW"
             
-            # 构建通知内容
+            # 计算基于初始本金的整体盈亏
+            from app.core.config import get_settings
+            settings = get_settings()
+            initial_capital = settings.account_initial_capital
+            # 整体盈亏 = (当前权益 - 初始本金) / 初始本金 * 100%
+            overall_pnl = total_equity - initial_capital
+            overall_pnl_percentage = (overall_pnl / initial_capital * 100) if initial_capital > 0 else 0
+            
+            # 风险等级文字转换
+            risk_level_text = {
+                "🔴 HIGH": "极高风险",
+                "🟠 MEDIUM": "高风险", 
+                "🟡 MEDIUM": "中等风险",
+                "🟢 LOW": "低风险",
+                "🔵 VERY LOW": "极低风险"
+            }.get(risk_level, "未知")
+            
+            # 构建通知内容 - 新格式
             message_parts = [
-                f"**账户持仓分析报告 (评分: {overall_score}/100)**",
-                "",
-                f"📊 **账户概况:**",
+                f"📊 **详细信息:**",
                 f"  • 总权益: ${total_equity:,.2f} USDT",
-                f"  • 持仓数量: {total_positions} 个",
+                f"  • 初始本金: ${initial_capital:,.2f} USDT",
+                f"  • 整体盈亏: ${overall_pnl:+,.2f} ({overall_pnl_percentage:+.1f}%)",
                 f"  • 未实现盈亏: ${total_unrealized_pnl:+,.2f} ({pnl_percentage:+.1f}%)",
                 f"  • 资金利用率: {fund_utilization:.1f}%",
                 f"  • 整体杠杆: {overall_leverage:.1f}x",
-                "",
-                f"⚠️ **风险评估: {risk_level}**",
                 f"  • 风险评分: {risk_score}/100",
             ]
             

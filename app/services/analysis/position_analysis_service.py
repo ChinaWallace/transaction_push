@@ -159,6 +159,9 @@ class PositionAnalysisService:
         """分析账户摘要"""
         total_equity = account_balance.get('total_equity', 0)
         
+        # 获取初始本金配置
+        initial_capital = settings.account_initial_capital
+        
         # 计算持仓统计
         total_positions = len(positions)
         total_unrealized_pnl = sum(pos.get('unrealized_pnl_usd', 0) for pos in positions)
@@ -171,19 +174,34 @@ class PositionAnalysisService:
         # 计算利用率
         utilization_rate = (total_position_value / total_equity * 100) if total_equity > 0 else 0
         
-        # 计算盈亏比例
+        # 计算盈亏比例 - 基于当前权益
         pnl_percentage = (total_unrealized_pnl / total_equity * 100) if total_equity > 0 else 0
+        
+        # 计算整体盈亏 - 基于初始本金
+        overall_pnl = total_equity - initial_capital
+        overall_pnl_percentage = (overall_pnl / initial_capital * 100) if initial_capital > 0 else 0
+        
+        # 计算风险等级
+        risk_level = self._calculate_risk_level(total_equity, initial_capital, total_unrealized_pnl, utilization_rate)
+        
+        # 计算健康评分
+        health_score = self._calculate_health_score(overall_pnl_percentage, utilization_rate, risk_level, total_positions)
         
         return {
             "total_equity": total_equity,
+            "initial_capital": initial_capital,
             "total_positions": total_positions,
             "total_unrealized_pnl": total_unrealized_pnl,
             "total_position_value": total_position_value,
             "total_spot_value": total_spot_value,
             "utilization_rate": utilization_rate,
             "pnl_percentage": pnl_percentage,
+            "overall_pnl": overall_pnl,
+            "overall_pnl_percentage": overall_pnl_percentage,
             "available_balance": total_equity - total_position_value,
-            "leverage_ratio": total_position_value / total_equity if total_equity > 0 else 0
+            "leverage_ratio": total_position_value / total_equity if total_equity > 0 else 0,
+            "risk_level": risk_level,
+            "health_score": health_score
         }
     
     async def _analyze_individual_positions(self, positions: List[Dict], account_balance: Dict) -> List[Dict[str, Any]]:
@@ -720,32 +738,117 @@ class PositionAnalysisService:
         
         return alerts
     
+    def _calculate_risk_level(self, total_equity: float, initial_capital: float, 
+                            total_unrealized_pnl: float, utilization_rate: float) -> str:
+        """计算风险等级"""
+        risk_score = 0
+        
+        # 1. 资金损失风险 (40%)
+        if total_equity < initial_capital * 0.8:  # 损失超过20%
+            risk_score += 40
+        elif total_equity < initial_capital * 0.9:  # 损失超过10%
+            risk_score += 25
+        elif total_equity < initial_capital * 0.95:  # 损失超过5%
+            risk_score += 15
+        
+        # 2. 未实现亏损风险 (30%)
+        if total_equity > 0:
+            unrealized_loss_ratio = abs(total_unrealized_pnl) / total_equity
+            if total_unrealized_pnl < 0:
+                if unrealized_loss_ratio > 0.15:  # 未实现亏损超过15%
+                    risk_score += 30
+                elif unrealized_loss_ratio > 0.10:  # 未实现亏损超过10%
+                    risk_score += 20
+                elif unrealized_loss_ratio > 0.05:  # 未实现亏损超过5%
+                    risk_score += 10
+        
+        # 3. 资金利用率风险 (30%)
+        if utilization_rate > 80:  # 利用率超过80%
+            risk_score += 30
+        elif utilization_rate > 60:  # 利用率超过60%
+            risk_score += 20
+        elif utilization_rate > 40:  # 利用率超过40%
+            risk_score += 10
+        
+        # 确定风险等级
+        if risk_score >= 70:
+            return "极高风险"
+        elif risk_score >= 50:
+            return "高风险"
+        elif risk_score >= 30:
+            return "中等风险"
+        elif risk_score >= 15:
+            return "低风险"
+        else:
+            return "极低风险"
+    
+    def _calculate_health_score(self, overall_pnl_percentage: float, utilization_rate: float, 
+                              risk_level: str, total_positions: int) -> int:
+        """计算健康评分 (0-100)"""
+        score = 100
+        
+        # 1. 盈亏表现 (40%)
+        if overall_pnl_percentage < -20:  # 总体亏损超过20%
+            score -= 40
+        elif overall_pnl_percentage < -10:  # 总体亏损超过10%
+            score -= 30
+        elif overall_pnl_percentage < -5:  # 总体亏损超过5%
+            score -= 20
+        elif overall_pnl_percentage < 0:  # 轻微亏损
+            score -= 10
+        elif overall_pnl_percentage > 20:  # 盈利超过20%
+            score += 10
+        elif overall_pnl_percentage > 10:  # 盈利超过10%
+            score += 5
+        
+        # 2. 风险控制 (35%)
+        risk_penalty = {
+            "极高风险": 35,
+            "高风险": 25,
+            "中等风险": 15,
+            "低风险": 5,
+            "极低风险": 0
+        }
+        score -= risk_penalty.get(risk_level, 15)
+        
+        # 3. 资金利用效率 (15%)
+        if utilization_rate > 90:  # 过度使用
+            score -= 15
+        elif utilization_rate > 70:  # 高利用率
+            score -= 10
+        elif utilization_rate < 20:  # 利用率过低
+            score -= 8
+        elif 40 <= utilization_rate <= 60:  # 合理利用率
+            score += 5
+        
+        # 4. 持仓分散度 (10%)
+        if total_positions == 0:
+            score -= 10
+        elif total_positions == 1:
+            score -= 8
+        elif total_positions > 15:  # 过度分散
+            score -= 5
+        elif 3 <= total_positions <= 8:  # 合理分散
+            score += 3
+        
+        return max(0, min(100, score))
+    
     def _calculate_overall_score(self, analysis_result: Dict) -> int:
-        """计算整体评分"""
-        base_score = 100
+        """计算整体评分 - 使用健康评分"""
+        # 直接使用账户摘要中的健康评分
+        account_summary = analysis_result.get("account_summary", {})
+        health_score = account_summary.get("health_score", 50)
         
-        # 风险评估扣分
-        risk_score = analysis_result["risk_assessment"].get("risk_score", 0)
-        base_score -= risk_score
-        
-        # 警报扣分
+        # 根据风险警报进行微调
         alerts = analysis_result.get("alerts", [])
         critical_alerts = len([a for a in alerts if a.get("level") == "critical"])
         high_alerts = len([a for a in alerts if a.get("level") == "high"])
         
-        base_score -= critical_alerts * 15
-        base_score -= high_alerts * 8
+        # 轻微调整，不要过度影响健康评分
+        adjustment = -(critical_alerts * 5 + high_alerts * 3)
         
-        # 持仓健康度加分
-        position_analyses = analysis_result.get("position_analysis", [])
-        if position_analyses:
-            avg_health = sum(pos.get("health_score", 0) for pos in position_analyses) / len(position_analyses)
-            if avg_health > 80:
-                base_score += 10
-            elif avg_health < 50:
-                base_score -= 10
-        
-        return max(0, min(100, base_score))
+        final_score = health_score + adjustment
+        return max(0, min(100, final_score))
     
     async def send_position_analysis_notification(self, analysis_result: Dict) -> bool:
         """发送持仓分析通知"""
@@ -757,33 +860,34 @@ class PositionAnalysisService:
             overall_score = analysis_result.get("overall_score", 0)
             
             # 构建通知消息
-            title = f"💼 账户持仓分析报告 (评分: {overall_score}/100)"
+            title = f"💼 持仓分析报告"
             
-            message_parts = [
-                "📊 账户概况:",
-                f"  • 总权益: ${account_summary.get('total_equity', 0):,.2f} USDT",
-                f"  • 持仓数量: {account_summary.get('total_positions', 0)} 个",
-                f"  • 未实现盈亏: ${account_summary.get('total_unrealized_pnl', 0):,.2f} ({account_summary.get('pnl_percentage', 0):.1f}%)",
-                f"  • 资金利用率: {account_summary.get('utilization_rate', 0):.1f}%",
-                f"  • 整体杠杆: {account_summary.get('leverage_ratio', 0):.1f}x",
-                ""
-            ]
+            # 获取关键数据
+            total_positions = account_summary.get('total_positions', 0)
+            overall_pnl_percentage = account_summary.get('overall_pnl_percentage', 0)
+            risk_level_str = account_summary.get('risk_level', '未知')
+            health_score = account_summary.get('health_score', 0)
             
-            # 风险评估
-            risk_level = risk_assessment.get('overall_risk', PositionRisk.LOW)
-            risk_emoji = {
-                PositionRisk.LOW: "🟢",
-                PositionRisk.MEDIUM: "🟡", 
-                PositionRisk.HIGH: "🟠",
-                PositionRisk.CRITICAL: "🔴"
+            # 风险等级颜色映射
+            risk_color_map = {
+                "极低风险": "🟢",
+                "低风险": "🟢", 
+                "中等风险": "🟡",
+                "高风险": "🟠",
+                "极高风险": "🔴",
+                "未知": "⚪"
             }
             
-            message_parts.extend([
-                f"⚠️ 风险评估: {risk_emoji.get(risk_level, '🟡')} {risk_level.value}",
-                f"  • 风险评分: {risk_assessment.get('risk_score', 0)}/100",
+            message_parts = [
+                "📊 详细信息:",
+                f"  • 总权益: ${account_summary.get('total_equity', 0):,.2f} USDT",
+                f"  • 初始本金: ${account_summary.get('initial_capital', 0):,.2f} USDT",
+                f"  • 整体盈亏: ${account_summary.get('overall_pnl', 0):,.2f} ({overall_pnl_percentage:+.1f}%)",
+                f"  • 未实现盈亏: ${account_summary.get('total_unrealized_pnl', 0):,.2f}",
+                f"  • 资金利用率: {account_summary.get('utilization_rate', 0):.1f}%",
                 f"  • 集中度风险: {risk_assessment.get('concentration_risk', 0):.1f}%",
                 ""
-            ])
+            ]
             
             # 关键警报
             if alerts:

@@ -188,6 +188,22 @@ class Settings(BaseSettings):
         }
     }, description="策略参数配置")
     
+    # ==================== 账户配置 ====================
+    # 账户本金配置 (USDT)
+    account_initial_capital: float = Field(default=10000.0, description="账户初始本金 (USDT)")
+    
+    # 风险管理配置
+    risk_config: Dict[str, Any] = Field(default_factory=lambda: {
+        'max_risk_per_trade': 0.02,      # 单笔交易最大风险 2%
+        'max_total_risk': 0.10,          # 总体最大风险 10%
+        'risk_free_rate': 0.03,          # 无风险利率 3%
+        'volatility_lookback': 30,       # 波动率回看期 30天
+        'correlation_threshold': 0.7,     # 相关性阈值
+        'max_drawdown_threshold': 0.15,   # 最大回撤阈值 15%
+        'sharpe_ratio_threshold': 1.0,    # 夏普比率阈值
+        'var_confidence': 0.95           # VaR 置信度 95%
+    }, description="风险管理配置")
+    
     # Kronos预测模型配置 - 从环境变量读取
     @property
     def kronos_config(self) -> Dict[str, Any]:

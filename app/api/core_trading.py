@@ -147,12 +147,13 @@ class PositionAnalysisResponse(BaseModel):
     timestamp: datetime
     total_positions: int
     total_value_usdt: float
-    total_pnl_usdt: float
-    total_pnl_percent: float
+    total_pnl_percent: float = Field(..., description="总盈亏比例 (%)")
+    overall_pnl_percent: float = Field(..., description="整体盈亏比例 (基于本金) (%)")
     risk_level: str
+    health_score: int = Field(..., description="健康评分 (0-100)")
     positions: List[Dict[str, Any]]
     recommendations: List[str]
-    urgent_actions: List[str]
+    urgent_actions: List[str] = Field(default_factory=list, description="紧急行动")
 
 
 class BatchAnalysisResponse(BaseModel):
@@ -362,9 +363,10 @@ async def get_position_analysis(
             timestamp=result.timestamp,
             total_positions=result.total_positions,
             total_value_usdt=result.total_value_usdt,
-            total_pnl_usdt=result.total_pnl_usdt,
             total_pnl_percent=result.total_pnl_percent,
+            overall_pnl_percent=result.overall_pnl_percent,
             risk_level=result.risk_level,
+            health_score=result.health_score,
             positions=result.positions,
             recommendations=result.recommendations,
             urgent_actions=result.urgent_actions
@@ -372,7 +374,7 @@ async def get_position_analysis(
         
         trading_logger.info(
             f"✅ 持仓分析完成: {result.total_positions} 个持仓, "
-            f"总盈亏 {result.total_pnl_percent:.1f}%"
+            f"整体盈亏 {result.overall_pnl_percent:.1f}%, 健康评分 {result.health_score}/100"
         )
         
         return response
