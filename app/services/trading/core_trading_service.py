@@ -26,7 +26,8 @@ from app.services.analysis.position_analysis_service import (
     get_position_analysis_service,
     PositionAnalysisService
 )
-from app.utils.core_symbols_card_builder import CoreSymbolsCardBuilder
+from app.utils.enhanced_core_symbols_card_builder import EnhancedCoreSymbolsCardBuilder
+from app.services.ml.enhanced_kronos_service import get_enhanced_kronos_service, EnhancedKronosService
 from app.services.exchanges.service_manager import (
     get_exchange_service
 )
@@ -47,6 +48,15 @@ from app.services.volume_anomaly_service import (
 )
 from app.services.analysis.open_interest_analysis_service import (
     get_oi_analysis_service as get_open_interest_analysis_service
+)
+# 增强版分析服务导入
+from app.services.analysis.enhanced_technical_analysis_service import (
+    get_enhanced_technical_analysis_service,
+    EnhancedTechnicalAnalysisService
+)
+from app.services.analysis.enhanced_volume_price_analysis_service import (
+    get_enhanced_volume_price_analysis_service,
+    EnhancedVolumePriceAnalysisService
 )
 from app.services.core.dynamic_weight_service import (
     get_dynamic_weight_service
@@ -80,6 +90,7 @@ class CoreTradingService:
         
         # 依赖服务 - 延迟初始化
         self.kronos_service: Optional[KronosIntegratedDecisionService] = None
+        self.enhanced_kronos_service = None  # 增强版Kronos服务
         self.position_service: Optional[PositionAnalysisService] = None
         self.exchange_service = None
         self.trading_decision_service: Optional[TradingDecisionService] = None
@@ -89,6 +100,11 @@ class CoreTradingService:
         self.open_interest_service = None
         self.dynamic_weight_service = None
         self.notification_service = None
+        
+        # 新增增强版分析服务
+        self.enhanced_technical_service: Optional[EnhancedTechnicalAnalysisService] = None
+        self.enhanced_volume_price_service: Optional[EnhancedVolumePriceAnalysisService] = None
+        self.volume_price_service: Optional[EnhancedVolumePriceAnalysisService] = None  # 兼容性别名
         
         # 缓存
         self.analysis_cache: Dict[str, Any] = {}
@@ -140,6 +156,12 @@ class CoreTradingService:
                 self._init_dynamic_weight_service()
             ])
             
+            # 增强版分析服务
+            initialization_tasks.extend([
+                self._init_enhanced_technical_service(),
+                self._init_enhanced_volume_price_service()
+            ])
+            
             # 并行初始化所有服务
             await asyncio.gather(*initialization_tasks, return_exceptions=True)
             
@@ -154,6 +176,8 @@ class CoreTradingService:
         """初始化 Kronos 服务"""
         try:
             self.kronos_service = await get_kronos_integrated_service()
+            # 同时初始化增强版 Kronos 服务
+            self.enhanced_kronos_service = await get_enhanced_kronos_service()
             self.logger.info("✅ Kronos AI 服务已启用")
         except Exception as e:
             self.logger.warning(f"⚠️ Kronos 服务初始化失败: {e}")
@@ -221,6 +245,23 @@ class CoreTradingService:
             self.notification_service = await get_core_notification_service()
         except Exception as e:
             self.logger.warning(f"⚠️ 通知服务初始化失败: {e}")
+    
+    async def _init_enhanced_technical_service(self):
+        """初始化增强版技术分析服务"""
+        try:
+            self.enhanced_technical_service = await get_enhanced_technical_analysis_service()
+            self.logger.info("✅ 增强版技术分析服务已启用")
+        except Exception as e:
+            self.logger.warning(f"⚠️ 增强版技术分析服务初始化失败: {e}")
+    
+    async def _init_enhanced_volume_price_service(self):
+        """初始化增强版量价分析服务"""
+        try:
+            self.enhanced_volume_price_service = await get_enhanced_volume_price_analysis_service()
+            self.volume_price_service = self.enhanced_volume_price_service  # 设置别名
+            self.logger.info("✅ 增强版量价分析服务已启用")
+        except Exception as e:
+            self.logger.warning(f"⚠️ 增强版量价分析服务初始化失败: {e}")
 
     async def get_core_symbols_analysis(self) -> List[TradingSignal]:
         """获取核心币种分析结果"""
@@ -358,8 +399,8 @@ class CoreTradingService:
                     })()
                     signals.append(signal)
             
-            # 使用专用卡片构建器
-            card_data = CoreSymbolsCardBuilder.build_core_symbols_card(
+            # 使用增强版专用卡片构建器
+            card_data = EnhancedCoreSymbolsCardBuilder.build_enhanced_core_symbols_card(
                 signals=signals,
                 notification_type=notification_type
             )
@@ -383,18 +424,6 @@ class CoreTradingService:
                     }
                 ]
             }
-
-    def _get_action_emoji(self, action: str) -> str:
-        """获取操作对应的表情符号"""
-        emoji_map = {
-            "强烈买入": "🚀",
-            "买入": "📈", 
-            "持有": "🔒",
-            "卖出": "📉",
-            "强烈卖出": "🔻",
-            "观望": "⏸️"
-        }
-        return emoji_map.get(action, "❓")
 
     async def _old_build_card_notification_backup(self, report, notification_type: str = "核心币种分析") -> str:
         """旧版卡片构建方法 - 备份"""
@@ -830,43 +859,95 @@ class CoreTradingService:
             return None
 
     async def _analyze_integrated(self, symbol: str) -> Optional[TradingSignal]:
-        """综合分析 - 融合多种分析方法"""
+        """增强版综合分析 - 融合多种分析方法和详细技术指标"""
         results = {}
         confidence_scores = {}
+        detailed_analysis = {}
         
-        # 1. Kronos AI 分析
-        if self.kronos_service:
+        # 1. 增强版 Kronos AI 分析 (结合量价分析)
+        if self.enhanced_kronos_service:
+            kronos_result = await self._safe_analyze_enhanced_kronos(symbol)
+            if kronos_result:
+                results['kronos'] = kronos_result
+                confidence_scores['kronos'] = kronos_result.get('confidence', 0.5)
+                detailed_analysis['kronos'] = kronos_result
+        elif self.kronos_service:
+            # 回退到原始 Kronos 服务
             kronos_result = await self._safe_analyze_kronos(symbol)
             if kronos_result:
                 results['kronos'] = kronos_result
                 confidence_scores['kronos'] = kronos_result.kronos_confidence
+                detailed_analysis['kronos'] = kronos_result
         
-        # 2. 技术分析
-        if self.trend_service:
+        # 2. 增强版技术分析 (包含更多指标)
+        if self.enhanced_technical_service:
+            enhanced_tech_result = await self._safe_analyze_enhanced_technical(symbol)
+            if enhanced_tech_result:
+                results['technical'] = enhanced_tech_result
+                confidence_scores['technical'] = enhanced_tech_result.confidence
+                detailed_analysis['technical'] = enhanced_tech_result
+        elif self.trend_service:
+            # 回退到原始技术分析服务
             tech_result = await self._safe_analyze_technical(symbol)
             if tech_result:
                 results['technical'] = tech_result
-                # 处理技术分析结果的置信度
                 if hasattr(tech_result, 'final_confidence'):
                     confidence_scores['technical'] = tech_result.final_confidence
                 elif isinstance(tech_result, dict):
                     confidence_scores['technical'] = tech_result.get('confidence', 0.5)
                 else:
                     confidence_scores['technical'] = 0.5
+                detailed_analysis['technical'] = tech_result
         
-        # 3. ML 分析
+        # 3. 量价关系分析
+        if hasattr(self, 'enhanced_volume_price_service') and self.enhanced_volume_price_service:
+            volume_result = await self._safe_analyze_volume_price(symbol)
+            if volume_result:
+                results['volume_price'] = volume_result
+                confidence_scores['volume_price'] = getattr(volume_result, 'confidence', 0.5)
+                detailed_analysis['volume_price'] = volume_result
+        
+        # 4. ML 分析
         if self.ml_service:
             ml_result = await self._safe_analyze_ml(symbol)
             if ml_result:
                 results['ml'] = ml_result
                 confidence_scores['ml'] = getattr(ml_result, 'confidence', 0.5)
+                detailed_analysis['ml'] = ml_result
         
-        # 4. 决策融合
+        # 5. 决策融合 (增强版)
         if not results:
             self.logger.warning(f"⚠️ {symbol} 没有可用的分析结果")
             return None
         
-        return await self._fuse_decisions(symbol, results, confidence_scores)
+        return await self._fuse_enhanced_decisions(symbol, results, confidence_scores, detailed_analysis)
+
+    async def _safe_analyze_enhanced_kronos(self, symbol: str):
+        """安全的增强版 Kronos 分析"""
+        try:
+            if self.enhanced_kronos_service:
+                return await self.enhanced_kronos_service.analyze_with_volume_confirmation(symbol)
+        except Exception as e:
+            self.logger.warning(f"⚠️ 增强版 Kronos 分析 {symbol} 失败: {e}")
+        return None
+
+    async def _safe_analyze_enhanced_technical(self, symbol: str):
+        """安全的增强版技术分析"""
+        try:
+            if self.enhanced_technical_service:
+                return await self.enhanced_technical_service.analyze_symbol(symbol)
+        except Exception as e:
+            self.logger.warning(f"⚠️ 增强版技术分析 {symbol} 失败: {e}")
+        return None
+
+    async def _safe_analyze_volume_price(self, symbol: str):
+        """安全的量价关系分析"""
+        try:
+            if self.volume_price_service:
+                return await self.volume_price_service.analyze_volume_price_relationship(symbol)
+        except Exception as e:
+            self.logger.warning(f"⚠️ 量价关系分析 {symbol} 失败: {e}")
+        return None
 
     async def _safe_analyze_kronos(self, symbol: str):
         """安全的 Kronos 分析"""
@@ -895,6 +976,356 @@ class CoreTradingService:
             self.logger.warning(f"⚠️ ML 分析 {symbol} 失败: {e}")
         return None
 
+    async def _fuse_enhanced_decisions(self, symbol: str, results: Dict[str, Any], confidence_scores: Dict[str, float], detailed_analysis: Dict[str, Any]) -> TradingSignal:
+        """增强版决策融合 - 生成详细的技术分析和操作建议"""
+        try:
+            # 获取当前价格
+            current_price = await self._get_current_price(symbol)
+            
+            # 获取动态权重 (增强版权重包含量价分析)
+            if self.dynamic_weight_service:
+                weights_obj = await self.dynamic_weight_service.get_dynamic_weights(symbol)
+                if hasattr(weights_obj, '__dict__'):
+                    weights = {
+                        'kronos': getattr(weights_obj, 'kronos_weight', 0.4),
+                        'technical': getattr(weights_obj, 'technical_weight', 0.3), 
+                        'volume_price': getattr(weights_obj, 'volume_price_weight', 0.2),
+                        'ml': getattr(weights_obj, 'ml_weight', 0.1)
+                    }
+                else:
+                    weights = weights_obj if isinstance(weights_obj, dict) else {
+                        'kronos': 0.4, 'technical': 0.3, 'volume_price': 0.2, 'ml': 0.1
+                    }
+            else:
+                # 增强版默认权重 - 降低Kronos权重，提高技术分析权重
+                weights = {'kronos': 0.25, 'technical': 0.45, 'volume_price': 0.20, 'ml': 0.10}
+            
+            # 计算加权置信度和动作
+            weighted_actions = {}
+            weighted_confidences = {}
+            total_weight = 0
+            
+            # 收集各模块的分析结果
+            analysis_summary = {}
+            
+            for method, result in results.items():
+                if method in weights and method in confidence_scores:
+                    weight = weights[method]
+                    confidence = confidence_scores[method]
+                    
+                    # 提取动作建议
+                    if method == 'kronos':
+                        action = result.get('final_action', '持有') if isinstance(result, dict) else getattr(result, 'final_action', '持有')
+                        analysis_summary['kronos'] = {
+                            'action': action,
+                            'confidence': confidence,
+                            'reasoning': result.get('reasoning', '') if isinstance(result, dict) else getattr(result, 'reasoning', '')
+                        }
+                    elif method == 'technical':
+                        action = result.get('recommendation', {}).get('action', '持有') if isinstance(result, dict) else '持有'
+                        analysis_summary['technical'] = {
+                            'action': action,
+                            'confidence': confidence,
+                            'trend': result.get('trend_analysis', {}).get('overall_trend', '中性') if isinstance(result, dict) else '中性',
+                            'momentum': result.get('momentum_analysis', {}).get('rsi_signal', '中性') if isinstance(result, dict) else '中性',
+                            'volume': result.get('volume_analysis', {}).get('volume_trend', '正常') if isinstance(result, dict) else '正常'
+                        }
+                    elif method == 'volume_price':
+                        action = result.get('recommendation', {}).get('action', '持有') if isinstance(result, dict) else '持有'
+                        analysis_summary['volume_price'] = {
+                            'action': action,
+                            'confidence': confidence,
+                            'divergence': result.get('divergence_analysis', {}).get('price_volume_divergence', '无') if isinstance(result, dict) else '无',
+                            'volume_confirmation': result.get('volume_confirmation', {}).get('trend_confirmed', False) if isinstance(result, dict) else False
+                        }
+                    elif method == 'ml':
+                        action = str(getattr(result, 'signal', '持有')).replace('PredictionSignal.', '')
+                        analysis_summary['ml'] = {
+                            'action': action,
+                            'confidence': confidence
+                        }
+                    
+                    # 累计动作权重
+                    if action not in weighted_actions:
+                        weighted_actions[action] = 0
+                        weighted_confidences[action] = 0
+                    
+                    weighted_actions[action] += weight
+                    weighted_confidences[action] += weight * confidence
+                    total_weight += weight
+            
+            # 确定最终动作和置信度
+            if not weighted_actions:
+                final_action = "持有"
+                final_confidence = 0.5
+                # 为空情况创建默认结构
+                final_weighted_actions = {}
+                final_weighted_confidences = {}
+            else:
+                final_action = max(weighted_actions.items(), key=lambda x: x[1])[0]
+                action_weight = weighted_actions[final_action]
+                final_confidence = weighted_confidences[final_action] / action_weight if action_weight > 0 else 0.5
+                final_confidence = max(0.1, min(0.95, final_confidence))
+                # 保存最终权重结果
+                final_weighted_actions = dict(weighted_actions)
+                final_weighted_confidences = dict(weighted_confidences)
+            
+            # 生成详细的技术分析推理
+            detailed_reasoning = self._generate_detailed_reasoning(analysis_summary, detailed_analysis)
+            
+            # 生成全面的分析详情
+            comprehensive_details = self._generate_comprehensive_analysis_details(analysis_summary, detailed_analysis)
+            
+            # 计算具体的操作建议 (买入价格、止盈止损)
+            trading_levels = await self._calculate_trading_levels(symbol, current_price, detailed_analysis, final_action)
+            
+            # 生成完整的操作建议文本
+            operation_advice = self._generate_operation_advice(final_action, trading_levels, detailed_reasoning)
+            
+            return TradingSignal(
+                symbol=symbol,
+                final_action=final_action,
+                final_confidence=final_confidence,
+                signal_strength=SignalStrength.from_confidence(final_confidence),
+                reasoning=detailed_reasoning,
+                operation_advice=operation_advice,  # 新增详细操作建议
+                timestamp=datetime.now(),
+                current_price=current_price,
+                entry_price=trading_levels.get('entry_price', current_price),
+                stop_loss=trading_levels.get('stop_loss'),
+                take_profit=trading_levels.get('take_profit'),
+                confidence_breakdown={
+                    'original_scores': confidence_scores,
+                    'applied_weights': weights,
+                    'weighted_confidence': final_confidence,
+                    'analysis_methods_used': list(results.keys()),
+                    'decision_matrix': {
+                        method: {
+                            'action': analysis_summary.get(method, {}).get('action', '未知'),
+                            'confidence': confidence_scores.get(method, 0.0),
+                            'weight': weights.get(method, 0.0),
+                            'weighted_score': weights.get(method, 0.0) * confidence_scores.get(method, 0.0)
+                        } for method in results.keys()
+                    },
+                    'final_decision_process': {
+                        'total_weight': sum(weights.get(m, 0) for m in results.keys()),
+                        'winning_action': final_action,
+                        'action_weights': final_weighted_actions,
+                        'action_confidences': final_weighted_confidences
+                    },
+                    'comprehensive_analysis': comprehensive_details
+                },
+                technical_details=self._convert_analysis_to_dict(detailed_analysis.get('technical')),
+                volume_analysis=self._convert_analysis_to_dict(detailed_analysis.get('volume_price')),
+                kronos_result=detailed_analysis.get('kronos'),
+                technical_result=detailed_analysis.get('technical'),
+                ml_result=detailed_analysis.get('ml')
+            )
+            
+        except Exception as e:
+            self.logger.error(f"❌ 增强版决策融合失败: {e}")
+            current_price = await self._get_current_price(symbol)
+            
+            return TradingSignal(
+                symbol=symbol,
+                final_action="持有",
+                final_confidence=0.5,
+                signal_strength=SignalStrength.WEAK,
+                reasoning=f"增强版分析失败，使用默认建议: {str(e)}",
+                operation_advice="由于分析失败，建议暂时观望，等待系统恢复后再做决策。",
+                timestamp=datetime.now(),
+                current_price=current_price,
+                entry_price=current_price
+            )
+
+    def _generate_comprehensive_analysis_details(self, analysis_summary: Dict[str, Any], detailed_analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """生成全面的分析详情 - 包含各模块的完整数据"""
+        comprehensive_details = {
+            'analysis_timestamp': datetime.now().isoformat(),
+            'modules_analyzed': list(analysis_summary.keys()),
+            'detailed_results': {}
+        }
+        
+        # Kronos AI 详细信息
+        if 'kronos' in analysis_summary:
+            kronos_data = detailed_analysis.get('kronos')
+            comprehensive_details['detailed_results']['kronos'] = {
+                'action': analysis_summary['kronos']['action'],
+                'confidence': analysis_summary['kronos']['confidence'],
+                'reasoning': analysis_summary['kronos'].get('reasoning', ''),
+                'raw_data': self._convert_analysis_to_dict(kronos_data) if kronos_data else {}
+            }
+        
+        # 技术分析详细信息
+        if 'technical' in analysis_summary:
+            tech_data = detailed_analysis.get('technical')
+            comprehensive_details['detailed_results']['technical'] = {
+                'action': analysis_summary['technical']['action'],
+                'confidence': analysis_summary['technical']['confidence'],
+                'trend': analysis_summary['technical'].get('trend', '未知'),
+                'momentum': analysis_summary['technical'].get('momentum', '未知'),
+                'volume': analysis_summary['technical'].get('volume', '未知'),
+                'raw_data': self._convert_analysis_to_dict(tech_data) if tech_data else {}
+            }
+        
+        # 量价分析详细信息
+        if 'volume_price' in analysis_summary:
+            vol_data = detailed_analysis.get('volume_price')
+            comprehensive_details['detailed_results']['volume_price'] = {
+                'action': analysis_summary['volume_price']['action'],
+                'confidence': analysis_summary['volume_price']['confidence'],
+                'divergence': analysis_summary['volume_price'].get('divergence', '无'),
+                'volume_confirmation': analysis_summary['volume_price'].get('volume_confirmation', False),
+                'raw_data': self._convert_analysis_to_dict(vol_data) if vol_data else {}
+            }
+        
+        # ML 分析详细信息
+        if 'ml' in analysis_summary:
+            ml_data = detailed_analysis.get('ml')
+            comprehensive_details['detailed_results']['ml'] = {
+                'action': analysis_summary['ml']['action'],
+                'confidence': analysis_summary['ml']['confidence'],
+                'raw_data': self._convert_analysis_to_dict(ml_data) if ml_data else {}
+            }
+        
+        return comprehensive_details
+
+    def _generate_detailed_reasoning(self, analysis_summary: Dict[str, Any], detailed_analysis: Dict[str, Any]) -> str:
+        """生成详细的技术分析推理"""
+        reasoning_parts = []
+        
+        # Kronos AI 分析
+        if 'kronos' in analysis_summary:
+            kronos = analysis_summary['kronos']
+            reasoning_parts.append(f"🤖 Kronos AI: {kronos['action']} (置信度: {kronos['confidence']:.2f})")
+            if kronos.get('reasoning'):
+                reasoning_parts.append(f"   └─ {kronos['reasoning']}")
+        
+        # 技术分析
+        if 'technical' in analysis_summary:
+            tech = analysis_summary['technical']
+            reasoning_parts.append(f"📊 技术分析: {tech['action']} (置信度: {tech['confidence']:.2f})")
+            reasoning_parts.append(f"   ├─ 趋势: {tech['trend']}")
+            reasoning_parts.append(f"   ├─ 动量: {tech['momentum']}")
+            reasoning_parts.append(f"   └─ 成交量: {tech['volume']}")
+        
+        # 量价分析
+        if 'volume_price' in analysis_summary:
+            vol = analysis_summary['volume_price']
+            reasoning_parts.append(f"📈 量价分析: {vol['action']} (置信度: {vol['confidence']:.2f})")
+            reasoning_parts.append(f"   ├─ 背离情况: {vol['divergence']}")
+            reasoning_parts.append(f"   └─ 趋势确认: {'是' if vol['volume_confirmation'] else '否'}")
+        
+        # ML 分析
+        if 'ml' in analysis_summary:
+            ml = analysis_summary['ml']
+            reasoning_parts.append(f"🧠 机器学习: {ml['action']} (置信度: {ml['confidence']:.2f})")
+        
+        return "\n".join(reasoning_parts)
+
+    def _generate_operation_advice(self, final_action: str, trading_levels: Dict[str, float], reasoning: str) -> str:
+        """生成具体的操作建议"""
+        advice_parts = []
+        
+        if final_action in ["买入", "强烈买入"]:
+            advice_parts.append(f"💡 操作建议: {final_action}")
+            if trading_levels.get('entry_price'):
+                advice_parts.append(f"📍 建议买入价格: ${trading_levels['entry_price']:.4f}")
+            if trading_levels.get('stop_loss'):
+                advice_parts.append(f"🛡️ 止损价格: ${trading_levels['stop_loss']:.4f}")
+            if trading_levels.get('take_profit'):
+                advice_parts.append(f"🎯 止盈价格: ${trading_levels['take_profit']:.4f}")
+            
+        elif final_action in ["卖出", "强烈卖出"]:
+            advice_parts.append(f"💡 操作建议: {final_action}")
+            if trading_levels.get('entry_price'):
+                advice_parts.append(f"📍 建议卖出价格: ${trading_levels['entry_price']:.4f}")
+            if trading_levels.get('stop_loss'):
+                advice_parts.append(f"🛡️ 止损价格: ${trading_levels['stop_loss']:.4f}")
+            if trading_levels.get('take_profit'):
+                advice_parts.append(f"🎯 止盈价格: ${trading_levels['take_profit']:.4f}")
+            
+        else:  # 持有
+            advice_parts.append(f"💡 操作建议: 持有观望")
+            advice_parts.append("📍 建议等待更明确的信号后再做决策")
+        
+        return "\n".join(advice_parts)
+
+    async def _calculate_trading_levels(self, symbol: str, current_price: float, detailed_analysis: Dict[str, Any], action: str) -> Dict[str, float]:
+        """计算具体的交易价位 (买入价、止盈止损)"""
+        try:
+            levels = {'entry_price': current_price}
+            
+            # 从技术分析中获取支撑阻力位
+            tech_analysis = detailed_analysis.get('technical')
+            
+            if tech_analysis and hasattr(tech_analysis, 'support_levels') and hasattr(tech_analysis, 'resistance_levels'):
+                # 从增强技术分析对象中获取数据
+                support_levels = tech_analysis.support_levels
+                resistance_levels = tech_analysis.resistance_levels
+                
+                support_level = support_levels[0].price if support_levels else current_price * 0.95
+                resistance_level = resistance_levels[0].price if resistance_levels else current_price * 1.05
+                
+                # 从指标中获取 ATR
+                indicators = getattr(tech_analysis, 'indicators', {})
+                atr = indicators.get('atr', current_price * 0.02)
+            else:
+                # 回退到默认值
+                support_level = current_price * 0.95
+                resistance_level = current_price * 1.05
+                atr = current_price * 0.02
+            
+            if action in ["买入", "强烈买入"]:
+                # 买入策略
+                levels['entry_price'] = current_price
+                levels['stop_loss'] = max(support_level, current_price - 2 * atr)  # 支撑位或 2ATR
+                levels['take_profit'] = min(resistance_level, current_price + 3 * atr)  # 阻力位或 3ATR
+                
+            elif action in ["卖出", "强烈卖出"]:
+                # 卖出策略
+                levels['entry_price'] = current_price
+                levels['stop_loss'] = min(resistance_level, current_price + 2 * atr)  # 阻力位或 2ATR
+                levels['take_profit'] = max(support_level, current_price - 3 * atr)  # 支撑位或 3ATR
+            
+            return levels
+            
+        except Exception as e:
+            self.logger.warning(f"计算交易价位失败: {e}")
+            return {'entry_price': current_price}
+
+    def _convert_analysis_to_dict(self, analysis_obj) -> Dict[str, Any]:
+        """将分析对象转换为字典格式"""
+        if analysis_obj is None:
+            return {}
+        
+        if isinstance(analysis_obj, dict):
+            return analysis_obj
+        
+        # 如果是对象，尝试转换为字典
+        try:
+            if hasattr(analysis_obj, '__dict__'):
+                result = {}
+                for key, value in analysis_obj.__dict__.items():
+                    if not key.startswith('_'):  # 跳过私有属性
+                        if hasattr(value, '__dict__'):
+                            # 递归转换嵌套对象
+                            result[key] = self._convert_analysis_to_dict(value)
+                        elif isinstance(value, (list, tuple)):
+                            # 处理列表/元组
+                            result[key] = [
+                                self._convert_analysis_to_dict(item) if hasattr(item, '__dict__') else item
+                                for item in value
+                            ]
+                        else:
+                            result[key] = value
+                return result
+            else:
+                return str(analysis_obj)
+        except Exception as e:
+            self.logger.warning(f"转换分析对象为字典失败: {e}")
+            return {}
+
     async def _fuse_decisions(self, symbol: str, results: Dict[str, Any], confidence_scores: Dict[str, float]) -> TradingSignal:
         """融合多个分析结果"""
         try:
@@ -915,8 +1346,8 @@ class CoreTradingService:
                         'kronos': 0.5, 'technical': 0.3, 'ml': 0.2
                     }
             else:
-                # 默认权重
-                weights = {'kronos': 0.5, 'technical': 0.3, 'ml': 0.2}
+                # 默认权重 - 降低Kronos权重，提高技术分析权重
+                weights = {'kronos': 0.30, 'technical': 0.50, 'ml': 0.20}
             
             # 计算加权置信度和动作
             weighted_actions = {}
@@ -971,22 +1402,64 @@ class CoreTradingService:
                 # 确保置信度在合理范围内
                 final_confidence = max(0.1, min(0.95, final_confidence))
             
-            # 生成推理说明
+            # 生成详细推理说明 - 包含权重信息和完整分析
             reasoning_parts = []
+            
+            # 添加权重信息
+            weight_info = f"动态权重: Kronos={weights.get('kronos', 0):.0%} 技术={weights.get('technical', 0):.0%} ML={weights.get('ml', 0):.0%}"
+            reasoning_parts.append(f"⚖️ {weight_info}")
+            
+            # 详细分析结果
             for method, result in results.items():
                 if method == 'kronos':
-                    reasoning_parts.append(f"Kronos: {getattr(result, 'final_action', '持有')}")
+                    action = getattr(result, 'final_action', '持有')
+                    confidence = confidence_scores.get('kronos', 0)
+                    weight = weights.get('kronos', 0)
+                    reasoning_parts.append(f"🤖 Kronos AI: {action} (置信度: {confidence:.2f}, 权重: {weight:.0%})")
+                    
+                    # 添加 Kronos 详细信息
+                    if hasattr(result, 'reasoning'):
+                        reasoning_parts.append(f"   └─ {result.reasoning}")
+                    
                 elif method == 'technical':
                     if hasattr(result, 'final_action'):
-                        reasoning_parts.append(f"技术: {result.final_action}")
+                        action = result.final_action
+                        confidence = confidence_scores.get('technical', 0)
                     elif isinstance(result, dict):
-                        reasoning_parts.append(f"技术: {result.get('action', '持有')}")
+                        action = result.get('action', '持有')
+                        confidence = result.get('confidence', 0)
                     else:
-                        reasoning_parts.append(f"技术: 持有")
+                        action = '持有'
+                        confidence = 0
+                    
+                    weight = weights.get('technical', 0)
+                    reasoning_parts.append(f"📊 技术分析: {action} (置信度: {confidence:.2f}, 权重: {weight:.0%})")
+                    
+                    # 添加技术分析详细信息
+                    if isinstance(result, dict):
+                        if result.get('trend'):
+                            reasoning_parts.append(f"   ├─ 趋势: {result['trend']}")
+                        if result.get('momentum'):
+                            reasoning_parts.append(f"   ├─ 动量: {result['momentum']}")
+                        if result.get('volume'):
+                            reasoning_parts.append(f"   └─ 成交量: {result['volume']}")
+                    elif hasattr(result, 'reasoning'):
+                        reasoning_parts.append(f"   └─ {result.reasoning}")
+                        
                 elif method == 'ml':
-                    reasoning_parts.append(f"ML: {getattr(result, 'signal', '持有')}")
+                    action = getattr(result, 'signal', '持有')
+                    confidence = confidence_scores.get('ml', 0)
+                    weight = weights.get('ml', 0)
+                    reasoning_parts.append(f"🧠 机器学习: {action} (置信度: {confidence:.2f}, 权重: {weight:.0%})")
+                    
+                    # 添加 ML 详细信息
+                    if hasattr(result, 'reasoning'):
+                        reasoning_parts.append(f"   └─ {result.reasoning}")
             
-            reasoning = f"综合分析 ({', '.join(reasoning_parts)})"
+            # 添加最终决策说明
+            reasoning_parts.append(f"🎯 最终决策: {final_action} (综合置信度: {final_confidence:.2f})")
+            
+            reasoning = "\n".join(reasoning_parts)
             
             # 转换对象为字典以符合 Pydantic 模型要求
             kronos_dict = None
@@ -1020,7 +1493,24 @@ class CoreTradingService:
                 technical_result=results.get('technical'),
                 ml_result=ml_dict,
                 entry_price=current_price,
-                confidence_breakdown=confidence_scores
+                confidence_breakdown={
+                    'original_scores': confidence_scores,
+                    'applied_weights': weights,
+                    'weighted_confidence': final_confidence,
+                    'analysis_methods_used': list(results.keys()),
+                    'decision_matrix': {
+                        method: {
+                            'weight': weights.get(method, 0.0),
+                            'confidence': confidence_scores.get(method, 0.0),
+                            'weighted_score': weights.get(method, 0.0) * confidence_scores.get(method, 0.0)
+                        } for method in results.keys()
+                    },
+                    'final_decision_process': {
+                        'total_weight': total_weight,
+                        'winning_action': final_action,
+                        'final_confidence': final_confidence
+                    }
+                }
             )
             
         except Exception as e:

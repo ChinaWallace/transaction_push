@@ -296,3 +296,99 @@ class CoreSymbolsCardBuilder:
                 }
             ]
         }
+    
+    @staticmethod
+    def _build_price_recommendations(action: str, current_price: float, entry_price: float, 
+                                   stop_loss_price: float, take_profit_price: float) -> str:
+        """构建价格操作建议"""
+        if not current_price:
+            return "⏳ 价格数据获取中..."
+        
+        recommendations = []
+        
+        # 根据操作类型给出具体建议
+        if "买入" in action:
+            if entry_price and entry_price != current_price:
+                recommendations.append(f"💡 **建议买入价**: ${entry_price:,.2f}")
+            else:
+                recommendations.append(f"💡 **建议买入价**: ${current_price:,.2f} (当前价)")
+            
+            if stop_loss_price:
+                loss_pct = abs(current_price - stop_loss_price) / current_price * 100
+                recommendations.append(f"🛡️ **止损价**: ${stop_loss_price:,.2f} (-{loss_pct:.1f}%)")
+            
+            if take_profit_price:
+                profit_pct = abs(take_profit_price - current_price) / current_price * 100
+                recommendations.append(f"🎯 **止盈价**: ${take_profit_price:,.2f} (+{profit_pct:.1f}%)")
+                
+        elif "卖出" in action:
+            if entry_price and entry_price != current_price:
+                recommendations.append(f"💡 **建议卖出价**: ${entry_price:,.2f}")
+            else:
+                recommendations.append(f"💡 **建议卖出价**: ${current_price:,.2f} (当前价)")
+            
+            if stop_loss_price:
+                loss_pct = abs(stop_loss_price - current_price) / current_price * 100
+                recommendations.append(f"🛡️ **止损价**: ${stop_loss_price:,.2f} (+{loss_pct:.1f}%)")
+            
+            if take_profit_price:
+                profit_pct = abs(current_price - take_profit_price) / current_price * 100
+                recommendations.append(f"🎯 **止盈价**: ${take_profit_price:,.2f} (-{profit_pct:.1f}%)")
+        else:
+            recommendations.append(f"⏸️ **当前价格**: ${current_price:,.2f} (持有观望)")
+        
+        return " | ".join(recommendations) if recommendations else ""
+    
+    @staticmethod
+    def _extract_technical_details(signal) -> str:
+        """提取技术分析详情"""
+        details = []
+        
+        # 提取各种技术指标信息
+        try:
+            # Kronos AI 结果
+            kronos_result = getattr(signal, 'kronos_result', None)
+            if kronos_result:
+                kronos_confidence = getattr(kronos_result, 'kronos_confidence', 0)
+                if kronos_confidence > 0:
+                    details.append(f"🤖 Kronos AI: {kronos_confidence:.1%}置信度")
+            
+            # 技术分析结果
+            technical_result = getattr(signal, 'technical_result', None)
+            if technical_result and isinstance(technical_result, dict):
+                # 趋势信息
+                trend_signal = technical_result.get('trend_signal', '')
+                if trend_signal:
+                    details.append(f"📈 趋势: {trend_signal}")
+                
+                # 动量信息
+                momentum_signal = technical_result.get('momentum_signal', '')
+                if momentum_signal:
+                    details.append(f"⚡ 动量: {momentum_signal}")
+                
+                # 成交量信息
+                volume_signal = technical_result.get('volume_signal', '')
+                if volume_signal:
+                    details.append(f"📊 成交量: {volume_signal}")
+            
+            # ML 结果
+            ml_result = getattr(signal, 'ml_result', None)
+            if ml_result and isinstance(ml_result, dict):
+                ml_confidence = ml_result.get('confidence', 0)
+                if ml_confidence > 0:
+                    details.append(f"🧠 ML分析: {ml_confidence:.1%}置信度")
+            
+            # 置信度分解
+            confidence_breakdown = getattr(signal, 'confidence_breakdown', None)
+            if confidence_breakdown and isinstance(confidence_breakdown, dict):
+                breakdown_parts = []
+                for source, conf in confidence_breakdown.items():
+                    if conf > 0:
+                        breakdown_parts.append(f"{source}({conf:.1%})")
+                if breakdown_parts:
+                    details.append(f"🔍 权重: {' + '.join(breakdown_parts)}")
+            
+        except Exception as e:
+            logger.warning(f"提取技术分析详情失败: {e}")
+        
+        return " | ".join(details[:3]) if details else "📊 基础技术分析"

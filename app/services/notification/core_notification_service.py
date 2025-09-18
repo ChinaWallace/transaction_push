@@ -664,7 +664,7 @@ class CoreNotificationService:
         }
     
     async def send_core_symbols_report(self, signals: List[Any]) -> bool:
-        """发送核心币种分析报告"""
+        """发送增强版核心币种分析报告 - 包含详细技术分析和操作建议"""
         try:
             if not self.initialized:
                 await self.initialize()
@@ -673,12 +673,14 @@ class CoreNotificationService:
                 self.logger.warning("⚠️ 没有分析信号，跳过核心币种报告推送")
                 return False
             
-            # 导入卡片构建器
-            from app.utils.core_symbols_card_builder import CoreSymbolsCardBuilder
+            # 导入增强版卡片构建器
+            from app.utils.enhanced_core_symbols_card_builder import EnhancedCoreSymbolsCardBuilder
             
-            # 构建卡片
-            card_builder = CoreSymbolsCardBuilder()
-            card_content = card_builder.build_core_symbols_card(signals)
+            # 构建增强版卡片 (包含详细技术分析和操作建议)
+            card_content = EnhancedCoreSymbolsCardBuilder.build_enhanced_core_symbols_card(
+                signals=signals,
+                notification_type="核心币种增强分析"
+            )
             
             # 发送卡片通知
             result = await self.send_notification(
@@ -690,15 +692,32 @@ class CoreNotificationService:
             success = any(result.values()) if isinstance(result, dict) else bool(result)
             
             if success:
-                self.logger.info(f"✅ 核心币种报告推送成功 ({len(signals)}个币种)")
+                self.logger.info(f"✅ 增强版核心币种报告推送成功 ({len(signals)}个币种) - 包含详细操作建议")
             else:
-                self.logger.warning("❌ 核心币种报告推送失败")
+                self.logger.warning("❌ 增强版核心币种报告推送失败")
             
             return success
             
         except Exception as e:
-            self.logger.error(f"❌ 发送核心币种报告失败: {e}")
-            return False
+            self.logger.error(f"❌ 发送增强版核心币种报告失败: {e}")
+            # 回退到基础版本
+            try:
+                from app.utils.core_symbols_card_builder import CoreSymbolsCardBuilder
+                card_builder = CoreSymbolsCardBuilder()
+                card_content = card_builder.build_core_symbols_card(signals)
+                
+                result = await self.send_notification(
+                    message=card_content,
+                    priority=NotificationPriority.NORMAL
+                )
+                
+                success = any(result.values()) if isinstance(result, dict) else bool(result)
+                if success:
+                    self.logger.info(f"✅ 基础版核心币种报告推送成功 (回退模式)")
+                return success
+            except Exception as fallback_e:
+                self.logger.error(f"❌ 回退推送也失败: {fallback_e}")
+                return False
     
     def _format_message_for_card(self, message: str) -> str:
         """格式化消息内容适配卡片显示"""

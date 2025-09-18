@@ -70,8 +70,15 @@ except ImportError as e:
 # 分析服务快捷导入
 try:
     from .analysis import (
-        TrendAnalysisService
+        EnhancedTechnicalAnalysisService,
+        get_enhanced_technical_analysis_service,
+        EnhancedVolumePriceAnalysisService,
+        get_enhanced_volume_price_analysis_service
     )
+    # 为了向后兼容，创建别名
+    TrendAnalysisService = EnhancedTechnicalAnalysisService
+    get_trend_analysis_service = get_enhanced_technical_analysis_service
+    
     # 尝试导入详细技术分析服务（可能有依赖问题）
     try:
         from .analysis import DetailedTechnicalAnalysisService, get_detailed_technical_analysis_service
@@ -81,6 +88,13 @@ try:
         logger.warning("⚠️ 详细技术分析服务导入失败，可能缺少依赖")
 except ImportError as e:
     logger.warning(f"⚠️ 分析服务导入失败: {e}")
+    # 设置默认值
+    EnhancedTechnicalAnalysisService = None
+    get_enhanced_technical_analysis_service = None
+    EnhancedVolumePriceAnalysisService = None
+    get_enhanced_volume_price_analysis_service = None
+    TrendAnalysisService = None
+    get_trend_analysis_service = None
 
 # 核心服务快捷导入
 try:

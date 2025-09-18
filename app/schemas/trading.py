@@ -51,7 +51,7 @@ class TradingAction(Enum):
 
 
 class TradingSignal(BaseModel):
-    """交易信号模型"""
+    """交易信号模型 - 增强版包含详细操作建议"""
     symbol: str = Field(..., description="交易对符号")
     final_action: str = Field(..., description="最终交易建议")
     final_confidence: float = Field(..., description="综合置信度", ge=0, le=1)
@@ -59,21 +59,32 @@ class TradingSignal(BaseModel):
     reasoning: str = Field(..., description="决策推理")
     timestamp: datetime = Field(default_factory=datetime.now, description="信号生成时间")
     
-    # 各模块分析结果
-    kronos_result: Optional[Dict[str, Any]] = Field(None, description="Kronos分析结果")
-    technical_result: Optional[Dict[str, Any]] = Field(None, description="技术分析结果")
-    ml_result: Optional[Dict[str, Any]] = Field(None, description="ML分析结果")
+    # 详细操作建议 (新增)
+    operation_advice: Optional[str] = Field(None, description="详细操作建议，包含具体价位")
     
-    # 置信度分解
-    confidence_breakdown: Dict[str, float] = Field(default_factory=dict, description="置信度分解")
+    # 各模块分析结果
+    kronos_result: Optional[Union[Dict[str, Any], Any]] = Field(None, description="Kronos分析结果")
+    technical_result: Optional[Union[Dict[str, Any], Any]] = Field(None, description="技术分析结果")
+    ml_result: Optional[Union[Dict[str, Any], Any]] = Field(None, description="ML分析结果")
+    
+    # 置信度分解 - 支持复杂结构以显示完整分析详情
+    confidence_breakdown: Dict[str, Any] = Field(default_factory=dict, description="置信度分解详情，包含原始评分、应用权重、加权置信度等")
     key_factors: List[str] = Field(default_factory=list, description="关键因素")
     
-    # 技术指标
+    # 技术指标和详细分析 (新增)
     technical_indicators: Dict[str, Any] = Field(default_factory=dict, description="技术指标")
+    technical_details: Dict[str, Any] = Field(default_factory=dict, description="详细技术分析")
+    volume_analysis: Dict[str, Any] = Field(default_factory=dict, description="量价分析结果")
     
-    # 价格信息
+    # 价格信息 (扩展)
     entry_price: Optional[float] = Field(None, description="建议入场价格")
     current_price: Optional[float] = Field(None, description="当前价格")
+    stop_loss: Optional[float] = Field(None, description="止损价格")
+    take_profit: Optional[float] = Field(None, description="止盈价格")
+    
+    # 支撑阻力位 (新增)
+    support_level: Optional[float] = Field(None, description="支撑位")
+    resistance_level: Optional[float] = Field(None, description="阻力位")
     
     model_config = {"json_encoders": {datetime: lambda v: v.isoformat()}}
 

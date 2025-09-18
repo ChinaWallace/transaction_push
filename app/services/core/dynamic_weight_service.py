@@ -76,11 +76,11 @@ class DynamicWeightService:
         self.logger = get_logger(__name__)
         self.okx_service = OKXService()
         
-        # 基础权重配置
+        # 基础权重配置 - 降低Kronos权重，提高技术分析权重
         self.base_weights = {
-            'kronos': 0.50,
-            'technical': 0.35,
-            'ml': 0.10,
+            'kronos': 0.30,
+            'technical': 0.50,
+            'ml': 0.15,
             'position': 0.05
         }
         
@@ -91,39 +91,39 @@ class DynamicWeightService:
             'high_threshold': 0.10,     # 10%日波动率
         }
         
-        # 权重调整策略
+        # 权重调整策略 - 重新平衡，降低Kronos权重
         self.weight_strategies = {
             MarketRegime.LOW_VOLATILITY: {
-                'kronos': 0.60,      # 低波动期增加AI权重
-                'technical': 0.25,   # 降低技术分析权重
-                'ml': 0.10,
+                'kronos': 0.35,      # 低波动期适度增加AI权重
+                'technical': 0.45,   # 保持技术分析主导
+                'ml': 0.15,
                 'position': 0.05,
                 'confidence_multiplier': 1.1,  # 提升置信度
-                'reasoning': '低波动期：增加AI预测权重，技术指标可能滞后'
+                'reasoning': '低波动期：技术分析主导，AI预测辅助'
             },
             MarketRegime.NORMAL_VOLATILITY: {
-                'kronos': 0.50,      # 正常权重
-                'technical': 0.35,
-                'ml': 0.10,
+                'kronos': 0.30,      # 正常权重
+                'technical': 0.50,
+                'ml': 0.15,
                 'position': 0.05,
                 'confidence_multiplier': 1.0,
-                'reasoning': '正常波动期：使用标准权重配置'
+                'reasoning': '正常波动期：技术分析为主，多模型平衡'
             },
             MarketRegime.HIGH_VOLATILITY: {
-                'kronos': 0.40,      # 高波动期降低AI权重
-                'technical': 0.45,   # 增加技术分析权重
-                'ml': 0.10,
+                'kronos': 0.25,      # 高波动期降低AI权重
+                'technical': 0.55,   # 增加技术分析权重
+                'ml': 0.15,
                 'position': 0.05,
                 'confidence_multiplier': 0.9,  # 降低置信度
-                'reasoning': '高波动期：增加技术分析权重，AI预测可能不稳定'
+                'reasoning': '高波动期：技术分析更可靠，降低AI依赖'
             },
             MarketRegime.EXTREME_VOLATILITY: {
-                'kronos': 0.30,      # 极端波动期大幅降低AI权重
-                'technical': 0.55,   # 大幅增加技术分析权重
-                'ml': 0.10,
+                'kronos': 0.20,      # 极端波动期大幅降低AI权重
+                'technical': 0.60,   # 大幅增加技术分析权重
+                'ml': 0.15,
                 'position': 0.05,
                 'confidence_multiplier': 0.8,  # 显著降低置信度
-                'reasoning': '极端波动期：主要依赖技术分析，AI预测不可靠'
+                'reasoning': '极端波动期：技术分析主导，AI预测不确定性高'
             }
         }
         

@@ -878,17 +878,27 @@ async def lifespan(app: FastAPI):
             # 将服务存储到应用状态
             app.state.kronos_position_service = kronos_position_service
         
-        # 🚀 启动时并发执行所有分析任务 - 异步优化
-        logger.info("🚀 开始并发执行启动分析任务...")
+        # 🚀 启动时按优先级顺序执行分析任务 - 核心币种操作建议优先
+        logger.info("🚀 开始按优先级顺序执行启动分析任务...")
+        
+        # 第一优先级：核心币种操作建议推送 (最重要)
+        logger.info("📊 第一优先级：执行核心币种操作建议推送...")
+        core_symbols_result = await perform_startup_core_symbols_push()
+        setattr(app.state, 'startup_core_symbols_push_results', core_symbols_result)
+        
+        if core_symbols_result["status"] == "success":
+            logger.info("✅ 核心币种推送完成，继续执行其他任务")
+        else:
+            logger.warning(f"⚠️ 核心币种推送失败: {core_symbols_result.get('error', '未知错误')}")
+        
+        # 第二优先级：并发执行其他分析任务
+        logger.info("🔄 第二优先级：并发执行其他分析任务...")
         startup_tasks = []
         
-        # 1. 核心币种推送任务 (新功能)
-        startup_tasks.append(("core_symbols_push", perform_startup_core_symbols_push()))
-        
-        # 2. 兼容性交易分析任务
+        # 1. 兼容性交易分析任务
         startup_tasks.append(("trading_analysis", perform_startup_trading_analysis()))
         
-        # 2. 负费率分析任务
+        # 2. 负费率分析任务 (现在在核心币种推送之后)
         startup_tasks.append(("funding_analysis", perform_startup_funding_analysis()))
         
         # 3. 市场异常监控分析任务
@@ -905,9 +915,9 @@ async def lifespan(app: FastAPI):
         # 使用 asyncio.gather 并发执行，允许部分失败
         startup_results = await asyncio.gather(*task_coroutines, return_exceptions=True)
         
-        # 处理并发执行结果
-        successful_tasks = 0
-        failed_tasks = 0
+        # 处理并发执行结果 (不包括核心币种推送，已单独执行)
+        successful_tasks = 1 if core_symbols_result["status"] == "success" else 0  # 核心币种推送结果
+        failed_tasks = 0 if core_symbols_result["status"] == "success" else 1
         
         for i, (task_name, result) in enumerate(zip(task_names, startup_results)):
             if isinstance(result, Exception):
@@ -919,9 +929,10 @@ async def lifespan(app: FastAPI):
                 setattr(app.state, f"startup_{task_name}_results", result)
                 successful_tasks += 1
         
-        # 记录并发执行总结
-        total_tasks = len(task_coroutines)
-        logger.info(f"🎯 启动任务并发执行完成: {successful_tasks}/{total_tasks} 成功, {failed_tasks} 失败")
+        # 记录执行总结 (包括核心币种推送)
+        total_tasks = len(task_coroutines) + 1  # +1 for core_symbols_push
+        logger.info(f"🎯 启动任务执行完成: {successful_tasks}/{total_tasks} 成功, {failed_tasks} 失败")
+        logger.info(f"📊 核心币种操作建议已优先执行，负费率机会分析随后执行")
         
         # 设置默认状态 (兼容性)
         if not hasattr(app.state, 'startup_news_analysis_results'):
