@@ -495,21 +495,188 @@ class EnhancedVolumePriceAnalysisService:
                 signal_strength -= 0.10
             
             # 确定最终信号
-            confidence = min(abs(signal_strength), 1.0)
-            
             if bullish_signals > bearish_signals and signal_strength > 0.2:
                 overall_signal = 'bullish'
             elif bearish_signals > bullish_signals and signal_strength < -0.2:
                 overall_signal = 'bearish'
             else:
                 overall_signal = 'neutral'
-                confidence = max(confidence, 0.1)  # 中性信号也有一定置信度
+            
+            # 重新设计的置信度计算 - 基于分析质量
+            confidence = self._calculate_volume_analysis_confidence(
+                volume_analysis, price_volume_relation, volume_indicators,
+                bullish_signals, bearish_signals, signal_strength
+            )
             
             return overall_signal, confidence
             
         except Exception as e:
             self.logger.error(f"生成成交量信号失败: {e}")
             return 'neutral', 0.0
+    
+    def _calculate_volume_analysis_confidence(
+        self,
+        volume_analysis,
+        price_volume_relation, 
+        volume_indicators,
+        bullish_signals: int,
+        bearish_signals: int,
+        signal_strength: float
+    ) -> float:
+        """
+        重新设计的量价分析置信度计算 - 基于分析质量
+        """
+        try:
+            confidence_factors = []
+            
+            # 1. 数据质量评估 (30%权重)
+            data_quality = self._assess_volume_data_quality(volume_analysis, volume_indicators)
+            confidence_factors.append(('data_quality', data_quality, 0.30))
+            
+            # 2. 量价关系可靠性 (35%权重)
+            relationship_reliability = self._assess_price_volume_relationship(price_volume_relation)
+            confidence_factors.append(('relationship_reliability', relationship_reliability, 0.35))
+            
+            # 3. 指标一致性 (25%权重)
+            indicator_consistency = self._assess_volume_indicator_consistency(
+                bullish_signals, bearish_signals, volume_indicators
+            )
+            confidence_factors.append(('indicator_consistency', indicator_consistency, 0.25))
+            
+            # 4. 分析稳定性 (10%权重)
+            analysis_stability = self._assess_volume_analysis_stability(signal_strength)
+            confidence_factors.append(('analysis_stability', analysis_stability, 0.10))
+            
+            # 计算加权置信度
+            weighted_confidence = sum(score * weight for _, score, weight in confidence_factors)
+            
+            # 确保置信度在合理范围内 (25% - 90%)
+            final_confidence = max(0.25, min(0.90, weighted_confidence))
+            
+            # 调试日志
+            self.logger.debug(f"量价置信度计算: {dict((name, f'{score:.2f}') for name, score, _ in confidence_factors)} -> {final_confidence:.2f}")
+            
+            return final_confidence
+            
+        except Exception as e:
+            self.logger.error(f"计算量价分析置信度失败: {e}")
+            return 0.45  # 默认中等置信度
+    
+    def _assess_volume_data_quality(self, volume_analysis, volume_indicators) -> float:
+        """评估成交量数据质量"""
+        try:
+            quality_score = 0.0
+            
+            # 检查成交量数据完整性
+            if volume_analysis and hasattr(volume_analysis, 'avg_volume') and volume_analysis.avg_volume > 0:
+                quality_score += 0.3
+                
+            # 检查成交量指标完整性
+            indicators_available = 0
+            total_indicators = 5
+            
+            if hasattr(volume_indicators, 'obv_trend') and volume_indicators.obv_trend:
+                indicators_available += 1
+            if hasattr(volume_indicators, 'vwap_position') and volume_indicators.vwap_position:
+                indicators_available += 1
+            if hasattr(volume_indicators, 'volume_sma_ratio') and volume_indicators.volume_sma_ratio:
+                indicators_available += 1
+            if hasattr(volume_indicators, 'mfi') and volume_indicators.mfi is not None:
+                indicators_available += 1
+            if hasattr(volume_indicators, 'volume_oscillator') and volume_indicators.volume_oscillator is not None:
+                indicators_available += 1
+                
+            quality_score += 0.7 * (indicators_available / total_indicators)
+            
+            return min(1.0, quality_score)
+            
+        except Exception as e:
+            self.logger.error(f"评估成交量数据质量失败: {e}")
+            return 0.6
+    
+    def _assess_price_volume_relationship(self, price_volume_relation) -> float:
+        """评估量价关系可靠性"""
+        try:
+            if not price_volume_relation:
+                return 0.4
+                
+            reliability_score = 0.5  # 基础分
+            
+            # 相关性强度
+            correlation = getattr(price_volume_relation, 'correlation', 0)
+            if abs(correlation) > 0.5:
+                reliability_score += 0.25
+            elif abs(correlation) > 0.3:
+                reliability_score += 0.15
+            elif abs(correlation) > 0.1:
+                reliability_score += 0.05
+            
+            # 确认强度
+            confirmation_strength = getattr(price_volume_relation, 'confirmation_strength', 0)
+            if confirmation_strength > 0.7:
+                reliability_score += 0.25
+            elif confirmation_strength > 0.5:
+                reliability_score += 0.15
+            elif confirmation_strength > 0.3:
+                reliability_score += 0.10
+                
+            return min(1.0, reliability_score)
+            
+        except Exception as e:
+            self.logger.error(f"评估量价关系可靠性失败: {e}")
+            return 0.5
+    
+    def _assess_volume_indicator_consistency(self, bullish_signals: int, bearish_signals: int, volume_indicators) -> float:
+        """评估成交量指标一致性"""
+        try:
+            total_signals = bullish_signals + bearish_signals
+            
+            if total_signals == 0:
+                # 没有明确信号，但如果各指标都中性，一致性也很高
+                return 0.75
+            
+            # 计算信号一致性
+            if total_signals == 1:
+                return 0.6  # 只有一个信号，一致性中等
+            
+            # 主导信号比例
+            dominant_signals = max(bullish_signals, bearish_signals)
+            consistency_ratio = dominant_signals / total_signals
+            
+            # 一致性得分
+            if consistency_ratio >= 0.8:
+                return 0.9  # 高度一致
+            elif consistency_ratio >= 0.6:
+                return 0.75  # 较好一致
+            else:
+                return 0.5  # 信号分歧
+                
+        except Exception as e:
+            self.logger.error(f"评估成交量指标一致性失败: {e}")
+            return 0.6
+    
+    def _assess_volume_analysis_stability(self, signal_strength: float) -> float:
+        """评估量价分析稳定性"""
+        try:
+            # 稳定性不等于信号强度
+            # 即使信号强度低，如果稳定也有较高置信度
+            
+            if abs(signal_strength) < 0.1:
+                # 信号微弱但可能稳定
+                return 0.8
+            elif abs(signal_strength) < 0.3:
+                # 中等强度，通常较稳定
+                return 0.85
+            elif abs(signal_strength) < 0.7:
+                # 较强信号，稳定性良好
+                return 0.9
+            else:
+                # 很强信号，但可能不够稳定
+                return 0.75
+                
+        except Exception as e:
+            self.logger.error(f"评估量价分析稳定性失败: {e}")
+            return 0.8
     
     async def _generate_key_observations(
         self,

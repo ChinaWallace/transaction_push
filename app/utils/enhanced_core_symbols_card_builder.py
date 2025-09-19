@@ -193,9 +193,8 @@ class EnhancedCoreSymbolsCardBuilder:
                 risk_warning = risk_assessment["risk_message"]
                 
                 if reasoning and reasoning != '暂无分析':
-                    # 截取推理内容，避免过长
-                    short_reasoning = reasoning[:120] + '...' if len(reasoning) > 120 else reasoning
-                    logic_text = f"**💡 {clean_symbol} 核心逻辑**: {short_reasoning}"
+                    # 不再截断推理内容，完整显示所有分析详情
+                    logic_text = f"**💡 {clean_symbol} 核心逻辑**: {reasoning}"
                     if risk_warning:
                         logic_text += f"\n{risk_warning}"
                     
@@ -435,7 +434,8 @@ class EnhancedCoreSymbolsCardBuilder:
             if confidence_breakdown and isinstance(confidence_breakdown, dict):
                 weight_parts = []
                 for source, conf in confidence_breakdown.items():
-                    if conf > 0.05:  # 只显示权重大于5%的
+                    # 确保conf是数值类型，防止dict与float比较错误
+                    if isinstance(conf, (int, float)) and conf > 0.05:  # 只显示权重大于5%的
                         source_name = {
                             'kronos': 'Kronos',
                             'technical': '技术',
@@ -443,6 +443,17 @@ class EnhancedCoreSymbolsCardBuilder:
                             'volume_price': '量价'
                         }.get(source, source)
                         weight_parts.append(f"{source_name}({conf:.1%})")
+                    elif isinstance(conf, dict):
+                        # 如果conf是字典，可能包含更详细的信息
+                        weight_value = conf.get('weight', conf.get('confidence', 0))
+                        if isinstance(weight_value, (int, float)) and weight_value > 0.05:
+                            source_name = {
+                                'kronos': 'Kronos',
+                                'technical': '技术',
+                                'ml': 'ML',
+                                'volume_price': '量价'
+                            }.get(source, source)
+                            weight_parts.append(f"{source_name}({weight_value:.1%})")
                 
                 if weight_parts:
                     analysis_parts.append(f"⚖️ **权重分解**: {' + '.join(weight_parts)}")

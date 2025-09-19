@@ -135,7 +135,7 @@ class CoreSymbolsCardBuilder:
                     card["elements"].append({
                         "tag": "div",
                         "text": {
-                            "content": f"**💡 {clean_symbol} 分析要点**: {reasoning[:120]}{'...' if len(reasoning) > 120 else ''}",
+                            "content": f"**💡 {clean_symbol} 分析要点**: {reasoning}",
                             "tag": "lark_md"
                         }
                     })

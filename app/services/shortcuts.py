@@ -79,13 +79,9 @@ try:
     TrendAnalysisService = EnhancedTechnicalAnalysisService
     get_trend_analysis_service = get_enhanced_technical_analysis_service
     
-    # 尝试导入详细技术分析服务（可能有依赖问题）
-    try:
-        from .analysis import DetailedTechnicalAnalysisService, get_detailed_technical_analysis_service
-    except ImportError:
-        DetailedTechnicalAnalysisService = None
-        get_detailed_technical_analysis_service = None
-        logger.warning("⚠️ 详细技术分析服务导入失败，可能缺少依赖")
+    # 创建别名以保持向后兼容
+    DetailedTechnicalAnalysisService = EnhancedTechnicalAnalysisService
+    get_detailed_technical_analysis_service = get_enhanced_technical_analysis_service
 except ImportError as e:
     logger.warning(f"⚠️ 分析服务导入失败: {e}")
     # 设置默认值

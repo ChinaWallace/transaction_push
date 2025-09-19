@@ -762,8 +762,10 @@ class EnhancedTechnicalAnalysisService:
             volatility_score = volatility_analysis.get('score', 0.0) * 0.1
             total_score += volatility_score
             
-            # 计算置信度
-            confidence = min(abs(total_score), 1.0)
+            # 重新设计置信度计算 - 基于分析质量而非信号强度
+            confidence = self._calculate_analysis_confidence(
+                trend_analysis, momentum_analysis, volume_analysis, volatility_analysis, total_score
+            )
             
             # 确定信号
             if total_score > 0.5:
@@ -782,6 +784,184 @@ class EnhancedTechnicalAnalysisService:
         except Exception as e:
             self.logger.error(f"生成综合信号失败: {e}")
             return TechnicalSignal.NEUTRAL, 0.0
+    
+    def _calculate_analysis_confidence(
+        self,
+        trend_analysis: Dict[str, Any],
+        momentum_analysis: Dict[str, Any], 
+        volume_analysis: Dict[str, Any],
+        volatility_analysis: Dict[str, Any],
+        total_score: float
+    ) -> float:
+        """
+        重新设计的置信度计算 - 基于分析质量而非信号强度
+        置信度反映分析的可靠性，而不是信号的强弱
+        """
+        try:
+            confidence_factors = []
+            
+            # 1. 数据完整性 (25%权重)
+            data_completeness = self._assess_data_completeness(
+                trend_analysis, momentum_analysis, volume_analysis, volatility_analysis
+            )
+            confidence_factors.append(('data_completeness', data_completeness, 0.25))
+            
+            # 2. 指标一致性 (30%权重) 
+            signal_consistency = self._calculate_signal_consistency_v2(
+                trend_analysis, momentum_analysis, volume_analysis, volatility_analysis
+            )
+            confidence_factors.append(('signal_consistency', signal_consistency, 0.30))
+            
+            # 3. 分析稳定性 (25%权重)
+            analysis_stability = self._assess_analysis_stability(
+                trend_analysis, momentum_analysis, volume_analysis, volatility_analysis
+            )
+            confidence_factors.append(('analysis_stability', analysis_stability, 0.25))
+            
+            # 4. 市场状态清晰度 (20%权重)
+            market_clarity = self._assess_market_clarity(total_score)
+            confidence_factors.append(('market_clarity', market_clarity, 0.20))
+            
+            # 计算加权置信度
+            weighted_confidence = sum(score * weight for _, score, weight in confidence_factors)
+            
+            # 确保置信度在合理范围内 (30% - 95%)
+            final_confidence = max(0.30, min(0.95, weighted_confidence))
+            
+            # 调试日志
+            self.logger.debug(f"置信度计算详情: {dict((name, f'{score:.2f}') for name, score, _ in confidence_factors)} -> {final_confidence:.2f}")
+            
+            return final_confidence
+            
+        except Exception as e:
+            self.logger.error(f"计算分析置信度失败: {e}")
+            return 0.50  # 默认中等置信度
+    
+    def _assess_data_completeness(self, trend_analysis, momentum_analysis, volume_analysis, volatility_analysis) -> float:
+        """评估数据完整性"""
+        total_categories = 4
+        available_categories = 0
+        
+        if trend_analysis and trend_analysis.get('score') is not None:
+            available_categories += 1
+        if momentum_analysis and momentum_analysis.get('score') is not None:
+            available_categories += 1
+        if volume_analysis and volume_analysis.get('score') is not None:
+            available_categories += 1
+        if volatility_analysis and volatility_analysis.get('score') is not None:
+            available_categories += 1
+            
+        return available_categories / total_categories
+    
+    def _calculate_signal_consistency_v2(
+        self, trend_analysis, momentum_analysis, volume_analysis, volatility_analysis
+    ) -> float:
+        """计算信号一致性V2 - 改进版"""
+        try:
+            signals = []
+            signal_strengths = []
+            
+            # 收集各类指标的信号和强度
+            for analysis, name in [
+                (trend_analysis, 'trend'),
+                (momentum_analysis, 'momentum'), 
+                (volume_analysis, 'volume'),
+                (volatility_analysis, 'volatility')
+            ]:
+                score = analysis.get('score', 0.0)
+                if abs(score) > 0.05:  # 降低阈值，捕获更多信号
+                    signals.append(1 if score > 0 else -1)
+                    signal_strengths.append(abs(score))
+                else:
+                    signals.append(0)  # 中性信号
+                    signal_strengths.append(0.1)  # 给中性信号一定权重
+            
+            if not signals:
+                return 0.5  # 没有信号时给中等一致性
+            
+            # 中性信号的一致性处理
+            neutral_count = signals.count(0)
+            if neutral_count >= 3:  # 大部分指标都中性
+                return 0.8  # 市场中性状态的一致性很高
+            
+            # 有方向性信号的一致性计算
+            directional_signals = [s for s in signals if s != 0]
+            if len(directional_signals) == 0:
+                return 0.8
+                
+            positive_signals = sum(1 for s in directional_signals if s > 0)
+            negative_signals = sum(1 for s in directional_signals if s < 0)
+            
+            # 一致性得分
+            if len(directional_signals) == 1:
+                return 0.6  # 只有一个方向信号，一致性中等
+            
+            # 计算主导信号比例
+            dominant_ratio = max(positive_signals, negative_signals) / len(directional_signals)
+            
+            # 一致性得分：0.5(分歧) 到 1.0(完全一致)
+            consistency = 0.5 + (dominant_ratio - 0.5) * 1.0
+            
+            return min(1.0, consistency)
+            
+        except Exception as e:
+            self.logger.error(f"计算信号一致性V2失败: {e}")
+            return 0.5
+    
+    def _assess_analysis_stability(self, trend_analysis, momentum_analysis, volume_analysis, volatility_analysis) -> float:
+        """评估分析稳定性"""
+        try:
+            # 检查各分析模块的内部稳定性
+            stability_scores = []
+            
+            # 趋势分析稳定性
+            trend_stability = 0.8  # 趋势分析相对稳定
+            if trend_analysis.get('score', 0) != 0:
+                trend_stability = 0.85
+            stability_scores.append(trend_stability)
+            
+            # 动量分析稳定性  
+            momentum_stability = 0.7  # 动量指标波动较大
+            if abs(momentum_analysis.get('score', 0)) < 0.3:
+                momentum_stability = 0.8  # 动量不激进时更稳定
+            stability_scores.append(momentum_stability)
+            
+            # 成交量分析稳定性
+            volume_stability = 0.75
+            stability_scores.append(volume_stability)
+            
+            # 波动率分析稳定性
+            volatility_stability = 0.8
+            stability_scores.append(volatility_stability)
+            
+            return sum(stability_scores) / len(stability_scores)
+            
+        except Exception as e:
+            self.logger.error(f"评估分析稳定性失败: {e}")
+            return 0.7
+    
+    def _assess_market_clarity(self, total_score: float) -> float:
+        """评估市场状态清晰度"""
+        try:
+            # 市场清晰度不等于信号强度
+            # 中性市场状态如果稳定，清晰度也可以很高
+            
+            if abs(total_score) < 0.1:
+                # 中性市场 - 如果稳定，清晰度较高
+                return 0.75  # 中性但清晰
+            elif abs(total_score) < 0.3:
+                # 轻微倾向 - 信号不够强烈，清晰度中等
+                return 0.65
+            elif abs(total_score) < 0.7:
+                # 明确倾向 - 清晰度较高
+                return 0.85
+            else:
+                # 强烈信号 - 最高清晰度
+                return 0.95
+                
+        except Exception as e:
+            self.logger.error(f"评估市场清晰度失败: {e}")
+            return 0.7
     
     async def _generate_trading_recommendation(
         self,

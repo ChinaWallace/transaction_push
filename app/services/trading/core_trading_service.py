@@ -64,6 +64,13 @@ from app.services.core.dynamic_weight_service import (
 from app.services.notification.core_notification_service import (
     get_core_notification_service
 )
+# 导入增强逻辑模块
+from app.services.trading.core_logic_enhancement import (
+    generate_core_logic_explanation,
+    generate_enhanced_detailed_reasoning,
+    get_enhanced_weights,
+    calculate_enhanced_confidence
+)
 
 logger = get_logger(__name__)
 
@@ -982,23 +989,21 @@ class CoreTradingService:
             # 获取当前价格
             current_price = await self._get_current_price(symbol)
             
-            # 获取动态权重 (增强版权重包含量价分析)
+            # 获取动态权重 (增强版权重包含量价分析) - 以技术分析为准
             if self.dynamic_weight_service:
                 weights_obj = await self.dynamic_weight_service.get_dynamic_weights(symbol)
                 if hasattr(weights_obj, '__dict__'):
                     weights = {
-                        'kronos': getattr(weights_obj, 'kronos_weight', 0.4),
-                        'technical': getattr(weights_obj, 'technical_weight', 0.3), 
-                        'volume_price': getattr(weights_obj, 'volume_price_weight', 0.2),
-                        'ml': getattr(weights_obj, 'ml_weight', 0.1)
+                        'kronos': getattr(weights_obj, 'kronos_weight', 0.20),
+                        'technical': getattr(weights_obj, 'technical_weight', 0.55), 
+                        'volume_price': getattr(weights_obj, 'volume_price_weight', 0.20),
+                        'ml': getattr(weights_obj, 'ml_weight', 0.05)
                     }
                 else:
-                    weights = weights_obj if isinstance(weights_obj, dict) else {
-                        'kronos': 0.4, 'technical': 0.3, 'volume_price': 0.2, 'ml': 0.1
-                    }
+                    weights = weights_obj if isinstance(weights_obj, dict) else get_enhanced_weights()
             else:
-                # 增强版默认权重 - 降低Kronos权重，提高技术分析权重
-                weights = {'kronos': 0.25, 'technical': 0.45, 'volume_price': 0.20, 'ml': 0.10}
+                # 使用增强版权重配置 - 以技术分析为主导，确保操作方向一致
+                weights = get_enhanced_weights()
             
             # 计算加权置信度和动作
             weighted_actions = {}
@@ -1054,24 +1059,38 @@ class CoreTradingService:
                     weighted_confidences[action] += weight * confidence
                     total_weight += weight
             
-            # 确定最终动作和置信度
+            # 确定最终动作和置信度 - 提高置信度基准
             if not weighted_actions:
                 final_action = "持有"
-                final_confidence = 0.5
+                final_confidence = 0.6  # 提高默认置信度
                 # 为空情况创建默认结构
                 final_weighted_actions = {}
                 final_weighted_confidences = {}
             else:
                 final_action = max(weighted_actions.items(), key=lambda x: x[1])[0]
                 action_weight = weighted_actions[final_action]
-                final_confidence = weighted_confidences[final_action] / action_weight if action_weight > 0 else 0.5
-                final_confidence = max(0.1, min(0.95, final_confidence))
+                raw_confidence = weighted_confidences[final_action] / action_weight if action_weight > 0 else 0.5
+                
+                # 使用增强版置信度计算 - 以技术分析为准，提高整体置信度
+                tech_confidence = confidence_scores.get('technical', 0.5)
+                final_confidence = calculate_enhanced_confidence(
+                    raw_confidence=raw_confidence,
+                    tech_confidence=tech_confidence,
+                    min_confidence=0.3,
+                    max_confidence=0.95
+                )
+                
                 # 保存最终权重结果
                 final_weighted_actions = dict(weighted_actions)
                 final_weighted_confidences = dict(weighted_confidences)
             
-            # 生成详细的技术分析推理
-            detailed_reasoning = self._generate_detailed_reasoning(analysis_summary, detailed_analysis)
+            # 生成详细的技术分析推理 - 使用增强版本，确保显示完整内容
+            detailed_reasoning = generate_enhanced_detailed_reasoning(analysis_summary, detailed_analysis)
+            
+            # 生成核心逻辑说明 - 使用增强版本，不截断，显示完整推理过程
+            core_logic_explanation = generate_core_logic_explanation(
+                analysis_summary, final_action, final_confidence, weights
+            )
             
             # 生成全面的分析详情
             comprehensive_details = self._generate_comprehensive_analysis_details(analysis_summary, detailed_analysis)
@@ -1087,7 +1106,7 @@ class CoreTradingService:
                 final_action=final_action,
                 final_confidence=final_confidence,
                 signal_strength=SignalStrength.from_confidence(final_confidence),
-                reasoning=detailed_reasoning,
+                reasoning=f"{detailed_reasoning}\n\n💡 核心逻辑: {core_logic_explanation}",  # 包含完整核心逻辑
                 operation_advice=operation_advice,  # 新增详细操作建议
                 timestamp=datetime.now(),
                 current_price=current_price,
@@ -1098,6 +1117,11 @@ class CoreTradingService:
                     'original_scores': confidence_scores,
                     'applied_weights': weights,
                     'weighted_confidence': final_confidence,
+                    'confidence_enhancement': {
+                        'tech_based_boost': tech_confidence > 0.6,
+                        'boost_amount': min(0.25, (tech_confidence - 0.6) * 0.5) if tech_confidence > 0.6 else 0,
+                        'final_confidence_source': '技术分析主导的综合评估'
+                    },
                     'analysis_methods_used': list(results.keys()),
                     'decision_matrix': {
                         method: {
@@ -1111,7 +1135,8 @@ class CoreTradingService:
                         'total_weight': sum(weights.get(m, 0) for m in results.keys()),
                         'winning_action': final_action,
                         'action_weights': final_weighted_actions,
-                        'action_confidences': final_weighted_confidences
+                        'action_confidences': final_weighted_confidences,
+                        'core_logic_full': core_logic_explanation  # 完整核心逻辑
                     },
                     'comprehensive_analysis': comprehensive_details
                 },
@@ -1329,6 +1354,9 @@ class CoreTradingService:
     async def _fuse_decisions(self, symbol: str, results: Dict[str, Any], confidence_scores: Dict[str, float]) -> TradingSignal:
         """融合多个分析结果"""
         try:
+            # 应用置信度下限
+            from app.services.trading.core_logic_enhancement import apply_confidence_floor
+            confidence_scores = apply_confidence_floor(confidence_scores)
             # 获取动态权重
             if self.dynamic_weight_service:
                 weights_obj = await self.dynamic_weight_service.get_dynamic_weights(symbol)
@@ -1341,13 +1369,12 @@ class CoreTradingService:
                         'position': getattr(weights_obj, 'position_weight', 0.0)
                     }
                 else:
-                    # 如果已经是字典，直接使用
-                    weights = weights_obj if isinstance(weights_obj, dict) else {
-                        'kronos': 0.5, 'technical': 0.3, 'ml': 0.2
-                    }
+                    # 如果已经是字典，直接使用，否则使用增强版权重
+                    weights = weights_obj if isinstance(weights_obj, dict) else get_enhanced_weights()
             else:
-                # 默认权重 - 降低Kronos权重，提高技术分析权重
-                weights = {'kronos': 0.30, 'technical': 0.50, 'ml': 0.20}
+                # 使用动态权重配置 - 根据置信度调整
+                from app.services.trading.core_logic_enhancement import get_dynamic_weights
+                weights = get_dynamic_weights(confidence_scores)
             
             # 计算加权置信度和动作
             weighted_actions = {}
