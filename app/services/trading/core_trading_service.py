@@ -19,9 +19,9 @@ from app.utils.exceptions import TradingToolError, ServiceInitializationError
 # 导入依赖服务
 from app.services.ml.kronos_integrated_decision_service import (
     get_kronos_integrated_service, 
-    KronosIntegratedDecisionService,
-    KronosEnhancedDecision
+    KronosIntegratedDecisionService
 )
+from app.services.ml.kronos_timeframe_manager import TradingMode
 from app.services.analysis.position_analysis_service import (
     get_position_analysis_service,
     PositionAnalysisService
@@ -572,7 +572,8 @@ class CoreTradingService:
         self, 
         symbol: str, 
         analysis_type: AnalysisType = AnalysisType.INTEGRATED,
-        force_update: bool = False
+        force_update: bool = False,
+        trading_mode: Optional[TradingMode] = None
     ) -> Optional[TradingSignal]:
         """分析指定交易对 - 核心分析方法"""
         if not self.initialized:
@@ -590,14 +591,14 @@ class CoreTradingService:
             
             # 根据分析类型执行相应的分析
             if analysis_type == AnalysisType.KRONOS_ONLY:
-                result = await self._analyze_kronos_only(symbol)
+                result = await self._analyze_kronos_only(symbol, trading_mode)
             elif analysis_type == AnalysisType.TECHNICAL_ONLY:
                 result = await self._analyze_technical_only(symbol)
             elif analysis_type == AnalysisType.ML_ONLY:
                 result = await self._analyze_ml_only(symbol)
             else:
                 # 综合分析 - 默认模式
-                result = await self._analyze_integrated(symbol)
+                result = await self._analyze_integrated(symbol, trading_mode)
             
             # 缓存结果
             if result:
@@ -749,7 +750,7 @@ class CoreTradingService:
         
         return " | ".join(reasoning_parts) if reasoning_parts else basic_reasoning
 
-    async def _analyze_kronos_only(self, symbol: str) -> Optional[TradingSignal]:
+    async def _analyze_kronos_only(self, symbol: str, trading_mode: Optional[TradingMode] = None) -> Optional[TradingSignal]:
         """仅使用 Kronos AI 分析"""
         if not self.kronos_service:
             self.logger.warning(f"⚠️ Kronos 服务未启用，无法分析 {symbol}")
@@ -758,6 +759,7 @@ class CoreTradingService:
         try:
             kronos_result = await self.kronos_service.get_kronos_enhanced_decision(
                 symbol=symbol,
+                trading_mode=trading_mode,
                 force_update=True
             )
             
@@ -865,7 +867,7 @@ class CoreTradingService:
             self.logger.error(f"❌ ML 分析 {symbol} 失败: {e}")
             return None
 
-    async def _analyze_integrated(self, symbol: str) -> Optional[TradingSignal]:
+    async def _analyze_integrated(self, symbol: str, trading_mode: Optional[TradingMode] = None) -> Optional[TradingSignal]:
         """增强版综合分析 - 融合多种分析方法和详细技术指标"""
         results = {}
         confidence_scores = {}
@@ -873,14 +875,15 @@ class CoreTradingService:
         
         # 1. 增强版 Kronos AI 分析 (结合量价分析)
         if self.enhanced_kronos_service:
-            kronos_result = await self._safe_analyze_enhanced_kronos(symbol)
+            kronos_result = await self._safe_analyze_enhanced_kronos(symbol, trading_mode)
             if kronos_result:
                 results['kronos'] = kronos_result
-                confidence_scores['kronos'] = kronos_result.get('confidence', 0.5)
+                # EnhancedKronosDecision 是数据类，使用属性访问而不是 get 方法
+                confidence_scores['kronos'] = getattr(kronos_result, 'enhanced_confidence', 0.5)
                 detailed_analysis['kronos'] = kronos_result
         elif self.kronos_service:
             # 回退到原始 Kronos 服务
-            kronos_result = await self._safe_analyze_kronos(symbol)
+            kronos_result = await self._safe_analyze_kronos(symbol, trading_mode)
             if kronos_result:
                 results['kronos'] = kronos_result
                 confidence_scores['kronos'] = kronos_result.kronos_confidence
@@ -929,11 +932,11 @@ class CoreTradingService:
         
         return await self._fuse_enhanced_decisions(symbol, results, confidence_scores, detailed_analysis)
 
-    async def _safe_analyze_enhanced_kronos(self, symbol: str):
+    async def _safe_analyze_enhanced_kronos(self, symbol: str, trading_mode: Optional[TradingMode] = None):
         """安全的增强版 Kronos 分析"""
         try:
             if self.enhanced_kronos_service:
-                return await self.enhanced_kronos_service.analyze_with_volume_confirmation(symbol)
+                return await self.enhanced_kronos_service.analyze_with_volume_confirmation(symbol, trading_mode)
         except Exception as e:
             self.logger.warning(f"⚠️ 增强版 Kronos 分析 {symbol} 失败: {e}")
         return None
@@ -956,11 +959,11 @@ class CoreTradingService:
             self.logger.warning(f"⚠️ 量价关系分析 {symbol} 失败: {e}")
         return None
 
-    async def _safe_analyze_kronos(self, symbol: str):
+    async def _safe_analyze_kronos(self, symbol: str, trading_mode: Optional[TradingMode] = None):
         """安全的 Kronos 分析"""
         try:
             if self.kronos_service:
-                return await self.kronos_service.get_kronos_enhanced_decision(symbol, force_update=True)
+                return await self.kronos_service.get_kronos_enhanced_decision(symbol, trading_mode=trading_mode, force_update=True)
         except Exception as e:
             self.logger.warning(f"⚠️ Kronos 分析 {symbol} 失败: {e}")
         return None

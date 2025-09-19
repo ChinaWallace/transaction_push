@@ -307,7 +307,7 @@ class KronosPredictionService:
             # 创建数据请求
             request = DataRequest(
                 symbol=symbol,
-                timeframe='1h',
+                timeframe='1H',
                 limit=lookback_periods,
                 use_cache=True
             )

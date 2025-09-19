@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     """应用配置类"""
     
     def _build_kronos_config(self) -> Dict[str, Any]:
-        """从环境变量构建Kronos配置"""
+        """从环境变量构建Kronos配置 - 优化版，支持短线和中线预测"""
         # 解析target_symbols字符串为列表
         target_symbols_str = os.getenv('KRONOS_CONFIG__TARGET_SYMBOLS', '["BTC-USDT-SWAP","ETH-USDT-SWAP","SOL-USDT-SWAP","ADA-USDT-SWAP","DOGE-USDT-SWAP"]')
         try:
@@ -29,14 +29,78 @@ class Settings(BaseSettings):
             'model_name': os.getenv('KRONOS_CONFIG__MODEL_NAME', 'NeoQuasar/Kronos-Tokenizer-base'),
             'tokenizer_name': os.getenv('KRONOS_CONFIG__TOKENIZER_NAME', 'NeoQuasar/Kronos-Tokenizer-base'),
             'max_context': int(os.getenv('KRONOS_CONFIG__MAX_CONTEXT', '256')),
-            'lookback_periods': int(os.getenv('KRONOS_CONFIG__LOOKBACK_PERIODS', '100')),
-            'prediction_horizon': int(os.getenv('KRONOS_CONFIG__PREDICTION_HORIZON', '12')),
+            
+            # 🎯 短线交易配置 (日内交易)
+            'short_term': {
+                'timeframe': os.getenv('KRONOS_CONFIG__SHORT_TERM__TIMEFRAME', '1H'),  # 1小时K线
+                'lookback_periods': int(os.getenv('KRONOS_CONFIG__SHORT_TERM__LOOKBACK_PERIODS', '48')),  # 2天数据
+                'prediction_horizon': int(os.getenv('KRONOS_CONFIG__SHORT_TERM__PREDICTION_HORIZON', '6')),  # 预测6小时
+                'confidence_threshold': float(os.getenv('KRONOS_CONFIG__SHORT_TERM__CONFIDENCE_THRESHOLD', '0.35')),  # 提高阈值
+                'trend_filter_enabled': os.getenv('KRONOS_CONFIG__SHORT_TERM__TREND_FILTER_ENABLED', 'true').lower() == 'true',
+                'volatility_adjustment': os.getenv('KRONOS_CONFIG__SHORT_TERM__VOLATILITY_ADJUSTMENT', 'true').lower() == 'true',
+                'signal_thresholds': {
+                    'strong_buy': float(os.getenv('KRONOS_CONFIG__SHORT_TERM__STRONG_BUY_THRESHOLD', '0.75')),
+                    'buy': float(os.getenv('KRONOS_CONFIG__SHORT_TERM__BUY_THRESHOLD', '0.60')),
+                    'hold': float(os.getenv('KRONOS_CONFIG__SHORT_TERM__HOLD_THRESHOLD', '0.45')),
+                    'sell': float(os.getenv('KRONOS_CONFIG__SHORT_TERM__SELL_THRESHOLD', '0.60')),
+                    'strong_sell': float(os.getenv('KRONOS_CONFIG__SHORT_TERM__STRONG_SELL_THRESHOLD', '0.75'))
+                },
+                'trend_confirmation': {
+                    'bullish_threshold': float(os.getenv('KRONOS_CONFIG__SHORT_TERM__BULLISH_THRESHOLD', '0.80')),  # 强势上涨中需要80%置信度才卖出
+                    'bearish_threshold': float(os.getenv('KRONOS_CONFIG__SHORT_TERM__BEARISH_THRESHOLD', '0.80')),  # 强势下跌中需要80%置信度才买入
+                    'price_change_threshold': float(os.getenv('KRONOS_CONFIG__SHORT_TERM__PRICE_CHANGE_THRESHOLD', '0.08'))  # 需要8%以上变化
+                }
+            },
+            
+            # 🎯 中线交易配置 (持仓几天)
+            'medium_term': {
+                'timeframe': os.getenv('KRONOS_CONFIG__MEDIUM_TERM__TIMEFRAME', '4H'),  # 4小时K线
+                'lookback_periods': int(os.getenv('KRONOS_CONFIG__MEDIUM_TERM__LOOKBACK_PERIODS', '72')),  # 12天数据
+                'prediction_horizon': int(os.getenv('KRONOS_CONFIG__MEDIUM_TERM__PREDICTION_HORIZON', '24')),  # 预测24小时
+                'confidence_threshold': float(os.getenv('KRONOS_CONFIG__MEDIUM_TERM__CONFIDENCE_THRESHOLD', '0.30')),  # 中线可以稍低
+                'trend_filter_enabled': os.getenv('KRONOS_CONFIG__MEDIUM_TERM__TREND_FILTER_ENABLED', 'true').lower() == 'true',
+                'volatility_adjustment': os.getenv('KRONOS_CONFIG__MEDIUM_TERM__VOLATILITY_ADJUSTMENT', 'true').lower() == 'true',
+                'signal_thresholds': {
+                    'strong_buy': float(os.getenv('KRONOS_CONFIG__MEDIUM_TERM__STRONG_BUY_THRESHOLD', '0.70')),
+                    'buy': float(os.getenv('KRONOS_CONFIG__MEDIUM_TERM__BUY_THRESHOLD', '0.55')),
+                    'hold': float(os.getenv('KRONOS_CONFIG__MEDIUM_TERM__HOLD_THRESHOLD', '0.40')),
+                    'sell': float(os.getenv('KRONOS_CONFIG__MEDIUM_TERM__SELL_THRESHOLD', '0.55')),
+                    'strong_sell': float(os.getenv('KRONOS_CONFIG__MEDIUM_TERM__STRONG_SELL_THRESHOLD', '0.70'))
+                },
+                'trend_confirmation': {
+                    'bullish_threshold': float(os.getenv('KRONOS_CONFIG__MEDIUM_TERM__BULLISH_THRESHOLD', '0.70')),  # 中线稍低要求
+                    'bearish_threshold': float(os.getenv('KRONOS_CONFIG__MEDIUM_TERM__BEARISH_THRESHOLD', '0.70')),
+                    'price_change_threshold': float(os.getenv('KRONOS_CONFIG__MEDIUM_TERM__PRICE_CHANGE_THRESHOLD', '0.06'))  # 6%变化阈值
+                }
+            },
+            
+            # 🎯 默认模式选择
+            'default_mode': os.getenv('KRONOS_CONFIG__DEFAULT_MODE', 'short_term'),  # 默认短线模式
+            'auto_mode_selection': os.getenv('KRONOS_CONFIG__AUTO_MODE_SELECTION', 'true').lower() == 'true',  # 自动模式选择
+            
+            # 🎯 多时间框架验证
+            'multi_timeframe_analysis': {
+                'enabled': os.getenv('KRONOS_CONFIG__MULTI_TIMEFRAME_ENABLED', 'true').lower() == 'true',
+                'timeframes': ['15M', '1H', '4H', '1D'],  # 多时间框架分析
+                'consensus_threshold': float(os.getenv('KRONOS_CONFIG__CONSENSUS_THRESHOLD', '0.7')),  # 70%一致性
+                'weight_distribution': {
+                    '15m': 0.15,  # 短期噪音权重较低
+                    '1h': 0.35,   # 主要权重
+                    '4h': 0.35,   # 主要权重
+                    '1d': 0.15    # 长期趋势权重
+                }
+            },
+            
+            # 兼容性配置 (保持向后兼容)
+            'lookback_periods': int(os.getenv('KRONOS_CONFIG__LOOKBACK_PERIODS', '48')),  # 默认使用短线配置
+            'prediction_horizon': int(os.getenv('KRONOS_CONFIG__PREDICTION_HORIZON', '6')),  # 默认使用短线配置
+            'confidence_threshold': float(os.getenv('KRONOS_CONFIG__CONFIDENCE_THRESHOLD', '0.35')),  # 默认使用短线配置
+            
             'sampling_params': {
                 'temperature': float(os.getenv('KRONOS_CONFIG__TEMPERATURE', '0.8')),
                 'top_p': float(os.getenv('KRONOS_CONFIG__TOP_P', '0.9')),
                 'sample_count': int(os.getenv('KRONOS_CONFIG__SAMPLE_COUNT', '3'))
             },
-            'confidence_threshold': float(os.getenv('KRONOS_CONFIG__CONFIDENCE_THRESHOLD', '0.25')),
             'update_interval_minutes': int(os.getenv('KRONOS_CONFIG__UPDATE_INTERVAL_MINUTES', '5')),
             'cache_predictions': os.getenv('KRONOS_CONFIG__CACHE_PREDICTIONS', 'true').lower() == 'true',
             'use_gpu': os.getenv('KRONOS_CONFIG__USE_GPU', 'false').lower() == 'true',
@@ -176,7 +240,7 @@ class Settings(BaseSettings):
         'supertrend': {
             'period': 10,
             'multiplier': 3.0,
-            'timeframes': ['1d', '4h', '1h', '15m']
+            'timeframes': ['1D', '4H', '1H', '15M']
         },
         'volume': {
             'threshold_multiplier': 3.0,
@@ -318,7 +382,7 @@ class Settings(BaseSettings):
         'enable_pine_indicators': True,
         'enable_volume_profile': True,
         'enable_order_flow': False,
-        'chart_timeframes': ['1m', '5m', '15m', '1h', '4h', '1d']
+        'chart_timeframes': ['1M', '5M', '15M', '1H', '4H', '1D']
     }, description="TradingView功能配置")
     
     # 收益最大化策略配置 - 币圈专用

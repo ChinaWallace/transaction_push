@@ -73,6 +73,9 @@ huggingface-hub>=0.16.0
 matplotlib>=3.7.0
 seaborn>=0.12.0
 
+# 系统监控
+psutil>=5.9.0
+
 # 开发工具（可选）
 # black==23.11.0
 # isort==5.12.0

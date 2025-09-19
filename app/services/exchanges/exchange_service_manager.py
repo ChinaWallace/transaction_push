@@ -43,8 +43,6 @@ async def get_exchange_service() -> ExchangeInterface:
             settings = get_settings()
             exchange_provider = getattr(settings, 'exchange_provider', 'binance').lower()
             
-            logger.info(f"🔧 使用配置的交易所: {exchange_provider}")
-            
             # 通过工厂获取交易所实例
             exchange_service = await ExchangeFactory.get_exchange(exchange_provider)
             

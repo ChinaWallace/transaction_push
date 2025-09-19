@@ -364,7 +364,7 @@ class MLEnhancedService:
             
             # 获取K线数据
             klines = await self.exchange_service.get_kline_data(
-                symbol, '1h', limit=limit
+                symbol, '1H', limit=limit
             )
             
             if not klines:

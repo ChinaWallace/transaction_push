@@ -200,23 +200,31 @@ class OKXService:
                     return result.get('data', [])
                     
             except aiohttp.ClientError as e:
+                # 改进网络错误日志
+                error_type = type(e).__name__
+                error_msg = str(e)
                 if attempt < max_retries - 1:
                     wait_time = (2 ** attempt) * 1.0
-                    logger.warning(f"网络请求失败，{wait_time}秒后重试: {e}")
+                    logger.warning(f"🌐 OKX网络请求失败 [{error_type}]，{wait_time}秒后重试: {error_msg}")
                     await asyncio.sleep(wait_time)
                     continue
                 else:
-                    logger.error(f"OKX API请求失败: {e}")
+                    logger.error(f"❌ OKX API请求最终失败 [{error_type}]: {error_msg}")
+                    logger.debug(f"🔍 网络请求详情 - 端点: {endpoint}, 重试次数: {max_retries}, 异常类型: {error_type}")
                     return []
                     
             except Exception as e:
+                # 改进通用异常日志
+                error_type = type(e).__name__
+                error_msg = str(e)
                 if attempt < max_retries - 1:
                     wait_time = (2 ** attempt) * 1.0
-                    logger.warning(f"请求异常，{wait_time}秒后重试: {e}")
+                    logger.warning(f"🔄 OKX请求异常 [{error_type}]，{wait_time}秒后重试: {error_msg}")
                     await asyncio.sleep(wait_time)
                     continue
                 else:
-                    logger.error(f"OKX请求异常: {e}")
+                    logger.error(f"❌ OKX请求最终异常 [{error_type}]: {error_msg}")
+                    logger.debug(f"🔍 请求异常详情 - 端点: {endpoint}, 参数: {params}, 异常类型: {error_type}")
                     return []
 
     
@@ -433,14 +441,23 @@ class OKXService:
             # 转换为原始格式 [timestamp, open, high, low, close, volume]
             klines = []
             for item in kline_data:
-                klines.append([
-                    str(item['timestamp']),
-                    str(item['open']),
-                    str(item['high']),
-                    str(item['low']),
-                    str(item['close']),
-                    str(item['volume'])
-                ])
+                # 验证数据完整性
+                if not all(key in item for key in ['timestamp', 'open', 'high', 'low', 'close', 'volume']):
+                    logger.warning(f"⚠️ K线数据字段不完整: {item}")
+                    continue
+                
+                try:
+                    klines.append([
+                        str(item['timestamp']),
+                        str(item['open']),
+                        str(item['high']),
+                        str(item['low']),
+                        str(item['close']),
+                        str(item['volume'])
+                    ])
+                except (KeyError, ValueError) as e:
+                    logger.warning(f"⚠️ K线数据转换失败: {item}, 错误: {e}")
+                    continue
             
             return klines
             
@@ -451,13 +468,17 @@ class OKXService:
     async def get_kline_data(self, symbol: str, timeframe: str = '1H', limit: int = 100) -> List[Dict[str, Any]]:
         """获取K线数据"""
         try:
-            # OKX时间周期映射
+            # OKX时间周期映射 - 支持大小写格式
             tf_mapping = {
+                # 小写格式
                 '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
-                '1h': '1H', '4h': '4H', '1d': '1D', '1w': '1W'
+                '1h': '1H', '4h': '4H', '1d': '1D', '1w': '1W',
+                # 大写格式
+                '1M': '1m', '5M': '5m', '15M': '15m', '30M': '30m',
+                '1H': '1H', '4H': '4H', '1D': '1D', '1W': '1W'
             }
             
-            okx_tf = tf_mapping.get(timeframe.lower(), '1H')
+            okx_tf = tf_mapping.get(timeframe, tf_mapping.get(timeframe.lower(), '1H'))
             
             params = {
                 'instId': symbol,
@@ -467,17 +488,37 @@ class OKXService:
             
             result = await self._make_request('GET', '/api/v5/market/candles', params=params)
             
+            # 验证API返回结果
+            if not result:
+                logger.warning(f"⚠️ OKX API返回空数据: {symbol} {timeframe}")
+                return []
+            
+            if not isinstance(result, list):
+                logger.error(f"❌ OKX API返回数据格式异常: {type(result)} - {result}")
+                return []
+            
+            logger.debug(f"🔍 OKX API返回 {len(result)} 条K线数据: {symbol} {timeframe}")
+            
             klines = []
             for item in result:
-                klines.append({
-                    'timestamp': int(item[0]),
-                    'open': float(item[1]),
-                    'high': float(item[2]),
-                    'low': float(item[3]),
-                    'close': float(item[4]),
-                    'volume': float(item[5]),
-                    'volume_currency': float(item[6])
-                })
+                # 验证数据完整性，OKX返回格式: [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]
+                if not item or len(item) < 7:
+                    logger.warning(f"⚠️ OKX K线数据格式不完整: {item}")
+                    continue
+                
+                try:
+                    klines.append({
+                        'timestamp': int(item[0]),
+                        'open': float(item[1]),
+                        'high': float(item[2]),
+                        'low': float(item[3]),
+                        'close': float(item[4]),
+                        'volume': float(item[5]) if item[5] else 0.0,
+                        'volume_currency': float(item[6]) if item[6] else 0.0
+                    })
+                except (ValueError, TypeError, IndexError) as e:
+                    logger.warning(f"⚠️ OKX K线数据解析失败: {item}, 错误: {e}")
+                    continue
             
             return sorted(klines, key=lambda x: x['timestamp'])
             

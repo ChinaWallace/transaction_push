@@ -1203,6 +1203,10 @@ def create_app() -> FastAPI:
     from app.api.exchange_management import router as exchange_management_router
     app.include_router(exchange_management_router, tags=["交易所管理"])
     
+    # 系统诊断API
+    from app.api.system_diagnostics import router as system_diagnostics_router
+    app.include_router(system_diagnostics_router, tags=["系统诊断"])
+    
 
     
     # 根路径

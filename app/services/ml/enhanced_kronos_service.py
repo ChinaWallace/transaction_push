@@ -100,7 +100,7 @@ class EnhancedKronosService:
             # 初始化依赖服务
             self.kronos_service = await get_kronos_integrated_service()
             self.exchange_service = await get_exchange_service()
-            self.technical_service = await get_detailed_technical_analysis_service()
+            self.technical_service = get_detailed_technical_analysis_service()
             
             self.initialized = True
             self.logger.info("✅ 增强版Kronos服务初始化完成")
@@ -120,6 +120,10 @@ class EnhancedKronosService:
                 await self.initialize()
             
             # 1. 获取原始Kronos决策
+            if not self.kronos_service:
+                self.logger.error("Kronos服务未初始化")
+                return None
+                
             original_decision = await self.kronos_service.get_kronos_enhanced_decision(
                 symbol=symbol, 
                 force_update=force_update
@@ -152,23 +156,39 @@ class EnhancedKronosService:
         """分析量价关系"""
         try:
             # 获取历史K线数据
-            klines_data = await self.exchange_service.get_klines(
+            if not self.exchange_service:
+                raise TradingToolError("交易所服务未初始化")
+                
+            klines_data = await self.exchange_service.get_kline_data(
                 symbol=symbol,
-                interval='1h',
+                timeframe='1H',
                 limit=50
             )
             
             if not klines_data:
                 raise TradingToolError(f"无法获取{symbol}的K线数据")
             
-            # 提取价格和成交量数据
-            closes = [float(k[4]) for k in klines_data]  # 收盘价
-            volumes = [float(k[5]) for k in klines_data]  # 成交量
+            # 提取价格和成交量数据 - 修复数据格式问题
+            closes = []
+            volumes = []
             
-            # 计算成交量指标
-            current_volume = volumes[-1]
-            avg_volume_20 = np.mean(volumes[-20:]) if len(volumes) >= 20 else np.mean(volumes)
-            volume_ratio = current_volume / avg_volume_20 if avg_volume_20 > 0 else 1.0
+            for k in klines_data:
+                if isinstance(k, dict):
+                    # 字典格式: {'close': 45000.0, 'volume': 1000.0, ...}
+                    closes.append(float(k.get('close', 0)))
+                    volumes.append(float(k.get('volume', 0)))
+                elif isinstance(k, (list, tuple)) and len(k) >= 6:
+                    # 列表格式: [timestamp, open, high, low, close, volume]
+                    closes.append(float(k[4]))
+                    volumes.append(float(k[5]))
+                else:
+                    self.logger.warning(f"⚠️ 未知的K线数据格式: {type(k)} - {k}")
+                    continue
+            
+            # 计算成交量指标 - 修复类型转换问题
+            current_volume = float(volumes[-1]) if volumes else 0.0
+            avg_volume_20 = float(np.mean(volumes[-20:])) if len(volumes) >= 20 else float(np.mean(volumes)) if volumes else 0.0
+            volume_ratio = float(current_volume / avg_volume_20) if avg_volume_20 > 0 else 1.0
             
             # 计算OBV趋势
             obv_values = self._calculate_obv(closes, volumes)
@@ -498,6 +518,86 @@ class EnhancedKronosService:
             reasoning_parts.append(f"综合量价因素调整为: {enhanced_action}")
         
         return " | ".join(reasoning_parts)
+
+
+    async def analyze_with_volume_confirmation(
+        self, 
+        symbol: str, 
+        trading_mode: Optional[Any] = None
+    ) -> Optional[EnhancedKronosDecision]:
+        """
+        带成交量确认的分析方法
+        这是核心交易服务期望调用的主要方法
+        """
+        try:
+            self.logger.info(f"🔍 开始增强版Kronos分析 {symbol} (交易模式: {trading_mode})")
+            
+            # 调用现有的增强决策方法
+            enhanced_decision = await self.get_enhanced_kronos_decision(
+                symbol=symbol,
+                force_update=True
+            )
+            
+            if enhanced_decision:
+                self.logger.info(
+                    f"✅ {symbol} 增强版Kronos分析完成: "
+                    f"{enhanced_decision.enhanced_action} "
+                    f"(置信度: {enhanced_decision.enhanced_confidence:.3f})"
+                )
+            else:
+                self.logger.warning(f"⚠️ {symbol} 增强版Kronos分析未返回结果")
+            
+            return enhanced_decision
+            
+        except Exception as e:
+            self.logger.error(f"❌ {symbol} 增强版Kronos分析失败: {e}")
+            return None
+    
+    async def health_check(self) -> Dict[str, Any]:
+        """健康检查"""
+        try:
+            checks = {
+                "service_initialized": self.initialized,
+                "kronos_service_available": self.kronos_service is not None,
+                "exchange_service_available": self.exchange_service is not None,
+                "technical_service_available": self.technical_service is not None
+            }
+            
+            # 检查依赖服务健康状态
+            if self.kronos_service:
+                try:
+                    # 检查Kronos服务是否有health_check方法
+                    if hasattr(self.kronos_service, 'health_check'):
+                        kronos_health = await self.kronos_service.health_check()
+                        checks["kronos_service_healthy"] = kronos_health.get("healthy", False)
+                    else:
+                        # 如果没有health_check方法，检查是否已初始化
+                        checks["kronos_service_healthy"] = getattr(self.kronos_service, 'initialized', True)
+                except Exception as e:
+                    self.logger.warning(f"检查Kronos服务健康状态失败: {e}")
+                    checks["kronos_service_healthy"] = False
+            
+            # 计算整体健康状态
+            all_healthy = all([
+                checks["service_initialized"],
+                checks["kronos_service_available"],
+                checks["exchange_service_available"]
+            ])
+            
+            return {
+                "status": "healthy" if all_healthy else "degraded",
+                "healthy": all_healthy,
+                "checks": checks,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            return {
+                "status": "unhealthy",
+                "healthy": False,
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            }
 
 
 # 全局服务实例

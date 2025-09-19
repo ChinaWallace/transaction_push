@@ -9,15 +9,14 @@ import pandas as pd
 from app.core.config import get_settings
 from app.core.logging import get_logger, trading_logger
 from app.services.ml.kronos_prediction_service import get_kronos_service, KronosPrediction
+from app.services.ml.kronos_timeframe_manager import (
+    get_kronos_timeframe_manager, 
+    TradingMode, 
+    MarketRegime, 
+    PredictionContext
+)
+from app.services.ml.kronos_enhanced_decision import KronosEnhancedDecision, KronosSignalStrength, MarketRegime
 from app.services.analysis.position_analysis_service import PositionAnalysisService, PositionRecommendation, PositionRisk
-# Market regime enum defined locally
-class MarketRegime(Enum):
-    """市场状态枚举"""
-    TRENDING_UP = "上涨趋势"
-    TRENDING_DOWN = "下跌趋势"
-    RANGING = "震荡整理"
-    VOLATILE = "高波动"
-    CALM = "平静"
 from app.services.analysis.trend_analysis_service import TrendAnalysisService
 from app.services.exchanges.exchange_service_manager import get_exchange_service
 from app.utils.exceptions import TradingToolError
@@ -35,52 +34,11 @@ async def get_kronos_integrated_service() -> "KronosIntegratedDecisionService":
     return _kronos_integrated_service
 
 
-class KronosSignalStrength(Enum):
-    """Kronos信号强度"""
-    VERY_STRONG = "极强"
-    STRONG = "强"
-    MODERATE = "中等"
-    WEAK = "弱"
-    VERY_WEAK = "极弱"
-
-
-@dataclass
-class KronosEnhancedDecision:
-    """Kronos增强决策结果"""
-    symbol: str
-    timestamp: datetime
-    
-    # Kronos预测结果
-    kronos_prediction: Optional[KronosPrediction]
-    kronos_signal_strength: KronosSignalStrength
-    kronos_confidence: float
-    
-    # 传统分析结果
-    technical_signal: str
-    technical_confidence: float
-    
-    # 持仓分析结果
-    position_recommendation: Optional[PositionRecommendation] = None
-    position_risk: Optional[PositionRisk] = None
-    
-    # 综合决策
-    final_action: str = "持有观望"
-    final_confidence: float = 0.5
-    signal_confluence: float = 0.5  # 信号一致性
-    
-    # 风险管理 - 设置默认值避免None格式化错误
-    entry_price: Optional[float] = None
-    stop_loss: Optional[float] = None
-    take_profit: Optional[float] = None
-    position_size: float = 0.1
-    
-    # 决策依据
-    reasoning: str = "暂无详细说明"
-    market_regime: Optional[MarketRegime] = None
+# 数据结构已移动到独立文件，避免循环导入
 
 
 class KronosIntegratedDecisionService:
-    """Kronos集成决策服务 - 将Kronos预测前置到所有决策流程"""
+    """Kronos集成决策服务 - 优化版，支持短线和中线预测模式"""
     
     def __init__(self):
         self.settings = get_settings()
@@ -91,17 +49,38 @@ class KronosIntegratedDecisionService:
         self.trend_service = TrendAnalysisService()
         self.exchange_service = None  # 将在需要时异步初始化
         
+        # 时间框架管理器
+        self.timeframe_manager = get_kronos_timeframe_manager()
+        
+        # 延迟导入避免循环依赖
+        self.context_decision_service = None
+        
         # Kronos配置
         self.kronos_config = self.settings.kronos_config
         self.enable_kronos = self.kronos_config.get('enable_kronos_prediction', True)
         
+        # 缓存
+        self._decision_cache: Dict[str, Tuple[KronosEnhancedDecision, datetime]] = {}
+        self.cache_duration_minutes = 3  # 缓存3分钟
+        
+        self.logger.info("✅ Kronos集成决策服务初始化完成 - 支持短线/中线模式")
+        
     async def get_kronos_enhanced_decision(
         self,
         symbol: str,
+        trading_mode: Optional[TradingMode] = None,
         force_update: bool = False
     ) -> Optional[KronosEnhancedDecision]:
-        """获取Kronos增强的交易决策 - 只分析配置中的核心币种"""
+        """获取Kronos增强的交易决策 - 优化版，支持短线/中线模式"""
         try:
+            # 检查缓存
+            cache_key = f"{symbol}_{trading_mode.value if trading_mode else 'auto'}"
+            if not force_update and cache_key in self._decision_cache:
+                cached_decision, cache_time = self._decision_cache[cache_key]
+                if (datetime.now() - cache_time).total_seconds() < self.cache_duration_minutes * 60:
+                    self.logger.debug(f"🔄 使用缓存的决策: {symbol}")
+                    return cached_decision
+            
             # 检查是否为配置中允许的核心币种
             kronos_target_symbols = self.settings.kronos_config.get('target_symbols', [])
             
@@ -114,46 +93,79 @@ class KronosIntegratedDecisionService:
                 self.logger.debug(f"跳过非核心币种的Kronos分析: {symbol}")
                 return None
             
-            self.logger.info(f"开始为核心币种{symbol}生成Kronos增强决策")
+            # 🎯 第一步：获取最优预测配置
+            prediction_context = await self.timeframe_manager.get_optimal_config(
+                symbol=symbol, 
+                preferred_mode=trading_mode
+            )
             
-            # 第一步：获取Kronos预测（前置）
+            self.logger.info(f"🎯 {symbol} 使用{prediction_context.trading_mode.value}模式分析")
+            self.logger.info(f"📊 市场状态: {prediction_context.market_regime.value}, 波动率: {prediction_context.volatility:.3f}")
+            
+            # 🤖 第二步：获取Kronos预测（使用优化配置）
             kronos_prediction = None
             kronos_confidence = 0.0
             kronos_signal_strength = KronosSignalStrength.VERY_WEAK
             
             if self.enable_kronos:
-                kronos_prediction = await self._get_kronos_prediction(symbol, force_update)
+                kronos_prediction = await self._get_optimized_kronos_prediction(
+                    symbol, prediction_context, force_update
+                )
                 if kronos_prediction:
                     kronos_confidence = kronos_prediction.confidence
-                    kronos_signal_strength = self._evaluate_kronos_signal_strength(kronos_prediction)
-                    self.logger.info(f"{symbol} Kronos预测: 置信度{kronos_confidence:.2f}, 强度{kronos_signal_strength.value}")
+                    kronos_signal_strength = self._evaluate_kronos_signal_strength(
+                        kronos_prediction, prediction_context
+                    )
+                    self.logger.info(f"🤖 {symbol} Kronos预测: 置信度{kronos_confidence:.2f}, 强度{kronos_signal_strength.value}")
             
-            # 第二步：基于Kronos预测调整技术分析权重
-            technical_result = await self._get_weighted_technical_analysis(
-                symbol, kronos_prediction
+            # 📊 第三步：基于预测上下文调整技术分析
+            technical_result = await self._get_context_weighted_technical_analysis(
+                symbol, kronos_prediction, prediction_context
             )
             
-            # 第三步：基于Kronos预测进行持仓分析
-            position_analysis = await self._get_kronos_weighted_position_analysis(
-                symbol, kronos_prediction
+            # 💼 第四步：基于预测上下文进行持仓分析
+            position_analysis = await self._get_context_weighted_position_analysis(
+                symbol, kronos_prediction, prediction_context
             )
             
-            # 第四步：生成综合决策
-            enhanced_decision = await self._generate_integrated_decision(
+            # 🎯 第五步：生成综合决策（使用上下文决策服务）
+            if self.context_decision_service is None:
+                from app.services.ml.kronos_context_decision_service import KronosContextDecisionService
+                self.context_decision_service = KronosContextDecisionService()
+            
+            enhanced_decision = await self.context_decision_service.generate_context_integrated_decision(
                 symbol=symbol,
                 kronos_prediction=kronos_prediction,
                 kronos_confidence=kronos_confidence,
                 kronos_signal_strength=kronos_signal_strength,
                 technical_result=technical_result,
-                position_analysis=position_analysis
+                position_analysis=position_analysis,
+                prediction_context=prediction_context
             )
             
+            # 🔍 第六步：趋势过滤验证
+            if enhanced_decision:
+                validated_action, validated_confidence = self.timeframe_manager.validate_signal_with_trend(
+                    enhanced_decision.final_action,
+                    enhanced_decision.final_confidence,
+                    prediction_context
+                )
+                enhanced_decision.final_action = validated_action
+                enhanced_decision.final_confidence = validated_confidence
+            
+            # 缓存决策
+            if enhanced_decision:
+                self._decision_cache[cache_key] = (enhanced_decision, datetime.now())
+            
             # 记录决策日志
-            trading_logger.info(
-                f"Kronos增强决策 - {symbol}: {enhanced_decision.final_action} "
-                f"(置信度: {enhanced_decision.final_confidence:.2f}, "
-                f"信号一致性: {enhanced_decision.signal_confluence:.2f})"
-            )
+            if enhanced_decision:
+                config_summary = self.timeframe_manager.get_config_summary(prediction_context)
+                trading_logger.info(
+                    f"🎯 Kronos增强决策 - {symbol}: {enhanced_decision.final_action} "
+                    f"(置信度: {enhanced_decision.final_confidence:.2f}, "
+                    f"模式: {config_summary['trading_mode']}, "
+                    f"市场: {config_summary['market_regime']})"
+                )
             
             return enhanced_decision
             
@@ -161,72 +173,107 @@ class KronosIntegratedDecisionService:
             self.logger.error(f"生成{symbol}的Kronos增强决策失败: {e}")
             return None
     
-    async def _get_kronos_prediction(
+    async def _get_optimized_kronos_prediction(
         self,
         symbol: str,
+        prediction_context: PredictionContext,
         force_update: bool = False
     ) -> Optional[KronosPrediction]:
-        """获取Kronos预测"""
+        """获取优化的Kronos预测 - 根据交易模式使用不同时间框架"""
         try:
             kronos_service = await get_kronos_service()
             if not kronos_service:
                 self.logger.warning("Kronos服务不可用")
                 return None
-                
-            # 获取历史数据并转换为DataFrame
-            from app.services.exchanges.okx.okx_service import OKXService
             
-            okx_service = OKXService()
-            # 日内短线交易优化：使用15分钟数据，获取更多数据点用于短线分析
-            historical_data_raw = await okx_service.get_kline_data(symbol, "15m", 300)
+            # 根据预测上下文获取合适的历史数据
+            timeframe_config = prediction_context.timeframe_config
+            
+            # 获取交易所服务
+            if not self.exchange_service:
+                self.exchange_service = await get_exchange_service()
+            
+            # 根据交易模式使用不同的时间框架和数据量
+            timeframe = timeframe_config.timeframe
+            lookback_periods = timeframe_config.lookback_periods
+            
+            self.logger.info(f"📊 获取 {symbol} {timeframe} K线数据，回看 {lookback_periods} 期")
+            
+            # 获取历史数据
+            historical_data_raw = await self.exchange_service.get_kline_data(
+                symbol, timeframe, lookback_periods
+            )
             
             if historical_data_raw is not None and len(historical_data_raw) > 0:
-                # 将OKX返回的字典列表转换为DataFrame
+                # 将交易所返回的数据转换为DataFrame
                 historical_data = self._convert_kline_to_dataframe(historical_data_raw)
                 
                 if historical_data is not None and not historical_data.empty:
+                    # 使用优化的预测参数
                     prediction = await kronos_service.get_prediction(
                         symbol=symbol,
                         historical_data=historical_data,
                         force_update=force_update
                     )
+                    
+                    if prediction:
+                        self.logger.info(f"✅ {symbol} Kronos预测完成: {timeframe} 框架, {prediction.confidence:.3f} 置信度")
+                    
+                    return prediction
                 else:
                     self.logger.warning(f"转换{symbol}历史数据为DataFrame失败")
-                    prediction = None
+                    return None
             else:
-                self.logger.warning(f"无法获取{symbol}的历史数据")
-                prediction = None
-            
-            return prediction
+                self.logger.warning(f"无法获取{symbol}的{timeframe}历史数据")
+                return None
             
         except Exception as e:
-            self.logger.error(f"获取{symbol}的Kronos预测失败: {e}")
+            self.logger.error(f"获取{symbol}的优化Kronos预测失败: {e}")
             return None
     
     def _evaluate_kronos_signal_strength(
         self,
-        prediction: KronosPrediction
+        prediction: KronosPrediction,
+        prediction_context: PredictionContext
     ) -> KronosSignalStrength:
-        """评估Kronos信号强度 - 进一步优化的阈值"""
+        """评估Kronos信号强度 - 根据交易模式和市场状态动态调整"""
         confidence = prediction.confidence
         price_change = abs(prediction.price_change_pct)
         
-        # 进一步优化的信号强度评估 - 大幅降低阈值以适应当前市场条件
-        if confidence >= 0.70 and price_change >= 0.025:  # 70%置信度 + 2.5%变化
-            return KronosSignalStrength.VERY_STRONG
-        elif confidence >= 0.60 and price_change >= 0.015:  # 60%置信度 + 1.5%变化
-            return KronosSignalStrength.STRONG
-        elif confidence >= 0.50 and price_change >= 0.01:   # 50%置信度 + 1%变化
-            return KronosSignalStrength.MODERATE
-        elif confidence >= 0.40 and price_change >= 0.005:  # 40%置信度 + 0.5%变化
-            return KronosSignalStrength.WEAK
+        # 获取信号阈值配置
+        signal_thresholds = prediction_context.timeframe_config.signal_thresholds
+        
+        # 根据交易模式调整评估标准
+        if prediction_context.trading_mode == TradingMode.SHORT_TERM:
+            # 短线交易：更敏感的阈值
+            if confidence >= signal_thresholds['strong_buy'] and price_change >= 0.03:
+                return KronosSignalStrength.VERY_STRONG
+            elif confidence >= signal_thresholds['buy'] and price_change >= 0.02:
+                return KronosSignalStrength.STRONG
+            elif confidence >= signal_thresholds['hold'] and price_change >= 0.01:
+                return KronosSignalStrength.MODERATE
+            elif confidence >= 0.35 and price_change >= 0.005:
+                return KronosSignalStrength.WEAK
+            else:
+                return KronosSignalStrength.VERY_WEAK
         else:
-            return KronosSignalStrength.VERY_WEAK
+            # 中线交易：稍微宽松的阈值
+            if confidence >= signal_thresholds['strong_buy'] and price_change >= 0.05:
+                return KronosSignalStrength.VERY_STRONG
+            elif confidence >= signal_thresholds['buy'] and price_change >= 0.03:
+                return KronosSignalStrength.STRONG
+            elif confidence >= signal_thresholds['hold'] and price_change >= 0.02:
+                return KronosSignalStrength.MODERATE
+            elif confidence >= 0.30 and price_change >= 0.01:
+                return KronosSignalStrength.WEAK
+            else:
+                return KronosSignalStrength.VERY_WEAK
     
-    async def _get_weighted_technical_analysis(
+    async def _get_context_weighted_technical_analysis(
         self,
         symbol: str,
-        kronos_prediction: Optional[KronosPrediction]
+        kronos_prediction: Optional[KronosPrediction],
+        prediction_context: PredictionContext
     ) -> Dict[str, Any]:
         """基于Kronos预测调整技术分析权重"""
         try:
@@ -263,10 +310,11 @@ class KronosIntegratedDecisionService:
             self.logger.error(f"获取{symbol}加权技术分析失败: {e}")
             return {}
     
-    async def _get_kronos_weighted_position_analysis(
+    async def _get_context_weighted_position_analysis(
         self,
         symbol: str,
-        kronos_prediction: Optional[KronosPrediction]
+        kronos_prediction: Optional[KronosPrediction],
+        prediction_context: PredictionContext
     ) -> Dict[str, Any]:
         """基于Kronos预测进行持仓分析"""
         try:
