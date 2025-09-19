@@ -212,6 +212,31 @@ class CoreNotificationService:
                 "card": card_data
             }
             
+            # 第一次尝试发送
+            success = await self._try_send_feishu_message(payload)
+            if success:
+                return True
+            
+            # 如果失败，等待1秒后重试一次
+            self.logger.warning("⚠️ 飞书消息发送失败，1秒后重试...")
+            await asyncio.sleep(1)
+            
+            # 第二次尝试发送
+            success = await self._try_send_feishu_message(payload)
+            if success:
+                self.logger.info("✅ 飞书消息重试发送成功")
+                return True
+            else:
+                self.logger.error("❌ 飞书消息重试后仍然失败")
+                return False
+                    
+        except Exception as e:
+            self.logger.error(f"❌ 飞书消息发送异常: {e}")
+            return False
+    
+    async def _try_send_feishu_message(self, payload: Dict[str, Any]) -> bool:
+        """尝试发送飞书消息的具体实现"""
+        try:
             async with self.session.post(
                 self.feishu_webhook_url,
                 json=payload,
@@ -222,15 +247,18 @@ class CoreNotificationService:
                     if result.get("code") == 0:
                         self.logger.info("✅ 飞书卡片消息发送成功")
                         return True
+                    elif result.get("code") == 11232:
+                        # 频率限制错误
+                        self.logger.warning(f"⚠️ 飞书消息发送频率限制 (错误码11232): {result.get('msg', '未知错误')}")
+                        return False
                     else:
                         self.logger.error(f"❌ 飞书消息发送失败: {result}")
                         return False
                 else:
                     self.logger.error(f"❌ 飞书 HTTP 请求失败: {response.status}")
                     return False
-                    
         except Exception as e:
-            self.logger.error(f"❌ 飞书消息发送异常: {e}")
+            self.logger.error(f"❌ 飞书消息发送请求异常: {e}")
             return False
     
     async def _send_wechat(self, message: str, priority: NotificationPriority) -> bool:

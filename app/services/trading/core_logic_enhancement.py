@@ -14,62 +14,12 @@ def generate_core_logic_explanation(
     final_confidence: float,
     weights: Dict[str, float]
 ) -> str:
-    """生成核心逻辑说明 - 完整版本，显示决策全过程"""
-    logic_parts = []
-    
-    # 权重分配说明
-    weight_desc = []
-    for method, weight in weights.items():
-        if weight > 0:
-            method_name = {
-                'kronos': 'Kronos AI',
-                'technical': '技术分析', 
-                'volume_price': '量价分析',
-                'ml': '机器学习'
-            }.get(method, method)
-            weight_desc.append(f"{method_name}({weight:.0%})")
-    
-    logic_parts.append(f"⚖️ 权重配置: {' + '.join(weight_desc)}")
-    
-    # 各模块结论
-    module_conclusions = []
-    for method, summary in analysis_summary.items():
-        method_name = {
-            'kronos': '🤖 Kronos',
-            'technical': '📊 技术',
-            'volume_price': '📈 量价',
-            'ml': '🧠 ML'
-        }.get(method, method)
-        
-        action = summary.get('action', '未知')
-        confidence = summary.get('confidence', 0)
-        module_conclusions.append(f"{method_name}: {action}({confidence:.1%})")
-    
-    logic_parts.append(f"📋 模块结论: {' | '.join(module_conclusions)}")
-    
-    # 决策过程
-    logic_parts.append(f"🎯 最终决策: {final_action} (综合置信度: {final_confidence:.1%})")
-    
-    # 决策依据
-    primary_basis = "技术分析主导" if weights.get('technical', 0) > 0.4 else "多模型平衡"
-    logic_parts.append(f"📌 决策依据: {primary_basis}，多重信号验证")
-    
-    # 信号一致性分析
-    actions = [summary.get('action', '') for summary in analysis_summary.values()]
-    unique_actions = set(actions)
-    if len(unique_actions) == 1:
-        consistency = "高度一致"
-    elif len(unique_actions) == 2:
-        consistency = "基本一致"
-    else:
-        consistency = "存在分歧"
-    
-    logic_parts.append(f"🔄 信号一致性: {consistency} | 综合评估: {final_action}建议")
-    
-    return " | ".join(logic_parts)
+    """生成核心逻辑说明 - 简化版本，去掉权重配置"""
+    # 直接返回空字符串，因为详细推理已经包含在 generate_enhanced_detailed_reasoning 中
+    return ""
 
 def generate_enhanced_detailed_reasoning(analysis_summary: Dict[str, Any], detailed_analysis: Dict[str, Any]) -> str:
-    """生成增强的详细推理 - 完整版本，不截断"""
+    """生成增强的详细推理 -"""
     reasoning_parts = []
     
     # Kronos AI 分析
@@ -77,7 +27,6 @@ def generate_enhanced_detailed_reasoning(analysis_summary: Dict[str, Any], detai
         kronos = analysis_summary['kronos']
         reasoning_parts.append(f"🤖 Kronos AI: {kronos['action']} (置信度: {kronos['confidence']:.1%})")
         if kronos.get('reasoning'):
-            # 显示完整推理，不截断
             full_reasoning = kronos['reasoning']
             reasoning_parts.append(f"└─ Kronos预测: {full_reasoning}")
     
@@ -111,16 +60,7 @@ def generate_enhanced_detailed_reasoning(analysis_summary: Dict[str, Any], detai
         if isinstance(vol_details, dict):
             if vol_details.get('volume_trend'):
                 reasoning_parts.append(f"└─ 成交量趋势: {vol_details.get('volume_trend', 'N/A')}")
-    
-    # ML 分析
-    if 'ml' in analysis_summary:
-        ml = analysis_summary['ml']
-        reasoning_parts.append(f"🧠 ML预测: {ml['action']} (置信度: {ml['confidence']:.1%})")
-        
-        # 添加ML细节
-        ml_details = detailed_analysis.get('ml', {})
-        if isinstance(ml_details, dict) and ml_details.get('reasoning'):
-            reasoning_parts.append(f"└─ ML推理: {ml_details.get('reasoning', 'N/A')}")
+
     
     return "\n".join(reasoning_parts)
 

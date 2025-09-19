@@ -1106,7 +1106,7 @@ class CoreTradingService:
                 final_action=final_action,
                 final_confidence=final_confidence,
                 signal_strength=SignalStrength.from_confidence(final_confidence),
-                reasoning=f"{detailed_reasoning}\n\n💡 核心逻辑: {core_logic_explanation}",  # 包含完整核心逻辑
+                reasoning=detailed_reasoning,  # 已包含完整的BTC核心逻辑
                 operation_advice=operation_advice,  # 新增详细操作建议
                 timestamp=datetime.now(),
                 current_price=current_price,
