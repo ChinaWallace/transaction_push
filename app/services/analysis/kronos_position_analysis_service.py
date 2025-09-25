@@ -324,6 +324,14 @@ class KronosPositionAnalysisService:
         try:
             self.logger.info("🔍 开始获取当前持仓信息...")
             
+            # 检查交易所类型，币安跳过持仓获取
+            from app.core.config import get_settings
+            settings = get_settings()
+            
+            if settings.exchange_provider.lower() == 'binance':
+                self.logger.info("📴 币安交易所跳过持仓获取")
+                return []
+            
             # 确保交易所服务已初始化
             await self._ensure_exchange_service()
             

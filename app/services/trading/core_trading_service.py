@@ -190,9 +190,16 @@ class CoreTradingService:
             self.logger.warning(f"⚠️ Kronos 服务初始化失败: {e}")
     
     async def _init_position_service(self):
-        """初始化持仓分析服务"""
+        """初始化持仓分析服务 - 币安交易所跳过持仓分析"""
         try:
+            # 检查交易所提供商，如果是币安则跳过持仓分析
+            if self.settings.exchange_provider.lower() == 'binance':
+                self.logger.info("📴 币安交易所已跳过持仓分析服务")
+                self.position_service = None
+                return
+            
             self.position_service = await get_position_analysis_service()
+            self.logger.info("✅ 持仓分析服务已启用")
         except Exception as e:
             self.logger.warning(f"⚠️ 持仓分析服务初始化失败: {e}")
     

@@ -27,7 +27,7 @@ class BinanceRegionHandler:
         self.api_endpoints = [
             {
                 'name': 'binance_main',
-                'base_url': 'https://fapi.binance.com',
+                'base_url': 'https://api.binance.com',
                 'description': '币安主网API（强制代理）',
                 'requires_proxy': True,  # 强制使用代理
                 'priority': 1
@@ -84,7 +84,7 @@ class BinanceRegionHandler:
     async def _test_endpoint(self, endpoint: Dict[str, Any]) -> bool:
         """测试单个端点的可用性"""
         try:
-            url = f"{endpoint['base_url']}/fapi/v1/ping"
+            url = f"{endpoint['base_url']}/api/v3/ping"
             
             # 配置请求参数
             kwargs = {

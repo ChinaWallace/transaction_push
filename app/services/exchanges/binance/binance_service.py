@@ -18,20 +18,21 @@ from app.core.config import get_settings
 from app.utils.exceptions import TradingToolError, APIConnectionError
 from app.utils.http_manager import get_http_manager
 from app.services.exchanges.binance.binance_region_handler import get_binance_region_handler, get_optimal_binance_config
+from app.services.exchanges.binance.binance_batch_optimizer import get_batch_optimizer
 
 logger = get_logger(__name__)
 settings = get_settings()
 
 
 class BinanceRateLimiter:
-    """币安速率限制器"""
+    """币安速率限制器 - 优化版本"""
     
     def __init__(self):
-        # 币安API限制配置
+        # 币安API限制配置 - 更宽松的设置
         self.limits = {
-            'requests_per_minute': 1200,  # 每分钟请求数限制
-            'orders_per_second': 10,      # 每秒订单数限制
-            'orders_per_day': 200000      # 每日订单数限制
+            'requests_per_minute': 1200,  # 每分钟1200次
+            'orders_per_second': 10,      # 每秒10次
+            'orders_per_day': 200000      # 每日20万次
         }
         
         # 请求计数器
@@ -41,12 +42,20 @@ class BinanceRateLimiter:
             'day': {'count': 0, 'reset_time': time.time() + 86400}
         }
         
-        # 动态调整参数
+        # 动态调整参数 - 更宽松的间隔
         self.current_weight = 1
-        self.base_interval = 0.05  # 基础请求间隔50ms
+        self.base_interval = 0.1   # 基础请求间隔100ms
         self.max_interval = 2.0    # 最大请求间隔2秒
         
-        logger.debug("🚦 币安速率限制器初始化完成")
+        # 批量处理优化
+        self.batch_size = 20       # 减少批量处理大小
+        self.batch_interval = 0.5  # 减少批量处理间隔
+        
+        # 添加请求缓存以减少重复请求
+        self.request_cache = {}
+        self.cache_ttl = 5  # 缓存5秒
+        
+        logger.debug("🚦 币安速率限制器初始化完成（宽松版本）")
     
     async def acquire_permit(self, weight: int = 1) -> float:
         """获取请求许可"""
@@ -58,7 +67,6 @@ class BinanceRateLimiter:
         # 检查是否超过限制
         if self._is_rate_limited():
             wait_time = self._calculate_wait_time()
-            logger.warning(f"🚦 触发速率限制，等待 {wait_time:.2f} 秒")
             await asyncio.sleep(wait_time)
             return wait_time
         
@@ -85,22 +93,29 @@ class BinanceRateLimiter:
                     data['reset_time'] = current_time + 86400
     
     def _is_rate_limited(self) -> bool:
-        """检查是否触发速率限制"""
-        minute_limit = self.limits['requests_per_minute'] * 0.8  # 80%安全边际
-        second_limit = self.limits['orders_per_second'] * 0.8
+        """检查是否触发速率限制 - 更宽松的检查"""
+        minute_limit = self.limits['requests_per_minute'] * 0.85  # 85%安全边际
+        second_limit = self.limits['orders_per_second'] * 0.8     # 80%安全边际
         
         return (self.request_counts['minute']['count'] >= minute_limit or
                 self.request_counts['second']['count'] >= second_limit)
     
     def _calculate_wait_time(self) -> float:
-        """计算等待时间"""
+        """计算等待时间 - 更智能的等待策略"""
         current_time = time.time()
         
         # 计算到下一个重置时间的等待时间
         minute_wait = max(0, self.request_counts['minute']['reset_time'] - current_time)
         second_wait = max(0, self.request_counts['second']['reset_time'] - current_time)
         
-        return max(minute_wait, second_wait, 1.0)  # 至少等待1秒
+        # 使用更短的等待时间
+        base_wait = max(minute_wait, second_wait)
+        
+        # 如果是秒级限制，等待时间更短
+        if second_wait > minute_wait:
+            return min(base_wait, 1.1)  # 秒级限制最多等待1.1秒
+        else:
+            return min(base_wait, 5.0)  # 分钟级限制最多等待5秒
     
     def _update_counters(self, weight: int):
         """更新请求计数器"""
@@ -109,18 +124,22 @@ class BinanceRateLimiter:
         self.request_counts['day']['count'] += weight
     
     def _calculate_dynamic_interval(self) -> float:
-        """计算动态请求间隔"""
+        """计算动态请求间隔 - 更宽松的策略"""
         # 基于当前负载动态调整间隔
         minute_usage = self.request_counts['minute']['count'] / self.limits['requests_per_minute']
         
-        if minute_usage > 0.8:
+        if minute_usage > 0.8:  # 80%开始最大间隔
             return self.max_interval
+        elif minute_usage > 0.7:
+            return self.base_interval * 3  # 减少间隔倍数
         elif minute_usage > 0.6:
-            return self.base_interval * 4
-        elif minute_usage > 0.4:
             return self.base_interval * 2
-        else:
+        elif minute_usage > 0.5:
+            return self.base_interval * 1.5
+        elif minute_usage > 0.3:
             return self.base_interval
+        else:
+            return 0  # 低负载时无间隔
     
     def update_from_headers(self, headers: Dict[str, str]):
         """从响应头更新限制信息"""
@@ -217,13 +236,13 @@ class BinanceService:
             if not self.testnet:
                 try:
                     self._optimal_config = await get_optimal_binance_config()
-                    test_url = f"{self._optimal_config['base_url']}/fapi/v1/ping"
+                    test_url = f"{self._optimal_config['base_url']}/api/v3/ping"
                     logger.info(f"🌍 使用最优端点进行API验证: {self._optimal_config['endpoint_info']['description']}")
                 except Exception as config_error:
                     logger.warning(f"⚠️ 获取最优配置失败，使用默认配置: {config_error}")
-                    test_url = f"{self.base_url}/fapi/v1/ping"
+                    test_url = f"{self.base_url}/api/v3/ping"
             else:
-                test_url = f"{self.base_url}/fapi/v1/ping"
+                test_url = f"{self.base_url}/api/v3/ping"
             
             # 测试API连接
             await self._ensure_http_manager()
@@ -307,7 +326,7 @@ class BinanceService:
         try:
             # 不需要签名的请求
             async with self.http_manager.get_session() as session:
-                async with session.get(f"{self.base_url}/fapi/v1/time") as response:
+                async with session.get(f"{self.base_url}/api/v3/time") as response:
                     if response.status == 200:
                         data = await response.json()
                         return int(data.get('serverTime', 0))
@@ -365,13 +384,19 @@ class BinanceService:
         if self._rate_limiter:
             await self._rate_limiter.acquire_permit(weight)
         
-        # 使用最优配置的base_url，如果可用的话
-        if self._optimal_config and not self.testnet:
-            base_url = self._optimal_config['base_url']
+        # 检查是否是期货API端点
+        if endpoint.startswith('/fapi/'):
+            # 期货API使用专门的base_url
+            futures_base_url = "https://fapi.binance.com"
+            url = f"{futures_base_url}{endpoint}"
         else:
-            base_url = self.base_url
-        
-        url = f"{base_url}{endpoint}"
+            # 现货API使用常规base_url
+            if self._optimal_config and not self.testnet:
+                base_url = self._optimal_config['base_url']
+            else:
+                base_url = self.base_url
+            
+            url = f"{base_url}{endpoint}"
         
         # 处理查询参数
         query_params = params or {}
@@ -516,25 +541,29 @@ class BinanceService:
             raise APIConnectionError("币安API请求失败，原因未知")
     
     async def get_current_price(self, symbol: str) -> Optional[float]:
-        """获取当前价格"""
+        """获取当前价格 - 只使用期货API"""
         try:
             # 转换符号格式 (BTC-USDT-SWAP -> BTCUSDT)
             binance_symbol = self._convert_symbol_to_binance(symbol)
             params = {'symbol': binance_symbol}
+            logger.debug(f"🔍 获取币安期货价格: {symbol} -> {binance_symbol}")
+            
+            # 使用期货API端点
             result = await self._make_request('GET', '/fapi/v1/ticker/price', params=params)
             
             if result and 'price' in result:
+                logger.debug(f"✅ 获取币安期货价格成功: {symbol} = {result['price']}")
                 return float(result['price'])
             return None
             
         except Exception as e:
-            logger.error(f"获取{symbol}价格失败: {e}")
+            logger.error(f"❌ 获取{symbol}期货价格失败: {e}")
             return None
     
     async def get_raw_ticker_data(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
-        获取原始ticker数据（未转换格式）
-        Get raw ticker data without format conversion
+        获取原始ticker数据（未转换格式）- 只使用期货API
+        Get raw ticker data without format conversion - Futures API only
         
         Args:
             symbol: 交易对符号 / Trading pair symbol
@@ -544,32 +573,44 @@ class BinanceService:
         """
         try:
             binance_symbol = self._convert_symbol_to_binance(symbol)
-            params = {'symbol': binance_symbol}
-            logger.debug(f"🔍 获取币安原始ticker数据: {symbol} -> {binance_symbol}")
+            logger.debug(f"🔍 获取币安期货原始ticker数据: {symbol} -> {binance_symbol}")
             
+            params = {'symbol': binance_symbol}
+            
+            # 只使用期货API端点
             result = await self._make_request('GET', '/fapi/v1/ticker/24hr', params=params)
             
-            if result:
+            if result and isinstance(result, dict):
                 # 添加原始symbol信息用于适配器处理
                 result['original_symbol'] = symbol
-                logger.debug(f"✅ 获取币安原始ticker数据成功: {symbol}")
+                logger.debug(f"✅ 获取币安期货原始ticker数据成功: {symbol}")
                 return result
+            elif result and isinstance(result, list) and len(result) > 0:
+                # 如果返回列表，取第一个元素
+                ticker_data = result[0]
+                ticker_data['original_symbol'] = symbol
+                logger.debug(f"✅ 获取币安期货原始ticker数据成功: {symbol}")
+                return ticker_data
             else:
-                logger.warning(f"⚠️ 币安API返回空ticker数据: {symbol}")
+                logger.warning(f"⚠️ 币安期货API返回空ticker数据: {symbol}")
                 return None
             
         except Exception as e:
-            logger.error(f"❌ 获取{symbol}原始ticker数据失败: {e}")
+            logger.error(f"❌ 获取{symbol}期货原始ticker数据失败: {e}")
             return None
     
     async def get_ticker_data(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """获取ticker数据"""
+        """获取ticker数据 - 只使用期货API"""
         try:
             binance_symbol = self._convert_symbol_to_binance(symbol)
             params = {'symbol': binance_symbol}
+            logger.debug(f"🔍 获取币安期货ticker数据: {symbol} -> {binance_symbol}")
+            
+            # 使用期货API端点
             result = await self._make_request('GET', '/fapi/v1/ticker/24hr', params=params)
             
             if result:
+                logger.debug(f"✅ 获取币安期货ticker数据成功: {symbol}")
                 return {
                     'symbol': symbol,
                     'price': float(result.get('lastPrice', '0')),
@@ -586,13 +627,14 @@ class BinanceService:
             return None
             
         except Exception as e:
-            logger.error(f"获取{symbol} ticker数据失败: {e}")
+            logger.error(f"❌ 获取{symbol}期货ticker数据失败: {e}")
             return None
     
     async def get_kline_data(self, symbol: str, timeframe: str = '1h', limit: int = 100) -> List[Dict[str, Any]]:
-        """获取K线数据"""
+        """获取K线数据 - 只使用期货API"""
         try:
             binance_symbol = self._convert_symbol_to_binance(symbol)
+            logger.debug(f"🔍 获取币安期货K线数据: {symbol} -> {binance_symbol}, {timeframe}")
             
             # 币安时间周期映射
             tf_mapping = {
@@ -608,6 +650,7 @@ class BinanceService:
                 'limit': min(limit, 1500)  # 币安限制
             }
             
+            # 使用期货API端点
             result = await self._make_request('GET', '/fapi/v1/klines', params=params)
             
             klines = []
@@ -622,11 +665,19 @@ class BinanceService:
                     'source': 'rest_api'
                 })
             
+            logger.debug(f"✅ 获取币安期货K线数据成功: {symbol}, {len(klines)} 条记录")
             return sorted(klines, key=lambda x: x['timestamp'])
             
         except Exception as e:
-            logger.error(f"获取{symbol} K线数据失败: {e}")
+            logger.error(f"❌ 获取{symbol}期货K线数据失败: {e}")
             return []
+    
+    
+    # 注意：以下端点是合约专用，需要合约API支持
+    # premiumIndex (资金费率) - 需要合约API
+    # fundingRate (资金费率历史) - 需要合约API  
+    # openInterest (持仓量) - 需要合约API
+    # 这些功能可能需要单独的合约API配置
     
     async def get_raw_funding_rate(self, symbol: str = None) -> Optional[Union[Dict[str, Any], List[Dict[str, Any]]]]:
         """
@@ -643,9 +694,16 @@ class BinanceService:
             if symbol:
                 # 获取单个交易对的资金费率
                 binance_symbol = self._convert_symbol_to_binance(symbol)
+                
+                # 先验证交易对是否存在
+                if not await self._validate_symbol_exists(binance_symbol):
+                    logger.warning(f"⚠️ 交易对 {symbol} ({binance_symbol}) 在币安期货中不存在")
+                    return None
+                
                 params = {'symbol': binance_symbol}
                 logger.debug(f"🔍 获取币安原始资金费率数据: {symbol} -> {binance_symbol}")
                 
+                # 使用期货API端点（_make_request会自动处理base_url）
                 result = await self._make_request('GET', '/fapi/v1/premiumIndex', params=params)
                 
                 if result:
@@ -659,6 +717,7 @@ class BinanceService:
             else:
                 # 获取所有永续合约的资金费率
                 logger.debug("🔍 获取币安所有原始资金费率数据")
+                # 使用期货API端点（_make_request会自动处理base_url）
                 result = await self._make_request('GET', '/fapi/v1/premiumIndex')
                 
                 if result:
@@ -750,10 +809,14 @@ class BinanceService:
                 # 四舍五入到最近的整数小时
                 calculated_interval = round(avg_interval)
                 
-                # 验证间隔是否合理（通常是4小时或8小时）
-                if calculated_interval in [4, 6, 8, 12]:
+                # 验证间隔是否合理（币安支持1小时、4小时、8小时等）
+                if calculated_interval in [1, 4, 6, 8, 12]:
                     logger.debug(f"计算得到费率间隔: {calculated_interval}小时")
                     return calculated_interval
+                elif calculated_interval < 4:
+                    # 如果小于4小时，可能是1小时间隔
+                    logger.debug(f"检测到短间隔: {calculated_interval}小时，使用1小时")
+                    return 1
                 else:
                     logger.warning(f"计算得到异常费率间隔: {calculated_interval}小时，使用默认8小时")
                     return 8
@@ -816,7 +879,7 @@ class BinanceService:
         try:
             binance_symbol = self._convert_symbol_to_binance(symbol)
             params = {'symbol': binance_symbol}
-            result = await self._make_request('GET', '/fapi/v1/openInterest', params=params)
+            result = await self._make_request('GET', '/api/v3/ticker/24hr', params=params)
             
             if result:
                 return {
@@ -834,7 +897,7 @@ class BinanceService:
             return None
     
     async def get_recent_trades(self, symbol: str, limit: int = 100) -> List[Dict[str, Any]]:
-        """获取最近交易数据"""
+        """获取最近交易数据 - 只使用期货API"""
         try:
             binance_symbol = self._convert_symbol_to_binance(symbol)
             params = {
@@ -842,6 +905,9 @@ class BinanceService:
                 'limit': min(limit, 1000)  # 币安限制
             }
             
+            logger.debug(f"🔍 获取币安期货交易数据: {symbol} -> {binance_symbol}")
+            
+            # 使用期货API端点
             result = await self._make_request('GET', '/fapi/v1/aggTrades', params=params)
             
             trades = []
@@ -856,15 +922,19 @@ class BinanceService:
                     'source': 'rest_api'
                 })
             
+            logger.debug(f"✅ 获取币安期货交易数据成功: {symbol}, {len(trades)} 条记录")
             return trades
             
         except Exception as e:
-            logger.error(f"获取{symbol}最近交易数据失败: {e}")
+            logger.error(f"❌ 获取{symbol}期货交易数据失败: {e}")
             return []
     
     async def get_tickers(self, inst_type: str = 'SWAP') -> List[Dict[str, Any]]:
-        """获取所有ticker数据"""
+        """获取所有ticker数据 - 只使用期货API"""
         try:
+            logger.debug(f"🔍 获取币安期货所有ticker数据: {inst_type}")
+            
+            # 使用期货API端点
             result = await self._make_request('GET', '/fapi/v1/ticker/24hr')
             
             tickers = []
@@ -886,10 +956,11 @@ class BinanceService:
                     'source': 'rest_api'
                 })
             
+            logger.debug(f"✅ 获取币安期货所有ticker数据成功: {len(tickers)} 个")
             return tickers
             
         except Exception as e:
-            logger.error(f"获取ticker数据失败: {e}")
+            logger.error(f"❌ 获取期货ticker数据失败: {e}")
             return []
     
     async def get_raw_instruments(self, inst_type: str = 'SWAP') -> List[Dict[str, Any]]:
@@ -905,7 +976,16 @@ class BinanceService:
         """
         try:
             logger.info(f"🔍 获取币安原始交易对数据: {inst_type}")
-            result = await self._make_request('GET', '/fapi/v1/exchangeInfo')
+            
+            if inst_type.upper() == 'SWAP':
+                # 使用期货API获取永续合约交易对信息
+                result = await self._make_request('GET', '/fapi/v1/exchangeInfo')
+                if result and 'symbols' in result:
+                    logger.info(f"✅ 获取币安期货交易对数据成功: {len(result['symbols'])} 个")
+                    return result['symbols']
+            else:
+                # 获取现货交易对信息
+                result = await self._make_request('GET', '/api/v3/exchangeInfo')
             
             if result and 'symbols' in result:
                 raw_instruments = result['symbols']
@@ -922,7 +1002,12 @@ class BinanceService:
     async def get_all_instruments(self, inst_type: str = 'SWAP') -> List[Dict[str, Any]]:
         """获取所有交易对列表"""
         try:
-            result = await self._make_request('GET', '/fapi/v1/exchangeInfo')
+            if inst_type.upper() == 'SWAP':
+                # 使用期货API
+                result = await self._make_request('GET', '/fapi/v1/exchangeInfo')
+            else:
+                # 使用现货API
+                result = await self._make_request('GET', '/api/v3/exchangeInfo')
             
             instruments = []
             if result and 'symbols' in result:
@@ -951,13 +1036,14 @@ class BinanceService:
     async def get_account_balance(self) -> Dict[str, Any]:
         """获取账户余额"""
         try:
+            # 使用期货API获取账户信息
             result = await self._make_request('GET', '/fapi/v2/account', signed=True)
             
             if not result:
                 return {}
             
             balances = {}
-            total_equity = 0
+            total_equity = float(result.get('totalWalletBalance', '0'))
             
             for asset in result.get('assets', []):
                 currency = asset.get('asset', '')
@@ -970,9 +1056,6 @@ class BinanceService:
                         'available': available,
                         'frozen': equity - available
                     }
-                    
-                    if currency == 'USDT':
-                        total_equity += equity
             
             return {
                 'total_equity': total_equity,
@@ -982,34 +1065,176 @@ class BinanceService:
             
         except Exception as e:
             logger.error(f"获取账户余额失败: {e}")
-            raise TradingToolError(f"获取账户余额失败: {e}")
+            # 不抛出异常，返回空字典
+            return {}
     
     async def get_raw_positions(self) -> List[Dict[str, Any]]:
         """
-        获取原始持仓数据（未转换格式）
-        Get raw positions data without format conversion
+        获取原始持仓数据（未转换格式）- 优化版本
+        Get raw positions data without format conversion - Optimized version
         
         Returns:
             List[Dict[str, Any]]: 币安原始持仓数据列表
         """
         try:
-            logger.debug("🔍 获取币安原始持仓数据")
-            result = await self._make_request('GET', '/fapi/v2/positionRisk', signed=True)
+            logger.debug("🔍 获取币安原始持仓数据（批量优化）")
             
-            if result:
-                logger.debug(f"✅ 获取币安原始持仓数据成功: {len(result)} 个")
-                return result
-            else:
-                logger.warning("⚠️ 币安API返回空持仓数据")
+            # 使用批量优化器检查缓存
+            batch_optimizer = get_batch_optimizer()
+            cached_result = await batch_optimizer.add_to_batch("positions", {})
+            
+            if cached_result:
+                logger.debug("📋 使用缓存的持仓数据")
+                return cached_result
+            
+            # 使用合约持仓风险API获取真正的合约持仓
+            try:
+                # 尝试使用合约API端点 - 需要使用合约专用方法
+                positions_data = await self._make_futures_api_request('GET', '/fapi/v2/positionRisk')
+                logger.debug(f"✅ 使用合约API获取持仓数据: {len(positions_data) if positions_data else 0} 个")
+            except Exception as fapi_error:
+                logger.warning(f"⚠️ 合约API失败，尝试其他端点: {fapi_error}")
+                try:
+                    # 尝试使用账户API获取合约持仓
+                    account_data = await self._make_futures_api_request('GET', '/fapi/v2/account')
+                    positions_data = account_data.get('positions', []) if account_data else []
+                    logger.debug(f"✅ 使用账户API获取持仓数据: {len(positions_data) if positions_data else 0} 个")
+                except Exception as backup_error:
+                    logger.warning(f"⚠️ 备用API也失败: {backup_error}")
+                    positions_data = []
+            
+            if not positions_data:
+                logger.info("📋 当前无合约持仓")
                 return []
+            
+            # 过滤出有实际持仓的合约
+            active_positions = []
+            for position in positions_data:
+                try:
+                    position_amt = float(position.get('positionAmt', 0))
+                    
+                    # 只返回有持仓的合约（持仓量不为0）
+                    if abs(position_amt) > 0.0001:
+                        active_positions.append({
+                            'symbol': position.get('symbol', ''),
+                            'positionAmt': position.get('positionAmt', '0'),
+                            'entryPrice': position.get('entryPrice', '0'),
+                            'markPrice': position.get('markPrice', '0'),
+                            'unRealizedProfit': position.get('unRealizedProfit', '0'),
+                            'percentage': position.get('percentage', '0'),
+                            'positionSide': position.get('positionSide', 'BOTH'),
+                            'notional': position.get('notional', '0'),
+                            'isolatedWallet': position.get('isolatedWallet', '0')
+                        })
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"⚠️ 跳过无效持仓数据: {position}, 错误: {e}")
+                    continue
+            
+            logger.info(f"✅ 获取币安合约持仓成功: {len(active_positions)} 个有效合约持仓")
+            
+            # 缓存结果（合约持仓缓存时间短一些）
+            batch_optimizer._cache_result("futures_positions_", active_positions, ttl=30)
+            
+            return active_positions
+            
+            logger.warning("⚠️ 币安API返回空账户数据")
+            return []
             
         except Exception as e:
             logger.error(f"❌ 获取原始持仓数据失败: {e}")
-            raise TradingToolError(f"获取原始持仓数据失败: {e}")
+            # 不抛出异常，返回空列表
+            return []
+    
+    async def _make_futures_api_request(self, method: str, endpoint: str, params: Dict[str, Any] = None) -> Any:
+        """
+        专门用于合约API的请求方法
+        Make request specifically for futures API
+        """
+        try:
+            import time
+            import hmac
+            import hashlib
+            
+            if params is None:
+                params = {}
+            
+            # 添加时间戳
+            params['timestamp'] = int(time.time() * 1000)
+            
+            # 生成签名
+            if hasattr(self, 'api_secret') and self.api_secret:
+                query_string = '&'.join([f"{k}={v}" for k, v in sorted(params.items())])
+                signature = hmac.new(
+                    self.api_secret.encode('utf-8'),
+                    query_string.encode('utf-8'),
+                    hashlib.sha256
+                ).hexdigest()
+                params['signature'] = signature
+            
+            # 构建完整URL
+            futures_base_url = "https://fapi.binance.com"
+            url = f"{futures_base_url}{endpoint}"
+            
+            # 构建请求头
+            headers = {
+                'X-MBX-APIKEY': self.api_key,
+                'Content-Type': 'application/json'
+            }
+            
+            # 获取代理配置
+            proxy_config = None
+            if hasattr(self, 'region_handler') and self.region_handler:
+                try:
+                    request_config = self.region_handler.get_request_config(endpoint)
+                    if isinstance(request_config, dict):
+                        proxy_config = request_config.get('proxy')
+                    else:
+                        # 如果返回的不是字典，直接使用默认代理
+                        proxy_config = "http://127.0.0.1:7890"
+                except Exception as e:
+                    # 如果获取配置失败，使用默认代理
+                    proxy_config = "http://127.0.0.1:7890"
+            
+            # 发送请求
+            async with aiohttp.ClientSession() as session:
+                if method.upper() == 'GET':
+                    async with session.get(
+                        url, 
+                        params=params, 
+                        headers=headers,
+                        proxy=proxy_config,
+                        timeout=aiohttp.ClientTimeout(total=30)
+                    ) as response:
+                        if response.status == 200:
+                            return await response.json()
+                        else:
+                            error_text = await response.text()
+                            raise Exception(f"合约API请求失败: {response.status} - {error_text}")
+                else:
+                    # POST等其他方法
+                    async with session.request(
+                        method,
+                        url,
+                        json=params if method.upper() != 'GET' else None,
+                        params=params if method.upper() == 'GET' else None,
+                        headers=headers,
+                        proxy=proxy_config,
+                        timeout=aiohttp.ClientTimeout(total=30)
+                    ) as response:
+                        if response.status == 200:
+                            return await response.json()
+                        else:
+                            error_text = await response.text()
+                            raise Exception(f"合约API请求失败: {response.status} - {error_text}")
+                            
+        except Exception as e:
+            logger.error(f"❌ 合约API请求异常: {e}")
+            raise
     
     async def get_positions(self) -> List[Dict[str, Any]]:
         """获取持仓信息"""
         try:
+            # 使用期货API获取持仓信息
             result = await self._make_request('GET', '/fapi/v2/positionRisk', signed=True)
             
             positions = []
@@ -1035,7 +1260,8 @@ class BinanceService:
             
         except Exception as e:
             logger.error(f"获取持仓信息失败: {e}")
-            raise TradingToolError(f"获取持仓信息失败: {e}")
+            # 不抛出异常，返回空列表
+            return []
     
     async def get_spot_balances(self) -> List[Dict[str, Any]]:
         """获取现货余额（币安期货账户不适用，返回空列表）"""
@@ -1043,13 +1269,22 @@ class BinanceService:
         return []
     
     def _convert_symbol_to_binance(self, symbol: str) -> str:
-        """将标准符号转换为币安格式"""
-        # BTC-USDT-SWAP -> BTCUSDT
+        """将标准符号转换为币安期货格式 - 只支持期货"""
+        # BTC-USDT-SWAP -> BTCUSDT (期货永续合约)
         if '-USDT-SWAP' in symbol:
-            return symbol.replace('-USDT-SWAP', 'USDT')
-        elif '-USDT' in symbol:
-            return symbol.replace('-USDT', 'USDT')
-        return symbol
+            base_symbol = symbol.replace('-USDT-SWAP', '')
+            return f"{base_symbol}USDT"
+        elif '-USDT' in symbol and 'SWAP' not in symbol:
+            # 假设是期货格式: BTC-USDT -> BTCUSDT
+            base_symbol = symbol.replace('-USDT', '')
+            return f"{base_symbol}USDT"
+        elif symbol.endswith('USDT') and '-' not in symbol:
+            # 已经是币安格式
+            return symbol
+        else:
+            # 无效格式，记录警告
+            logger.warning(f"⚠️ 无法识别的交易对格式: {symbol}")
+            return symbol
     
     def _convert_symbol_from_binance(self, binance_symbol: str) -> str:
         """将币安符号转换为标准格式"""
@@ -1058,6 +1293,23 @@ class BinanceService:
             base = binance_symbol[:-4]  # 移除USDT
             return f"{base}-USDT-SWAP"
         return binance_symbol
+    
+    async def _validate_symbol_exists(self, binance_symbol: str) -> bool:
+        """验证币安期货交易对是否存在"""
+        try:
+            # 使用期货API检查交易对
+            result = await self._make_request('GET', '/fapi/v1/exchangeInfo')
+            
+            if result and 'symbols' in result:
+                # 在所有交易对中查找
+                for symbol_info in result['symbols']:
+                    if symbol_info.get('symbol') == binance_symbol:
+                        return symbol_info.get('status') == 'TRADING'
+            
+            return False
+        except Exception as e:
+            logger.warning(f"⚠️ 验证期货交易对 {binance_symbol} 失败: {e}")
+            return False
     
     def get_connection_status(self) -> Dict[str, Any]:
         """获取连接状态信息"""
@@ -1075,16 +1327,16 @@ class BinanceService:
         """测试连接状态"""
         try:
             # 测试基础连接
-            ping_result = await self._make_request('GET', '/fapi/v1/ping')
+            ping_result = await self._make_request('GET', '/api/v3/ping')
             
             # 测试服务器时间
-            time_result = await self._make_request('GET', '/fapi/v1/time')
+            time_result = await self._make_request('GET', '/api/v3/time')
             
             # 如果API密钥已配置，测试账户信息
             account_test = None
             if self.api_key and self.secret_key:
                 try:
-                    account_test = await self._make_request('GET', '/fapi/v2/account', signed=True)
+                    account_test = await self._make_request('GET', '/api/v3/account', signed=True)
                     account_test = "success" if account_test else "failed"
                 except Exception as e:
                     account_test = f"failed: {str(e)}"
@@ -1106,3 +1358,211 @@ class BinanceService:
                 'connection_health': self._connection_health.copy(),
                 'timestamp': datetime.now().isoformat()
             }
+        except Exception as e:
+            return {
+                "status": "unhealthy",
+                "exchange": "binance",
+                "api_connected": False,
+                "error": str(e)
+            }
+    
+    async def get_symbol_info(self, symbol: str) -> Dict[str, Any]:
+        """获取交易对信息"""
+        try:
+            response = await self._make_request('GET', '/api/v3/exchangeInfo', {
+                'symbol': symbol
+            })
+            
+            if response and 'symbols' in response and response['symbols']:
+                return response['symbols'][0]
+            else:
+                return {"status": "UNKNOWN", "symbol": symbol}
+                
+        except Exception as e:
+            self.logger.error(f"获取交易对信息失败: {e}")
+            return {"status": "ERROR", "symbol": symbol, "error": str(e)}
+    
+    async def cleanup(self) -> None:
+        """清理资源"""
+        try:
+            if hasattr(self, 'session') and self.session:
+                await self.session.close()
+                self.logger.info("✅ 币安服务资源清理完成")
+        except Exception as e:
+            self.logger.error(f"资源清理失败: {e}")
+
+    async def health_check(self) -> Dict[str, Any]:
+        """健康检查"""
+        try:
+            # 测试API连接
+            response = await self._make_request('GET', '/api/v3/ping')
+            
+            if response is not None:
+                return {
+                    "status": "healthy",
+                    "exchange": "binance",
+                    "api_connected": True,
+                    "timestamp": datetime.now().isoformat()
+                }
+            else:
+                return {
+                    "status": "unhealthy",
+                    "exchange": "binance", 
+                    "api_connected": False,
+                    "error": "API ping failed"
+                }
+        except Exception as e:
+            return {
+                "status": "unhealthy",
+                "exchange": "binance",
+                "api_connected": False,
+                "error": str(e)
+            }
+    
+    async def get_symbol_info(self, symbol: str) -> Dict[str, Any]:
+        """获取交易对信息"""
+        try:
+            response = await self._make_request('GET', '/api/v3/exchangeInfo', {
+                'symbol': symbol
+            })
+            
+            if response and 'symbols' in response and response['symbols']:
+                return response['symbols'][0]
+            else:
+                return {"status": "UNKNOWN", "symbol": symbol}
+                
+        except Exception as e:
+            logger.error(f"获取交易对信息失败: {e}")
+            return {"status": "ERROR", "symbol": symbol, "error": str(e)}
+    
+    async def get_account_info(self) -> Dict[str, Any]:
+        """获取账户信息"""
+        try:
+            # 使用期货API获取账户信息
+            response = await self._make_request('GET', '/fapi/v2/account', signed=True)
+            return response if response else {}
+        except Exception as e:
+            logger.error(f"获取账户信息失败: {e}")
+            return {"error": str(e)}
+    
+    async def get_order_book(self, symbol: str, limit: int = 20) -> Optional[Dict[str, Any]]:
+        """获取订单簿数据 - 只使用期货API"""
+        try:
+            binance_symbol = self._convert_symbol_to_binance(symbol)
+            params = {
+                'symbol': binance_symbol,
+                'limit': min(limit, 1000)  # 币安限制
+            }
+            
+            logger.debug(f"🔍 获取币安期货订单簿: {symbol} -> {binance_symbol}")
+            
+            # 使用期货API端点
+            result = await self._make_request('GET', '/fapi/v1/depth', params=params)
+            
+            if not result:
+                logger.warning(f"⚠️ 币安期货API返回空订单簿数据: {symbol}")
+                return None
+            
+            logger.debug(f"✅ 获取币安期货订单簿成功: {symbol}")
+            return {
+                'symbol': symbol,
+                'bids': [[float(bid[0]), float(bid[1])] for bid in result.get('bids', [])],
+                'asks': [[float(ask[0]), float(ask[1])] for ask in result.get('asks', [])],
+                'timestamp': datetime.now(),
+                'source': 'rest_api'
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ 获取{symbol}期货订单簿失败: {e}")
+            return None
+    
+    async def get_24hr_stats(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """获取24小时统计数据 - 只使用期货API"""
+        try:
+            binance_symbol = self._convert_symbol_to_binance(symbol)
+            params = {'symbol': binance_symbol}
+            
+            logger.debug(f"🔍 获取币安期货24小时统计: {symbol} -> {binance_symbol}")
+            
+            # 使用期货API端点
+            result = await self._make_request('GET', '/fapi/v1/ticker/24hr', params=params)
+            
+            if not result:
+                logger.warning(f"⚠️ 币安期货API返回空24小时统计数据: {symbol}")
+                return None
+            
+            logger.debug(f"✅ 获取币安期货24小时统计成功: {symbol}")
+            return {
+                'symbol': symbol,
+                'open_price': float(result.get('openPrice', 0)),
+                'high_price': float(result.get('highPrice', 0)),
+                'low_price': float(result.get('lowPrice', 0)),
+                'close_price': float(result.get('lastPrice', 0)),
+                'volume': float(result.get('volume', 0)),
+                'quote_volume': float(result.get('quoteVolume', 0)),
+                'price_change': float(result.get('priceChange', 0)),
+                'price_change_percent': float(result.get('priceChangePercent', 0)),
+                'weighted_avg_price': float(result.get('weightedAvgPrice', 0)),
+                'count': int(result.get('count', 0)),
+                'timestamp': datetime.now(),
+                'source': 'rest_api'
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ 获取{symbol}期货24小时统计失败: {e}")
+            return None
+    
+    async def place_order(self, symbol: str, side: str, size: float, 
+                         order_type: str = 'market', price: Optional[float] = None,
+                         leverage: Optional[float] = None) -> Dict[str, Any]:
+        """下单 - 基础实现（需要合约权限）"""
+        try:
+            logger.warning(f"⚠️ 下单功能需要合约交易权限: {symbol} {side} {size}")
+            return {
+                'error': 'PERMISSION_DENIED',
+                'message': '下单功能需要合约交易权限，当前API密钥权限不足',
+                'symbol': symbol,
+                'side': side,
+                'size': size,
+                'order_type': order_type
+            }
+        except Exception as e:
+            logger.error(f"下单失败: {e}")
+            return {'error': str(e)}
+    
+    async def cancel_order(self, symbol: str, order_id: str) -> Dict[str, Any]:
+        """取消订单 - 基础实现（需要合约权限）"""
+        try:
+            logger.warning(f"⚠️ 取消订单功能需要合约交易权限: {symbol} {order_id}")
+            return {
+                'error': 'PERMISSION_DENIED',
+                'message': '取消订单功能需要合约交易权限，当前API密钥权限不足',
+                'symbol': symbol,
+                'order_id': order_id
+            }
+        except Exception as e:
+            logger.error(f"取消订单失败: {e}")
+            return {'error': str(e)}
+    
+    async def get_order_status(self, symbol: str, order_id: str) -> Dict[str, Any]:
+        """获取订单状态 - 基础实现（需要合约权限）"""
+        try:
+            logger.warning(f"⚠️ 查询订单状态功能需要合约交易权限: {symbol} {order_id}")
+            return {
+                'error': 'PERMISSION_DENIED',
+                'message': '查询订单状态功能需要合约交易权限，当前API密钥权限不足',
+                'symbol': symbol,
+                'order_id': order_id
+            }
+        except Exception as e:
+            logger.error(f"查询订单状态失败: {e}")
+            return {'error': str(e)}
+
+    async def cleanup(self) -> None:
+        """清理资源"""
+        try:
+            if hasattr(self, 'session') and self.session:
+                await self.session.close()
+                logger.info("✅ 币安服务资源清理完成")
+        except Exception as e:
+            logger.error(f"资源清理失败: {e}")

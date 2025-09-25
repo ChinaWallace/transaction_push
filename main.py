@@ -835,48 +835,58 @@ async def lifespan(app: FastAPI):
         # 将服务存储到应用状态
         app.state.tradingview_scheduler_service = tradingview_scheduler_service
         
-        # 添加Kronos持仓分析定时任务
+        # 添加Kronos持仓分析定时任务 - 币安交易所跳过
         if settings.kronos_config.get('enable_kronos_prediction', False):
-            from app.services.analysis.kronos_position_analysis_service import get_kronos_position_service
-            
-            # 使用全局单例实例，确保状态一致
-            kronos_position_service = await get_kronos_position_service()
-            
-            # 启动时立即执行一次Kronos持仓分析
-            try:
-                logger.info("🤖 启动时立即执行Kronos持仓分析...")
-                startup_position_result = await kronos_position_service.run_startup_analysis()
-                app.state.startup_position_analysis = startup_position_result
-                
-                if startup_position_result.get("status") == "success":
-                    positions_count = startup_position_result.get("positions_analyzed", 0)
-                    logger.info(f"✅ 启动Kronos持仓分析完成: 分析了 {positions_count} 个持仓")
-                elif startup_position_result.get("status") == "no_positions":
-                    logger.info("📊 当前无持仓，跳过Kronos持仓分析")
-                else:
-                    logger.warning(f"⚠️ 启动Kronos持仓分析异常: {startup_position_result.get('reason', '未知')}")
-            except Exception as e:
-                logger.warning(f"⚠️ 启动Kronos持仓分析失败: {e}")
-                app.state.startup_position_analysis = {"status": "error", "error": str(e)}
-            
-            # 检查是否已经存在相同的定时任务，避免重复添加
-            existing_job = scheduler.get_job('kronos_position_analysis')
-            if existing_job:
-                logger.warning("⚠️ Kronos持仓分析任务已存在，跳过重复添加")
+            # 检查交易所类型，币安跳过持仓分析
+            if settings.exchange_provider.lower() == 'binance':
+                logger.info("📴 币安交易所跳过Kronos持仓分析功能")
+                app.state.startup_position_analysis = {
+                    "status": "skipped", 
+                    "message": "币安交易所暂不支持持仓分析",
+                    "exchange_provider": "binance"
+                }
+                app.state.kronos_position_service = None
             else:
-                # 每60分钟执行一次Kronos持仓分析和推送
-                scheduler.add_job(
-                    kronos_position_service.run_scheduled_analysis,
-                    'interval',
-                    minutes=60,
-                    id='kronos_position_analysis',
-                    name='Kronos持仓分析和风险评估',
-                    max_instances=1  # 确保同时只有一个实例运行
-                )
-                logger.info("✅ Kronos持仓分析定时任务已启动 (每60分钟)")
-            
-            # 将服务存储到应用状态
-            app.state.kronos_position_service = kronos_position_service
+                from app.services.analysis.kronos_position_analysis_service import get_kronos_position_service
+                
+                # 使用全局单例实例，确保状态一致
+                kronos_position_service = await get_kronos_position_service()
+                
+                # 启动时立即执行一次Kronos持仓分析
+                try:
+                    logger.info("🤖 启动时立即执行Kronos持仓分析...")
+                    startup_position_result = await kronos_position_service.run_startup_analysis()
+                    app.state.startup_position_analysis = startup_position_result
+                    
+                    if startup_position_result.get("status") == "success":
+                        positions_count = startup_position_result.get("positions_analyzed", 0)
+                        logger.info(f"✅ 启动Kronos持仓分析完成: 分析了 {positions_count} 个持仓")
+                    elif startup_position_result.get("status") == "no_positions":
+                        logger.info("📊 当前无持仓，跳过Kronos持仓分析")
+                    else:
+                        logger.warning(f"⚠️ 启动Kronos持仓分析异常: {startup_position_result.get('reason', '未知')}")
+                except Exception as e:
+                    logger.warning(f"⚠️ 启动Kronos持仓分析失败: {e}")
+                    app.state.startup_position_analysis = {"status": "error", "error": str(e)}
+                
+                # 检查是否已经存在相同的定时任务，避免重复添加
+                existing_job = scheduler.get_job('kronos_position_analysis')
+                if existing_job:
+                    logger.warning("⚠️ Kronos持仓分析任务已存在，跳过重复添加")
+                else:
+                    # 每60分钟执行一次Kronos持仓分析和推送
+                    scheduler.add_job(
+                        kronos_position_service.run_scheduled_analysis,
+                        'interval',
+                        minutes=60,
+                        id='kronos_position_analysis',
+                        name='Kronos持仓分析和风险评估',
+                        max_instances=1  # 确保同时只有一个实例运行
+                    )
+                    logger.info("✅ Kronos持仓分析定时任务已启动 (每60分钟)")
+                
+                # 将服务存储到应用状态
+                app.state.kronos_position_service = kronos_position_service
         
         # 🚀 启动时按优先级顺序执行分析任务 - 核心币种操作建议优先
         logger.info("🚀 开始按优先级顺序执行启动分析任务...")
@@ -1644,6 +1654,15 @@ def create_app() -> FastAPI:
     async def get_kronos_position_analysis():
         """获取基于Kronos预测的持仓分析报告"""
         try:
+            # 检查交易所类型，币安跳过持仓分析
+            if settings.exchange_provider.lower() == 'binance':
+                return {
+                    "status": "skipped",
+                    "message": "币安交易所暂不支持持仓分析功能",
+                    "exchange_provider": "binance",
+                    "timestamp": datetime.now().isoformat()
+                }
+            
             from app.services.ml.kronos_integrated_decision_service import get_kronos_integrated_service
             
             kronos_service = await get_kronos_integrated_service()
@@ -1682,6 +1701,15 @@ def create_app() -> FastAPI:
     async def get_kronos_live_position_analysis():
         """获取基于实际持仓的Kronos分析报告"""
         try:
+            # 检查交易所类型，币安跳过持仓分析
+            if settings.exchange_provider.lower() == 'binance':
+                return {
+                    "status": "skipped",
+                    "message": "币安交易所暂不支持实时持仓分析功能",
+                    "exchange_provider": "binance",
+                    "timestamp": datetime.now().isoformat()
+                }
+            
             from app.services.analysis.kronos_position_analysis_service import get_kronos_position_service
             
             kronos_position_service = await get_kronos_position_service()

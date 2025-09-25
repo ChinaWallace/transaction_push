@@ -197,7 +197,7 @@ class BinanceDataConverter:
             
             return FundingRateData(
                 symbol=standard_symbol,
-                funding_rate=Decimal(str(binance_data.get('lastFundingRate', binance_data.get('r', '0')))),
+                funding_rate=Decimal(str(binance_data.get('lastFundingRate', binance_data.get('fundingRate', '0')))),
                 next_funding_time=next_funding_time,
                 timestamp=timestamp,
                 source=ExchangeType.BINANCE,

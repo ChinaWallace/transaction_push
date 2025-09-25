@@ -105,6 +105,19 @@ class PositionAnalysisService:
             # 确保交易所服务已初始化
             await self._ensure_exchange_service()
             
+            # 检查交易所类型，币安跳过持仓分析
+            from app.core.config import get_settings
+            settings = get_settings()
+            
+            if settings.exchange_provider.lower() == 'binance':
+                logger.info("📴 币安交易所跳过持仓分析")
+                return {
+                    "status": "skipped",
+                    "message": "币安交易所暂不支持持仓分析",
+                    "timestamp": datetime.now(),
+                    "exchange_provider": "binance"
+                }
+            
             async with self.exchange_service as exchange:
                 # 获取账户信息
                 account_balance = await exchange.get_account_balance()

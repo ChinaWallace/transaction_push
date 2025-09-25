@@ -7,7 +7,7 @@ Binance WebSocket Service - Fixed Version with Proxy Support
 import asyncio
 import json
 import time
-from typing import Dict, Any, List, Optional, Callable, Set, Union
+from typing import Dict, Any, List, Optional, Callable, Set
 from datetime import datetime
 from dataclasses import dataclass
 from enum import Enum
@@ -39,7 +39,7 @@ class SubscriptionInfo:
     """订阅信息"""
     stream: str
     symbol: str
-    callback: Optional[Callable[..., Any]] = None
+    callback: Optional[Callable] = None
     last_update: Optional[datetime] = None
 
 
@@ -62,7 +62,6 @@ class BinanceWebSocketService:
         self.ws_connections: Dict[str, Any] = {}
         self.connection_states: Dict[str, str] = {}
         self.is_running = False
-        self.is_connected = False  # 添加缺失的属性
         self.reconnect_interval = 5
         self.max_reconnect_attempts = 10
         
@@ -78,7 +77,7 @@ class BinanceWebSocketService:
         
         # 订阅管理
         self.subscriptions: Dict[str, SubscriptionInfo] = {}
-        self.callbacks: Dict[str, List[Callable[..., Any]]] = {}
+        self.callbacks: Dict[str, List[Callable]] = {}
         self.subscribed_streams: Set[str] = set()
         
         # 数据缓存
@@ -92,7 +91,7 @@ class BinanceWebSocketService:
         self.heartbeat_timeout = 120
         
         # 后台任务
-        self.background_tasks: List[asyncio.Task[Any]] = []
+        self.background_tasks: List[asyncio.Task] = []
         
         # 错误统计
         self.error_stats = {
@@ -115,7 +114,6 @@ class BinanceWebSocketService:
         
         logger.info("🚀 启动币安WebSocket服务")
         self.is_running = True
-        self.is_connected = False  # 初始化连接状态
         
         try:
             # 创建HTTP会话
@@ -171,7 +169,6 @@ class BinanceWebSocketService:
         
         logger.info("🛑 停止币安WebSocket服务")
         self.is_running = False
-        self.is_connected = False
         
         # 取消后台任务
         for task in self.background_tasks:
@@ -207,7 +204,7 @@ class BinanceWebSocketService:
         
         logger.info("✅ 币安WebSocket服务已停止")
     
-    async def subscribe_ticker(self, symbol: str, callback: Optional[Callable[..., Any]] = None) -> bool:
+    async def subscribe_ticker(self, symbol: str, callback: Optional[Callable] = None) -> bool:
         """订阅价格数据"""
         try:
             stream_name = f"{symbol.lower()}@ticker"
@@ -244,47 +241,6 @@ class BinanceWebSocketService:
             logger.error(f"❌ 订阅ticker异常: {e}")
             return False
     
-    async def subscribe_symbol_ticker(self, symbol: str, callback: Optional[Callable] = None) -> bool:
-        """订阅单个交易对的ticker数据 - 兼容方法"""
-        return await self.subscribe_ticker(symbol, callback)
-    
-    async def subscribe_symbol_mark_price(self, symbol: str, callback: Optional[Callable] = None) -> bool:
-        """订阅单个交易对的标记价格数据"""
-        try:
-            stream_name = f"{symbol.lower()}@markPrice"
-            
-            if stream_name in self.subscribed_streams:
-                logger.debug(f"📊 {symbol} 标记价格已订阅")
-                return True
-            
-            # 建立连接
-            success = await self._connect_stream(stream_name)
-            if success:
-                # 注册回调
-                if callback:
-                    if stream_name not in self.callbacks:
-                        self.callbacks[stream_name] = []
-                    self.callbacks[stream_name].append(callback)
-                
-                # 记录订阅
-                self.subscriptions[stream_name] = SubscriptionInfo(
-                    stream=stream_name,
-                    symbol=symbol,
-                    callback=callback,
-                    last_update=datetime.now()
-                )
-                
-                self.subscribed_streams.add(stream_name)
-                logger.info(f"✅ 成功订阅 {symbol} 标记价格数据")
-                return True
-            else:
-                logger.error(f"❌ 订阅 {symbol} 标记价格失败")
-                return False
-                
-        except Exception as e:
-            logger.error(f"❌ 订阅标记价格异常: {e}")
-            return False
-    
     async def _connect_stream(self, stream_name: str) -> bool:
         """连接数据流"""
         try:
@@ -299,7 +255,7 @@ class BinanceWebSocketService:
                     ws_url,
                     proxy=self.proxy_url,
                     heartbeat=self.ping_interval,
-                    timeout=self.connection_timeout
+                    timeout=aiohttp.ClientTimeout(total=self.connection_timeout)
                 )
             else:
                 # 使用websockets库（直连）
@@ -317,9 +273,6 @@ class BinanceWebSocketService:
             # 保存连接
             self.ws_connections[stream_name] = ws
             self.connection_states[stream_name] = "connected"
-            
-            # 更新连接状态
-            self.is_connected = True
             
             # 启动消息处理任务
             message_task = asyncio.create_task(self._handle_messages(stream_name, ws))
@@ -533,34 +486,6 @@ class BinanceWebSocketService:
             logger.error(f"❌ 获取ticker数据异常: {e}")
             return None
     
-    def get_connection_status(self) -> Dict[str, Any]:
-        """获取连接状态"""
-        try:
-            total_connections = len(self.ws_connections)
-            active_connections = sum(
-                1 for ws in self.ws_connections.values() 
-                if self._is_connection_alive(ws)
-            )
-            
-            return {
-                "connected": self.is_connected,
-                "is_running": self.is_running,
-                "total_connections": total_connections,
-                "active_connections": active_connections,
-                "subscribed_streams": len(self.subscribed_streams),
-                "use_proxy": self.use_proxy,
-                "proxy_url": self.proxy_url if self.use_proxy else None,
-                "error_stats": self.error_stats.copy(),
-                "last_ping_time": self.last_ping_time,
-                "last_pong_time": self.last_pong_time
-            }
-        except Exception as e:
-            logger.error(f"❌ 获取连接状态异常: {e}")
-            return {
-                "connected": False,
-                "error": str(e)
-            }
-    
     async def health_check(self) -> Dict[str, Any]:
         """服务健康检查"""
         try:
@@ -584,7 +509,7 @@ class BinanceWebSocketService:
                         "status": health.get("status", "unknown"),
                         "message_count": health.get("message_count", 0),
                         "error_count": health.get("error_count", 0),
-                        "last_message": health.get("last_message").isoformat() if health.get("last_message") and hasattr(health.get("last_message"), 'isoformat') else None
+                        "last_message": health.get("last_message").isoformat() if health.get("last_message") else None
                     }
                     for stream, health in self.connection_health.items()
                 }

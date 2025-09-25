@@ -87,16 +87,16 @@ class BinanceDataAdapter(ExchangeDataAdapter):
                 quote_asset = self._safe_get(item, "quoteAsset")
                 contract_type = self._safe_get(item, "contractType")
                 
-                # 只处理USDT永续合约
+                # 只处理USDT交易对
                 if not raw_symbol.endswith('USDT') or quote_asset != 'USDT':
-                    continue
-                
-                # 只处理永续合约
-                if contract_type != 'PERPETUAL':
                     continue
                 
                 # 只处理交易状态的合约
                 if status.upper() != 'TRADING':
+                    continue
+                
+                # 如果有contractType字段，只处理永续合约；如果没有则认为是现货转换为SWAP
+                if contract_type and contract_type != 'PERPETUAL':
                     continue
                 
                 # 提取基础货币 - 使用baseAsset字段更准确
@@ -206,16 +206,16 @@ class BinanceDataAdapter(ExchangeDataAdapter):
             quote_asset = self._safe_get(item, "quoteAsset")
             contract_type = self._safe_get(item, "contractType")
             
-            # 只处理USDT永续合约
+            # 只处理USDT交易对
             if not raw_symbol.endswith('USDT') or quote_asset != 'USDT':
-                return None
-            
-            # 只处理永续合约
-            if contract_type != 'PERPETUAL':
                 return None
             
             # 只处理交易状态的合约
             if status.upper() != 'TRADING':
+                return None
+            
+            # 如果有contractType字段，只处理永续合约；如果没有则认为是现货转换为SWAP
+            if contract_type and contract_type != 'PERPETUAL':
                 return None
             
             # 提取基础货币 - 使用baseAsset字段更准确
@@ -540,22 +540,50 @@ class BinanceDataAdapter(ExchangeDataAdapter):
     @log_adapter_performance("adapt_positions")
     @cache_adapter_result("binance_positions", ttl=60, data_type="position")
     def adapt_positions(self, raw_data: List[Dict[str, Any]]) -> List[UnifiedPosition]:
-        """批量适配币安持仓数据"""
+        """批量适配币安持仓数据 - 优化版本"""
         if not raw_data:
             return []
         
+        logger.info(f"🚀 开始批量适配币安持仓数据，共 {len(raw_data)} 个")
+        
         unified_positions = []
+        valid_count = 0
+        
+        # 批量处理，避免单独调用适配器
         for item in raw_data:
             try:
-                position = self.adapt_position(item)
-                # 只返回有持仓的数据
-                if position.has_position:
-                    unified_positions.append(position)
+                # 直接在这里进行适配，避免调用单独的adapt_position方法
+                raw_symbol = self._safe_get(item, "asset", "")
+                free_amount = float(self._safe_get(item, "free", "0"))
+                locked_amount = float(self._safe_get(item, "locked", "0"))
+                total_amount = free_amount + locked_amount
+                
+                # 只处理有余额的资产
+                if total_amount > 0.0001:  # 设置最小阈值，避免处理微小余额
+                    # 创建统一持仓对象（现货余额转换为持仓格式）
+                    unified_symbol = f"{raw_symbol}-USDT-SWAP"  # 转换为SWAP格式
+                    
+                    unified_position = UnifiedPosition(
+                        instId=unified_symbol,
+                        posSide="net",
+                        pos=str(total_amount),
+                        posNotional="0",  # 现货余额没有名义价值
+                        avgPx="0",
+                        upl="0",
+                        uplRatio="0",
+                        margin="0",
+                        source='binance',
+                        raw_data=item
+                    )
+                    
+                    unified_positions.append(unified_position)
+                    valid_count += 1
+                    
             except Exception as e:
-                logger.warning(f"⚠️ 跳过无效的持仓数据: {e}")
+                logger.debug(f"⚠️ 跳过无效的持仓数据: {e}")
                 continue
         
-        logger.info(f"✅ 币安持仓批量适配完成: {len(unified_positions)}/{len(raw_data)}")
+        logger.info(f"✅ 币安持仓批量适配完成: {valid_count}/{len(raw_data)} 个有效持仓")
         return unified_positions
     
     @cache_adapter_result("binance_positions_batch", ttl=60, data_type="position")

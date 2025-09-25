@@ -126,7 +126,7 @@ class BinanceHybridService(HybridServiceBase, ExchangeInterface):
             await self.realtime_manager.initialize()
             
             # 检查WebSocket连接状态
-            if self.realtime_manager.ws_service and self.realtime_manager.ws_service.is_connected():
+            if self.realtime_manager.ws_service and self.realtime_manager.ws_service.is_connected:
                 self.is_websocket_connected = True
                 logger.info("✅ 币安WebSocket连接建立成功")
             else:
@@ -712,4 +712,41 @@ class BinanceHybridService(HybridServiceBase, ExchangeInterface):
         self.error_handler.reset_statistics()
         self.websocket_error_count = 0
         self.last_websocket_error = None
+    
+    # ==================== 方法别名 Method Aliases ====================
+    # 为了兼容测试脚本和其他调用方，提供方法别名
+    
+    async def get_ticker(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """获取ticker数据 - get_ticker_data的别名"""
+        return await self.get_ticker_data(symbol)
+    
+    async def get_klines(self, symbol: str, timeframe: str = '1h', limit: int = 100) -> List[Dict[str, Any]]:
+        """获取K线数据 - get_kline_data的别名"""
+        return await self.get_kline_data(symbol, timeframe, limit)
+    
+    async def get_order_book(self, symbol: str, limit: int = 20) -> Optional[Dict[str, Any]]:
+        """获取订单簿数据"""
+        try:
+            # 订单簿数据直接使用REST API
+            return await self._fallback_to_rest(
+                self.rest_service.get_order_book,
+                f"get_order_book_{symbol}",
+                symbol, limit
+            )
+        except Exception as e:
+            logger.error(f"❌ 获取{symbol}订单簿失败: {e}")
+            return None
+    
+    async def get_24hr_stats(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """获取24小时统计数据"""
+        try:
+            # 24小时统计数据直接使用REST API
+            return await self._fallback_to_rest(
+                self.rest_service.get_24hr_stats,
+                f"get_24hr_stats_{symbol}",
+                symbol
+            )
+        except Exception as e:
+            logger.error(f"❌ 获取{symbol} 24小时统计失败: {e}")
+            return None
         logger.info("📊 币安混合服务错误统计已重置")

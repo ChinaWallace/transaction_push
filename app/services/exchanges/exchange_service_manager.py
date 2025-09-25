@@ -13,6 +13,7 @@ from app.core.logging import get_logger
 from app.services.exchanges.factory import ExchangeFactory
 from app.services.exchanges.base.exchange_interface import ExchangeInterface
 from app.utils.exceptions import TradingToolError
+from app.services.exchanges.initialization_coordinator import coordinate_service_init
 
 logger = get_logger(__name__)
 
@@ -23,8 +24,8 @@ _service_lock = asyncio.Lock()
 
 async def get_exchange_service() -> ExchangeInterface:
     """
-    获取当前配置的交易所服务
-    Get current configured exchange service
+    获取当前配置的交易所服务 - 协调版本
+    Get current configured exchange service - coordinated version
     
     Returns:
         ExchangeInterface: 交易所服务实例
@@ -34,26 +35,31 @@ async def get_exchange_service() -> ExchangeInterface:
     """
     global _current_exchange_service
     
-    async with _service_lock:
-        try:
-            # 确保工厂已初始化
-            await ExchangeFactory.initialize_factory()
-            
-            # 获取配置的交易所
-            settings = get_settings()
-            exchange_provider = getattr(settings, 'exchange_provider', 'binance').lower()
-            
-            # 通过工厂获取交易所实例
-            exchange_service = await ExchangeFactory.get_exchange(exchange_provider)
-            
-            # 缓存服务实例
-            _current_exchange_service = exchange_service
-            
-            return exchange_service
-            
-        except Exception as e:
-            logger.error(f"❌ 获取交易所服务失败: {e}")
-            raise TradingToolError(f"无法获取交易所服务: {e}")
+    # 获取配置的交易所
+    settings = get_settings()
+    exchange_provider = getattr(settings, 'exchange_provider', 'binance').lower()
+    
+    async def _init_exchange_service():
+        """内部初始化函数"""
+        async with _service_lock:
+            try:
+                # 确保工厂已初始化
+                await ExchangeFactory.initialize_factory()
+                
+                # 通过工厂获取交易所实例
+                exchange_service = await ExchangeFactory.get_exchange(exchange_provider)
+                
+                # 缓存服务实例
+                _current_exchange_service = exchange_service
+                
+                return exchange_service
+                
+            except Exception as e:
+                logger.error(f"❌ 获取交易所服务失败: {e}")
+                raise TradingToolError(f"无法获取交易所服务: {e}")
+    
+    # 使用协调器避免并发初始化
+    return await coordinate_service_init(f"exchange_service_{exchange_provider}", _init_exchange_service)
 
 
 async def get_okx_service():

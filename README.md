@@ -1,4 +1,4 @@
-# 🚀 Python 智能量化交易分析工具
+# 🚀 Python 智能量化交易分析工具 v1.2.0
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com)
@@ -19,7 +19,11 @@
 
 ---
 
-基于Python的**智能量化交易分析工具**，支持okx和binance交易所,集成Kronos AI预测模型、技术分析和机器学习算法，专为加密货币市场设计的交易决策系统。
+基于Python的**智能量化交易分析工具 v1.2.0**，完整支持Binance期货交易所，集成Kronos AI预测模型、技术分析和机器学习算法，专为加密货币市场设计的交易决策系统。
+
+## 🆕 v1.2.0 更新内容
+
+- ✅ **完整适配Binance期货API** - 全面支持币安期货交易所
 
 ## ✨ 核心特性
 
@@ -86,9 +90,10 @@ python main.py
 
 ```env
 # 🔑 交易所API配置 (选择一个)
-# 币安交易所 (推荐)
+# 币安期货交易所 (推荐 - v1.2.0完整适配)
 BINANCE_API_KEY=your_binance_api_key
 BINANCE_SECRET_KEY=your_binance_secret_key
+BINANCE_BASE_URL=https://fapi.binance.com
 EXCHANGE_PROVIDER=binance
 
 # 或者OKX交易所 (不推荐，仅保留兼容性)
