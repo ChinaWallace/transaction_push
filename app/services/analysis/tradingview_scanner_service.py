@@ -248,12 +248,51 @@ class TradingViewScannerService:
                 
                 strong_symbols.append(strong_symbol)
             
-            self.logger.info(f"解析到 {len(strong_symbols)} 个强势标的")
+            # 按波动率从高到低排序
+            strong_symbols = await self._sort_by_volatility(strong_symbols)
+            
+            self.logger.info(f"解析到 {len(strong_symbols)} 个强势标的，已按波动率排序")
             return strong_symbols
             
         except Exception as e:
             self.logger.error(f"数据解析失败: {e}")
             raise TradingToolError(f"数据解析失败: {str(e)}") from e
+    
+    async def _sort_by_volatility(self, symbols: List[TradingViewStrongSymbolVO]) -> List[TradingViewStrongSymbolVO]:
+        """
+        按波动率从高到低排序
+        Sort symbols by volatility from high to low
+        
+        Args:
+            symbols: 待排序的标的列表
+            
+        Returns:
+            List[TradingViewStrongSymbolVO]: 排序后的标的列表
+        """
+        try:
+            # 按波动率排序，波动率为None的放在最后
+            sorted_symbols = sorted(
+                symbols,
+                key=lambda x: (
+                    x.volatility is not None,  # 有波动率数据的排在前面
+                    x.volatility or Decimal('0')  # 按波动率从高到低排序
+                ),
+                reverse=True
+            )
+            
+            # 记录排序结果
+            if sorted_symbols:
+                top_volatility = sorted_symbols[0].volatility or Decimal('0')
+                bottom_volatility = sorted_symbols[-1].volatility or Decimal('0')
+                self.logger.debug(
+                    f"波动率排序完成: 最高 {top_volatility:.2f}%, 最低 {bottom_volatility:.2f}%"
+                )
+            
+            return sorted_symbols
+            
+        except Exception as e:
+            self.logger.warning(f"波动率排序失败，返回原始顺序: {e}")
+            return symbols
     
     async def _check_first_selection(self, symbols: List[TradingViewStrongSymbolVO]) -> None:
         """

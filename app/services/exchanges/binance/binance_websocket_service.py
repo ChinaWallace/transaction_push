@@ -207,10 +207,27 @@ class BinanceWebSocketService:
         
         logger.info("✅ 币安WebSocket服务已停止")
     
+    def _convert_symbol_to_binance(self, symbol: str) -> str:
+        """将标准符号转换为币安期货格式"""
+        try:
+            if '-USDT-SWAP' in symbol:
+                return symbol.replace('-USDT-SWAP', 'USDT')
+            elif '-USD-SWAP' in symbol:
+                return symbol.replace('-USD-SWAP', 'USD')
+            elif '-' in symbol:
+                # 处理其他格式，如 BTC-USDT -> BTCUSDT
+                return symbol.replace('-', '')
+            return symbol
+        except Exception as e:
+            logger.error(f"❌ 符号转换失败: {symbol} -> {e}")
+            return symbol
+
     async def subscribe_ticker(self, symbol: str, callback: Optional[Callable[..., Any]] = None) -> bool:
         """订阅价格数据"""
         try:
-            stream_name = f"{symbol.lower()}@ticker"
+            # 转换符号格式
+            binance_symbol = self._convert_symbol_to_binance(symbol)
+            stream_name = f"{binance_symbol.lower()}@ticker"
             
             if stream_name in self.subscribed_streams:
                 logger.debug(f"📊 {symbol} ticker已订阅")
@@ -251,7 +268,9 @@ class BinanceWebSocketService:
     async def subscribe_symbol_mark_price(self, symbol: str, callback: Optional[Callable] = None) -> bool:
         """订阅单个交易对的标记价格数据"""
         try:
-            stream_name = f"{symbol.lower()}@markPrice"
+            # 转换符号格式
+            binance_symbol = self._convert_symbol_to_binance(symbol)
+            stream_name = f"{binance_symbol.lower()}@markPrice"
             
             if stream_name in self.subscribed_streams:
                 logger.debug(f"📊 {symbol} 标记价格已订阅")
@@ -526,7 +545,9 @@ class BinanceWebSocketService:
     async def get_ticker(self, symbol: str) -> Optional[Dict[str, Any]]:
         """获取最新ticker数据"""
         try:
-            stream_name = f"{symbol.lower()}@ticker"
+            # 转换符号格式
+            binance_symbol = self._convert_symbol_to_binance(symbol)
+            stream_name = f"{binance_symbol.lower()}@ticker"
             async with self.data_lock:
                 return self.latest_data.get(stream_name)
         except Exception as e:
