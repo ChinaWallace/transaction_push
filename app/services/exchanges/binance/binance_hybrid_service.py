@@ -449,6 +449,10 @@ class BinanceHybridService(HybridServiceBase, ExchangeInterface):
         except Exception as e:
             logger.error(f"❌ 获取{inst_type} ticker数据失败: {e}")
             return []
+
+    async def get_all_tickers(self, inst_type: str = 'SWAP') -> List[Dict[str, Any]]:
+        """获取所有ticker数据 - get_tickers的别名"""
+        return await self.get_tickers(inst_type)
     
     async def get_all_instruments(self, inst_type: str = 'SWAP') -> List[Dict[str, Any]]:
         """获取所有交易对列表 - 返回统一格式"""

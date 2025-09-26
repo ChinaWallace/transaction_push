@@ -19,6 +19,7 @@ from app.services.notification.core_notification_service import get_core_notific
 from app.services.core_monitoring_service import get_core_monitoring_service
 from app.services.core.core_opportunity_service import get_core_opportunity_service
 from app.services.core.core_backtest_service import get_core_backtest_service
+from app.services.analysis.grid_trading_service import get_grid_trading_service
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -92,6 +93,7 @@ class CoreSchedulerService:
         self.monitoring_service = None
         self.opportunity_service = None
         self.backtest_service = None
+        self.grid_trading_service = None
         
         # 任务管理
         self.tasks: Dict[str, ScheduledTask] = {}
@@ -220,6 +222,7 @@ class CoreSchedulerService:
                 get_core_monitoring_service(),
                 get_core_opportunity_service(),
                 get_core_backtest_service(),
+                get_grid_trading_service(),
                 return_exceptions=True
             )
             
@@ -228,6 +231,7 @@ class CoreSchedulerService:
             self.monitoring_service = services[2] if not isinstance(services[2], Exception) else None
             self.opportunity_service = services[3] if not isinstance(services[3], Exception) else None
             self.backtest_service = services[4] if not isinstance(services[4], Exception) else None
+            self.grid_trading_service = services[5] if not isinstance(services[5], Exception) else None
             
             # 记录初始化结果
             service_status = {
@@ -235,11 +239,12 @@ class CoreSchedulerService:
                 'trading': self.trading_service is not None,
                 'monitoring': self.monitoring_service is not None,
                 'opportunity': self.opportunity_service is not None,
-                'backtest': self.backtest_service is not None
+                'backtest': self.backtest_service is not None,
+                'grid_trading': self.grid_trading_service is not None
             }
             
             successful_services = sum(service_status.values())
-            self.logger.info(f"✅ 核心服务初始化完成: {successful_services}/5 个服务成功")
+            self.logger.info(f"✅ 核心服务初始化完成: {successful_services}/6 个服务成功")
             
             for service_name, success in service_status.items():
                 if not success:
@@ -541,6 +546,110 @@ class CoreSchedulerService:
             monitor_logger.error(f"生成每日报告失败: {e}")
             raise
     
+    async def _run_grid_trading_recommendations(self) -> Dict[str, Any]:
+        """运行网格交易机会推荐任务"""
+        if not self.grid_trading_service:
+            raise Exception("网格交易服务未初始化")
+        
+        trading_logger.info("📊 执行网格交易机会推荐任务")
+        
+        try:
+            # 分析网格交易机会
+            from app.schemas.grid_trading import GridOpportunityLevel
+            result = await self.grid_trading_service.analyze_grid_opportunities(
+                min_opportunity_level=GridOpportunityLevel.MODERATE
+            )
+            
+            # 发送网格交易推荐通知
+            if result.recommendations and self.notification_service:
+                await self._send_grid_trading_notification(result)
+            
+            trading_logger.info(
+                f"网格交易推荐完成: 发现 {result.total_count} 个机会, "
+                f"优秀机会 {result.excellent_count} 个, "
+                f"良好机会 {result.good_count} 个"
+            )
+            
+            return {
+                'status': 'success',
+                'total_opportunities': result.total_count,
+                'excellent_count': result.excellent_count,
+                'good_count': result.good_count,
+                'recommendations_sent': len(result.recommendations),
+                'market_summary': result.market_summary,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            trading_logger.error(f"网格交易推荐任务失败: {e}")
+            raise
+    
+    async def _send_grid_trading_notification(self, grid_result):
+        """发送网格交易推荐通知"""
+        try:
+            from app.services.notification.core_notification_service import NotificationContent, NotificationType, NotificationPriority
+            
+            # 构建推荐消息
+            message = f"🔲 **网格交易机会推荐** - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            message += f"📊 **市场概况**: {grid_result.market_summary}"
+            message += f"🎯 **机会统计**:"
+            message += f"• 总机会数: {grid_result.total_count}"
+            message += f"• 优秀机会: {grid_result.excellent_count}"
+            message += f"• 良好机会: {grid_result.good_count}"
+            
+            if grid_result.recommendations:
+                message += f"🏆 **推荐机会** (前{min(5, len(grid_result.recommendations))}个):"
+                
+                for i, rec in enumerate(grid_result.recommendations[:5], 1):
+                    message += f"**{i}. {rec.symbol}** ({rec.opportunity_level.value})"
+                    message += f"• 当前价格: ${rec.current_price:,.4f}"
+                    message += f"• 推荐资金: {rec.recommended_capital:,.0f} USDT ({rec.position_percentage}%)"
+                    message += f"• 交易区间: ${rec.trading_range.lower_bound:,.4f} - ${rec.trading_range.upper_bound:,.4f}"
+                    message += f"• 网格配置: {rec.trading_range.grid_count}格, 间距{rec.trading_range.grid_spacing}%"
+                    message += f"• 预期日收益: {rec.expected_daily_return}% | 月收益: {rec.expected_monthly_return}%"
+                    message += f"• 风险等级: {rec.risk_level}"
+                    message += f"• 推荐理由: {rec.reasoning}"
+                    if rec.risk_warning:
+                        message += f"• ⚠️ 风险提示: {rec.risk_warning}"
+                    message += ""
+            else:
+                message += "📉 **当前市场条件不适合网格交易**"
+                message += "建议等待更好的市场机会"
+            
+            message += "💡 **网格交易提醒**:"
+            message += "• 以上推荐基于1万U资金基准"
+            message += "• 请根据个人风险承受能力调整仓位"
+            message += "• 建议设置止损，防范极端行情"
+            message += "• 注意手续费成本，选择合适的网格间距"
+            
+            content = NotificationContent(
+                type=NotificationType.GRID_TRADING_RECOMMENDATION,
+                priority=NotificationPriority.NORMAL,
+                title="🔲 网格交易机会推荐",
+                message=message,
+                metadata={
+                    'total_opportunities': grid_result.total_count,
+                    'excellent_count': grid_result.excellent_count,
+                    'good_count': grid_result.good_count,
+                    'recommendations': [
+                        {
+                            'symbol': rec.symbol,
+                            'opportunity_level': rec.opportunity_level.value,
+                            'current_price': rec.current_price,
+                            'recommended_capital': rec.recommended_capital,
+                            'expected_daily_return': rec.expected_daily_return,
+                            'risk_level': rec.risk_level
+                        }
+                        for rec in grid_result.recommendations[:10]
+                    ]
+                }
+            )
+            
+            await self.notification_service.send_notification(content)
+            
+        except Exception as e:
+            self.logger.error(f"发送网格交易推荐通知失败: {e}")
+    
     async def _run_health_check(self) -> Dict[str, Any]:
         """运行健康检查任务"""
         monitor_logger.info("🏥 执行系统健康检查")
@@ -559,7 +668,8 @@ class CoreSchedulerService:
             'trading': self.trading_service,
             'monitoring': self.monitoring_service,
             'opportunity': self.opportunity_service,
-            'backtest': self.backtest_service
+            'backtest': self.backtest_service,
+            'grid_trading': self.grid_trading_service
         }
         
         for service_name, service in services.items():

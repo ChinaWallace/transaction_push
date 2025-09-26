@@ -535,6 +535,38 @@ async def perform_startup_market_anomaly_analysis():
         logger.error(f"❌ 市场异常分析异常: {e}")
         return {"status": "error", "error": str(e)}
 
+async def perform_startup_grid_trading_analysis():
+    """启动时执行网格交易机会分析和推送"""
+    try:
+        logger.info("🔲 开始网格交易机会分析...")
+        
+        from app.services.core.grid_scheduler_extension import get_grid_scheduler_extension
+        
+        # 获取网格交易调度器扩展
+        grid_extension = await get_grid_scheduler_extension()
+        
+        # 执行启动时网格交易推荐
+        success = await grid_extension.run_startup_grid_recommendations()
+        
+        if success:
+            logger.info("✅ 网格交易机会分析完成")
+            return {
+                "status": "success",
+                "message": "网格交易机会分析完成",
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            logger.warning("⚠️ 网格交易机会分析失败")
+            return {
+                "status": "warning",
+                "message": "网格交易机会分析失败",
+                "timestamp": datetime.now().isoformat()
+            }
+            
+    except Exception as e:
+        logger.error(f"❌ 网格交易机会分析异常: {e}")
+        return {"status": "error", "error": str(e)}
+
 async def perform_startup_news_analysis():
     """启动时执行新闻分析和推送"""
     try:
@@ -835,6 +867,19 @@ async def lifespan(app: FastAPI):
         # 将服务存储到应用状态
         app.state.tradingview_scheduler_service = tradingview_scheduler_service
         
+        # 初始化网格交易调度器扩展
+        try:
+            from app.services.core.grid_scheduler_extension import get_grid_scheduler_extension
+            
+            grid_extension = await get_grid_scheduler_extension()
+            app.state.grid_scheduler_extension = grid_extension
+            
+            logger.info("✅ 网格交易调度器扩展初始化成功")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ 网格交易调度器扩展初始化失败: {e}")
+            app.state.grid_scheduler_extension = None
+        
         # 添加Kronos持仓分析定时任务 - 币安交易所跳过
         if settings.kronos_config.get('enable_kronos_prediction', False):
             # 检查交易所类型，币安跳过持仓分析
@@ -913,6 +958,9 @@ async def lifespan(app: FastAPI):
         
         # 3. 市场异常监控分析任务
         startup_tasks.append(("market_anomaly_analysis", perform_startup_market_anomaly_analysis()))
+        
+        # 4. 网格交易机会推荐任务
+        startup_tasks.append(("grid_trading_analysis", perform_startup_grid_trading_analysis()))
         
 
         
@@ -1216,6 +1264,10 @@ def create_app() -> FastAPI:
     # 系统诊断API
     from app.api.system_diagnostics import router as system_diagnostics_router
     app.include_router(system_diagnostics_router, tags=["系统诊断"])
+    
+    # 网格交易API
+    from app.api.grid_trading import router as grid_trading_router
+    app.include_router(grid_trading_router, tags=["网格交易"])
     
 
     
@@ -2023,6 +2075,65 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.error(f"停止核心币种调度器失败: {e}")
             raise HTTPException(status_code=500, detail=f"停止失败: {str(e)}")
+    
+    # 网格交易相关测试端点
+    @app.post("/test-grid-trading", summary="测试网格交易推荐")
+    async def test_grid_trading():
+        """手动测试网格交易机会推荐"""
+        try:
+            if hasattr(app.state, 'grid_scheduler_extension') and app.state.grid_scheduler_extension:
+                grid_extension = app.state.grid_scheduler_extension
+                logger.info("🧪 手动测试网格交易推荐...")
+                
+                # 执行网格交易推荐
+                success = await grid_extension.run_startup_grid_recommendations()
+                
+                if success:
+                    return {
+                        "status": "success",
+                        "message": "网格交易推荐测试完成",
+                        "timestamp": datetime.now().isoformat()
+                    }
+                else:
+                    return {
+                        "status": "warning",
+                        "message": "网格交易推荐测试失败",
+                        "timestamp": datetime.now().isoformat()
+                    }
+            else:
+                return {
+                    "status": "error",
+                    "message": "网格交易调度器扩展未初始化",
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            logger.error(f"测试网格交易推荐失败: {e}")
+            raise HTTPException(status_code=500, detail=f"测试失败: {str(e)}")
+    
+    @app.get("/grid-trading-status", summary="查看网格交易推荐状态")
+    async def get_grid_trading_status():
+        """获取网格交易推荐状态信息"""
+        try:
+            if hasattr(app.state, 'grid_scheduler_extension') and app.state.grid_scheduler_extension:
+                grid_extension = app.state.grid_scheduler_extension
+                
+                return {
+                    "status": "success",
+                    "extension_initialized": True,
+                    "startup_analysis_result": getattr(app.state, 'startup_grid_trading_analysis_results', None),
+                    "message": "网格交易调度器扩展运行正常",
+                    "timestamp": datetime.now().isoformat()
+                }
+            else:
+                return {
+                    "status": "error",
+                    "extension_initialized": False,
+                    "message": "网格交易调度器扩展未初始化",
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            logger.error(f"获取网格交易状态失败: {e}")
+            raise HTTPException(status_code=500, detail=f"获取状态失败: {str(e)}")
     
     return app
 

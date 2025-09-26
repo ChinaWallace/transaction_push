@@ -1,33 +1,33 @@
 # -*- coding: utf-8 -*-
 """
-数据处理相关服务模块
-Data Processing Services Module
+数据服务模块
+Data Services Module
+
+提供数据相关的服务，包括缓存、数据提供等功能
+Provides data-related services including cache, data providers, etc.
 """
 
-from .unified_data_service import UnifiedDataService
-from .data_sharing_service import DataSharingService
-from .news_monitor_service import NewsMonitorService, get_news_monitor_service
+from .cache_service import (
+    CacheService,
+    get_cache_service,
+    cache_get,
+    cache_set,
+    cache_delete,
+    cache_clear
+)
 
-# 便利函数
-def get_unified_data_service():
-    """获取统一数据服务的便利函数"""
-    return UnifiedDataService()
-
-def get_data_sharing_service():
-    """获取数据共享服务的便利函数"""
-    return DataSharingService()
-
-def get_news_service():
-    """获取新闻监控服务的便利函数"""
-    return get_news_monitor_service()
+from .data_provider_service import (
+    DataProviderService,
+    get_data_provider_service
+)
 
 __all__ = [
-    'UnifiedDataService',
-    'DataSharingService', 
-    'NewsMonitorService',
-    'get_news_monitor_service',
-    # 便利函数
-    'get_unified_data_service',
-    'get_data_sharing_service',
-    'get_news_service'
+    "CacheService",
+    "get_cache_service", 
+    "cache_get",
+    "cache_set",
+    "cache_delete",
+    "cache_clear",
+    "DataProviderService",
+    "get_data_provider_service"
 ]

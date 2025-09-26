@@ -32,6 +32,7 @@ class NotificationType(Enum):
     BACKTEST_RESULT = "回测结果"
     SYSTEM_ALERT = "系统警报"
     DAILY_REPORT = "每日报告"
+    MARKET_ANALYSIS = "市场分析"
 
 class NotificationChannel(Enum):
     """通知渠道"""

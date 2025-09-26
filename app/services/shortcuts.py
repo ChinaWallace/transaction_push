@@ -55,9 +55,12 @@ except ImportError as e:
 # 数据服务快捷导入
 try:
     from .data import (
-        UnifiedDataService, DataSharingService,
-        get_unified_data_service, get_data_sharing_service, get_news_service
+        CacheService, get_cache_service,
+        DataProviderService, get_data_provider_service,
+        cache_get, cache_set, cache_delete, cache_clear
     )
+    # 注释：UnifiedDataService 和 DataSharingService 已废弃，统一使用核心交易服务
+    logger.debug("✅ 数据服务导入成功，使用基础缓存和数据提供服务")
 except ImportError as e:
     logger.warning(f"⚠️ 数据服务导入失败: {e}")
 
@@ -148,11 +151,14 @@ __all__ = [
     'get_market_opportunity_service',
     
     # 数据服务
-    'UnifiedDataService',
-    'DataSharingService',
-    'get_unified_data_service',
-    'get_data_sharing_service',
-    'get_news_service',
+    'CacheService',
+    'get_cache_service',
+    'DataProviderService', 
+    'get_data_provider_service',
+    'cache_get',
+    'cache_set',
+    'cache_delete',
+    'cache_clear',
     
     # 监控服务
     'FundingRateMonitorService',

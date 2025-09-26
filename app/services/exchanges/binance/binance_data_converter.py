@@ -96,7 +96,7 @@ class BinanceDataConverter:
             return TickerData(
                 symbol=standard_symbol,
                 price=Decimal(str(binance_data.get('lastPrice', binance_data.get('c', '0')))),
-                volume_24h=Decimal(str(binance_data.get('volume', binance_data.get('v', '0')))),
+                volume_24h=Decimal(str(binance_data.get('quoteVolume', binance_data.get('volume', binance_data.get('v', '0'))))),
                 change_24h=Decimal(str(binance_data.get('priceChange', binance_data.get('P', '0')))),
                 change_percent_24h=Decimal(str(binance_data.get('priceChangePercent', binance_data.get('P', '0')))),
                 high_24h=Decimal(str(binance_data.get('highPrice', binance_data.get('h', '0')))),
