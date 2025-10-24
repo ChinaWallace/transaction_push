@@ -14,6 +14,7 @@ from apscheduler.triggers.cron import CronTrigger
 from app.core.logging import get_logger, monitor_logger
 from app.core.config import get_settings
 from app.services.exchanges.exchange_service_manager import get_exchange_service
+from app.services.analysis.grid_trading_service import get_grid_trading_service
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -178,6 +179,15 @@ class SchedulerService:
                 trigger=IntervalTrigger(minutes=60),
                 id="grid_opportunities",
                 name="网格交易机会分析 (震荡市策略)",
+                max_instances=1
+            )
+            
+            # 网格交易服务分析 - 每60分钟执行一次
+            self.scheduler.add_job(
+                self._grid_trading_service_job,
+                trigger=IntervalTrigger(minutes=60),
+                id="grid_trading_service",
+                name="网格交易服务分析",
                 max_instances=1
             )
             
@@ -1380,3 +1390,77 @@ class SchedulerService:
                 
         except Exception as e:
             logger.error(f"❌ 核心币种推送任务失败: {e}")
+    
+    async def _grid_trading_service_job(self):
+        """网格交易服务分析任务 - 每60分钟执行一次"""
+        try:
+            monitor_logger.info("🔄 执行网格交易服务分析...")
+            
+            # 获取网格交易服务
+            grid_service = await get_grid_trading_service()
+            
+            # 使用GridTradingService的动态筛选功能
+            # 不传入symbols参数，让服务自动筛选交易额大于1亿USDT的活跃币种
+            grid_batch = await grid_service.analyze_grid_opportunities(
+                symbols=None,  # 让服务自动筛选候选币种
+                min_opportunity_level="MODERATE"  # 中等以上机会
+            )
+            
+            # 记录分析结果
+            monitor_logger.info(
+                f"✅ 网格交易分析完成: "
+                f"总计 {grid_batch.total_count} 个机会, "
+                f"优秀 {grid_batch.excellent_count} 个, "
+                f"良好 {grid_batch.good_count} 个"
+            )
+            
+            # 如果有优质机会，发送通知
+            if grid_batch.excellent_count > 0 or grid_batch.good_count > 0:
+                try:
+                    from app.services.notification.core_notification_service import get_core_notification_service
+                    notification_service = await get_core_notification_service()
+                    
+                    # 构建通知消息
+                    message_parts = ["📊 【网格交易机会分析】"]
+                    message_parts.append(f"🎯 市场概况: {grid_batch.market_summary}")
+                    message_parts.append(f"📈 发现机会: 优秀 {grid_batch.excellent_count} 个, 良好 {grid_batch.good_count} 个")
+                    
+                    # 显示前5个最佳机会
+                    for i, rec in enumerate(grid_batch.recommendations[:5], 1):
+                        symbol_name = rec.symbol.replace('-USDT-SWAP', '')
+                        opportunity_level = rec.opportunity_level.value if hasattr(rec.opportunity_level, 'value') else str(rec.opportunity_level)
+                        
+                        message_parts.append(f"📊 {i}. {symbol_name}")
+                        message_parts.append(f"├ 机会等级: {opportunity_level}")
+                        message_parts.append(f"├ 当前价格: ${rec.current_price:.4f}")
+                        message_parts.append(f"├ 趋势类型: {rec.trend_type.value if hasattr(rec.trend_type, 'value') else str(rec.trend_type)}")
+                        message_parts.append(f"├ 建议资金: ${rec.recommended_capital:.0f} ({rec.position_percentage}%)")
+                        message_parts.append(f"├ 交易区间: ${rec.trading_range.lower_bound:.4f} - ${rec.trading_range.upper_bound:.4f}")
+                        message_parts.append(f"├ 网格设置: {rec.trading_range.grid_count}层, 间距{rec.trading_range.grid_spacing}%")
+                        message_parts.append(f"├ 预期收益: 日{rec.expected_daily_return:.2f}%, 月{rec.expected_monthly_return:.2f}%")
+                        message_parts.append(f"├ 风险等级: {rec.risk_level}")
+                        message_parts.append(f"└ 推荐理由: {rec.reasoning}")
+                    
+                    message_parts.append("⚠️ 风险提示: 网格交易需要合理设置止损，避免单边行情造成损失")
+                    
+                    full_message = "".join(message_parts)
+                    
+                    # 发送通知
+                    await notification_service.send_grid_trading_notification({
+                        'title': f'网格交易机会: {grid_batch.excellent_count + grid_batch.good_count}个机会',
+                        'message': full_message,
+                        'opportunities_count': grid_batch.excellent_count + grid_batch.good_count,
+                        'excellent_count': grid_batch.excellent_count,
+                        'good_count': grid_batch.good_count,
+                        'timestamp': datetime.now()
+                    })
+                    
+                    monitor_logger.info(f"📢 网格交易机会通知已发送")
+                    
+                except Exception as e:
+                    logger.warning(f"发送网格交易通知失败: {e}")
+            else:
+                monitor_logger.info("📊 当前市场条件下未发现优质网格交易机会")
+            
+        except Exception as e:
+            logger.error(f"❌ 网格交易服务分析失败: {e}")

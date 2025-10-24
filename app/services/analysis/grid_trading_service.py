@@ -132,19 +132,22 @@ class GridTradingService:
             raise
     
     async def _get_candidate_symbols(self) -> List[str]:
-        """获取候选交易对 - 优化版本，包含更多高波动机会"""
+        """获取候选交易对 - 严格按交易额(USDT)筛选，排除低交易额币种"""
         try:
             # 获取热门交易对
             tickers = await self.exchange_service.get_all_tickers()
             
-            # 高波动性目标币种 - 特别关注
-            high_volatility_targets = ['XPL', 'STBL', 'MEME', 'PEPE', 'SHIB', 'DOGE', 'FLOKI', 'BONK']
-            
             # 过滤条件：永续合约、USDT结算
             candidates = []
-            high_vol_candidates = []
+            debug_count = 0
             
             self.logger.info(f"🔍 开始筛选候选交易对，总ticker数量: {len(tickers)}")
+            
+            # 先检查几个ticker的数据结构
+            if tickers and len(tickers) > 0:
+                sample_ticker = tickers[0]
+                self.logger.info(f"📊 示例ticker数据结构: {list(sample_ticker.keys())}")
+                self.logger.info(f"📊 示例ticker数据: {sample_ticker}")
             
             for ticker in tickers:
                 # 适配器已经将数据转换为统一格式：SYMBOL-USDT-SWAP
@@ -155,63 +158,63 @@ class GridTradingService:
                     base_symbol = symbol.replace('-USDT-SWAP', '').upper()
                     unified_symbol = symbol  # 已经是统一格式，直接使用
                     
-                    # 获取24小时交易额 (USDT) - 使用正确的字段
-                    volume_24h = float(ticker.get('volCcy24h', 0))  # 币安适配后的交易额字段
-                    if not volume_24h:
-                        volume_24h = float(ticker.get('volume_24h', 0))  # 备用字段
+                    # 获取24小时交易量和价格，计算USDT交易额
+                    volume_24h = float(ticker.get('volume_24h', 0))  # 币的数量
+                    current_price = float(ticker.get('price', 0))    # 当前价格
                     
-                    # 特殊处理高波动目标币种 - 但仍需要足够的交易量
-                    if base_symbol in high_volatility_targets:
-                        if volume_24h > 100000000:  # 1亿USDT，高波动币种也需要足够流动性
-                            high_vol_candidates.append(unified_symbol)
-                            self.logger.info(f"🎯 发现高波动目标: {symbol} -> {unified_symbol}, 24h成交额: {volume_24h/1000000:.1f}M USDT")
+                    # 计算USDT交易额 = 交易量 * 价格
+                    volume_usdt_24h = volume_24h * current_price
                     
-                    # 常规筛选 - 严格要求1亿USDT以上
-                    elif volume_24h > 100000000:  # 1亿USDT标准
-                        candidates.append(unified_symbol)
-                        
-                    # 对于主流币种，稍微降低门槛但仍要求较高交易量
-                    elif base_symbol in ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'MATIC', 'DOT', 'AVAX', 'LINK']:
-                        if volume_24h > 80000000:  # 8000万USDT门槛，主流币种稍低
-                            candidates.append(unified_symbol)
+                    # 调试：显示前10个币种的交易额信息
+                    if debug_count < 10:
+                        self.logger.info(f"🔍 调试 {symbol}: 交易量={volume_24h:,.0f}, 价格=${current_price:.6f}, 交易额={volume_usdt_24h/1000000:.1f}M USDT")
+                        debug_count += 1
+                    
+                    # 严格筛选：只要交易额大于1亿USDT的币种
+                    if volume_usdt_24h > 100000000:  # 1亿USDT标准
+                        candidates.append({
+                            'symbol': unified_symbol,
+                            'volume_usdt': volume_usdt_24h,
+                            'base_symbol': base_symbol
+                        })
+                        self.logger.info(f"✅ 符合条件: {symbol}, 24h交易额: {volume_usdt_24h/1000000:.1f}M USDT")
+                    elif volume_usdt_24h > 0:
+                        # 记录有交易额但不符合条件的币种
+                        if base_symbol in ['BTC', 'ETH', 'SOL', 'MEME', 'PEPE', 'SHIB', 'DOGE']:
+                            self.logger.info(f"❌ 交易额不足: {symbol}, 24h交易额: {volume_usdt_24h/1000000:.1f}M USDT (< 100M)")
             
-            # 合并候选列表，高波动币种优先
-            all_candidates = high_vol_candidates + candidates
+            # 按交易额排序
+            candidates.sort(key=lambda x: x['volume_usdt'], reverse=True)
             
-            # 按交易量排序，但保持高波动币种在前面
-            def sort_key(symbol):
-                base_symbol = symbol.replace('-USDT-SWAP', '').upper()
-                # 从适配后的ticker中找到对应的交易量
-                unified_symbol_lookup = f"{base_symbol}-USDT-SWAP"
-                volume = float(next(
-                    (t.get('volCcy24h', 0) for t in tickers if t.get('symbol') == unified_symbol_lookup), 0
-                ))
-                if not volume:
-                    volume = float(next(
-                        (t.get('volume_24h', 0) for t in tickers if t.get('symbol') == unified_symbol_lookup), 0
-                    ))
-                # 高波动币种加权
-                if base_symbol in high_volatility_targets:
-                    return volume * 100  # 100倍权重确保优先
-                return volume
+            # 提取符号列表
+            final_candidates = [c['symbol'] for c in candidates[:80]]  # 最多80个候选
             
-            all_candidates.sort(key=sort_key, reverse=True)
+            self.logger.info(f"📊 筛选出 {len(final_candidates)} 个候选交易对 (交易额 > 1亿USDT)")
             
-            # 去重并确保包含足够的候选币种
-            final_candidates = list(dict.fromkeys(all_candidates))[:80]  # 去重并增加到80个候选
+            # 显示前10个最大交易额的币种
+            for i, candidate in enumerate(candidates[:10], 1):
+                self.logger.info(f"   {i}. {candidate['base_symbol']}: {candidate['volume_usdt']/1000000:.1f}M USDT")
             
-            self.logger.info(f"📊 筛选出 {len(final_candidates)} 个候选交易对，其中高波动目标 {len(high_vol_candidates)} 个")
+            # 如果没有找到符合条件的币种，返回主流币种
+            if not final_candidates:
+                self.logger.warning("⚠️ 未找到符合交易额条件的币种，使用主流币种备用列表")
+                return [
+                    'BTC-USDT-SWAP', 'ETH-USDT-SWAP', 'SOL-USDT-SWAP',
+                    'BNB-USDT-SWAP', 'XRP-USDT-SWAP', 'ADA-USDT-SWAP',
+                    'MATIC-USDT-SWAP', 'DOT-USDT-SWAP', 'AVAX-USDT-SWAP',
+                    'LINK-USDT-SWAP', 'UNI-USDT-SWAP', 'LTC-USDT-SWAP'
+                ]
             
             return final_candidates
             
         except Exception as e:
             self.logger.error(f"获取候选交易对失败: {e}")
-            # 返回包含高波动币种的默认交易对
+            # 返回主流币种作为备用
             return [
                 'BTC-USDT-SWAP', 'ETH-USDT-SWAP', 'SOL-USDT-SWAP',
-                'XPL-USDT-SWAP', 'STBL-USDT-SWAP', 'DOGE-USDT-SWAP',
-                'PEPE-USDT-SWAP', 'SHIB-USDT-SWAP', 'MEME-USDT-SWAP',
-                'BNB-USDT-SWAP', 'XRP-USDT-SWAP', 'ADA-USDT-SWAP'
+                'BNB-USDT-SWAP', 'XRP-USDT-SWAP', 'ADA-USDT-SWAP',
+                'MATIC-USDT-SWAP', 'DOT-USDT-SWAP', 'AVAX-USDT-SWAP',
+                'LINK-USDT-SWAP', 'UNI-USDT-SWAP', 'LTC-USDT-SWAP'
             ]
     
     async def _analyze_single_symbol(self, symbol: str) -> Optional[GridTradingRecommendation]:

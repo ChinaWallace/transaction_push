@@ -286,36 +286,68 @@ class BinanceRealtimeDataManager:
         return success_count > 0
     
     async def subscribe_funding_rates(self, symbols: List[str]) -> bool:
-        """订阅资金费率（通过标记价格获取）"""
+        """订阅资金费率（通过标记价格获取）
+        优化: 过滤无效USDT永续合约，批量/全市场订阅以减少连接次数"""
         if not self.is_initialized:
             await self.initialize()
         
         if not symbols:
             return True
         
-        logger.info(f"💸 开始订阅资金费率: {len(symbols)} 个交易对")
-        
-        success_count = 0
-        for symbol in symbols:
+        logger.info(f"💸 开始订阅资金费率: {len(symbols)} 个交易对 (优化模式)")
+
+        # 过滤有效合约
+        valid_symbols: List[str] = []
+        invalid_symbols: List[str] = []
+        for sym in symbols:
             try:
-                success = await self.ws_service.subscribe_symbol_mark_price(
-                    symbol,
-                    callback=self._on_funding_rate_update
-                )
-                if success:
-                    success_count += 1
-                    logger.debug(f"💸 订阅资金费率成功: {symbol}")
+                conv = self.ws_service._convert_symbol_to_binance(sym)
+                if await self.ws_service._is_valid_futures_symbol(conv.upper()):
+                    valid_symbols.append(sym)
                 else:
-                    logger.warning(f"⚠️ 订阅资金费率失败: {symbol}")
-                
-                await asyncio.sleep(0.1)
-                
-            except Exception as e:
-                logger.error(f"❌ 订阅{symbol}资金费率异常: {e}")
-        
-        logger.info(f"💸 资金费率订阅完成: {success_count}/{len(symbols)} 成功")
-        return success_count > 0
-    
+                    invalid_symbols.append(sym)
+            except Exception:
+                invalid_symbols.append(sym)
+
+        if invalid_symbols:
+            logger.warning(f"⚠️ 跳过无效/非永续合约符号: {invalid_symbols[:10]}{'...' if len(invalid_symbols)>10 else ''}")
+
+        if not valid_symbols:
+            logger.error("❌ 无有效USDT永续合约可订阅资金费率")
+            return False
+
+        success_total = 0
+
+        # 策略: 大量使用全市场 (!markPrice@arr) ; 中等使用批量合并 ; 少量逐个
+        if len(valid_symbols) >= 80:
+            logger.info("🔀 使用全市场标记价格订阅 !markPrice@arr")
+            success = await self.ws_service.subscribe_all_mark_price(callback=self._on_all_funding_rates_update)
+            if success:
+                success_total = len(valid_symbols)
+            else:
+                logger.error("❌ 全市场资金费率订阅失败，回退到批量模式")
+                batch_result = await self.ws_service.subscribe_multi_mark_price(valid_symbols, callback=self._on_funding_rate_update)
+                success_total = sum(1 for v in batch_result.values() if v)
+        elif len(valid_symbols) >= 25:
+            logger.info("🔀 使用合并批量订阅标记价格 streams")
+            batch_result = await self.ws_service.subscribe_multi_mark_price(valid_symbols, callback=self._on_funding_rate_update)
+            success_total = sum(1 for v in batch_result.values() if v)
+        else:
+            logger.info("🔀 使用单流订阅模式")
+            for sym in valid_symbols:
+                try:
+                    success = await self.ws_service.subscribe_symbol_mark_price(sym, callback=self._on_funding_rate_update)
+                    if success:
+                        success_total += 1
+                    else:
+                        logger.warning(f"⚠️ 订阅资金费率失败: {sym}")
+                    await asyncio.sleep(0.05)
+                except Exception as e:
+                    logger.error(f"❌ 订阅{sym}资金费率异常: {e}")
+
+        logger.info(f"💸 资金费率订阅完成: {success_total}/{len(valid_symbols)} 有效合约成功 (原始请求 {len(symbols)})")
+        return success_total > 0
+
     async def subscribe_all_funding_rates(self) -> bool:
         """订阅所有交易对的资金费率"""
         if not self.is_initialized:

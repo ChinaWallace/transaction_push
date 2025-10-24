@@ -7,14 +7,14 @@ Binance WebSocket Service - Fixed Version with Proxy Support
 import asyncio
 import json
 import time
-from typing import Dict, Any, List, Optional, Callable, Set, Union
+from typing import Dict, Any, List, Optional, Callable, Set
 from datetime import datetime
 from dataclasses import dataclass
 from enum import Enum
 
 import aiohttp
 import websockets
-from websockets.exceptions import ConnectionClosed, WebSocketException
+from websockets.exceptions import WebSocketException
 
 from app.core.logging import get_logger
 from app.core.config import get_settings
@@ -101,6 +101,12 @@ class BinanceWebSocketService:
             'reconnect_attempts': 0
         }
         
+        # 合约符号缓存（仅期货合约，避免订阅不存在的合约导致超时）
+        self.valid_futures_symbols: Set[str] = set()
+        self.symbol_cache_last_update: float = 0.0
+        self.symbol_cache_ttl: int = 3600  # 1小时缓存
+        self.symbol_cache_lock = asyncio.Lock()
+
         logger.info(f"🔧 币安WebSocket服务初始化完成")
         if self.use_proxy:
             logger.info(f"🔌 已配置代理: {self.proxy_url}")
@@ -268,10 +274,16 @@ class BinanceWebSocketService:
     async def subscribe_symbol_mark_price(self, symbol: str, callback: Optional[Callable] = None) -> bool:
         """订阅单个交易对的标记价格数据"""
         try:
-            # 转换符号格式
+            # 转换符号格式（标准 -> Binance）
             binance_symbol = self._convert_symbol_to_binance(symbol)
             stream_name = f"{binance_symbol.lower()}@markPrice"
             
+            # 期货合约有效性校验（避免订阅现货或不存在的合约）
+            is_valid = await self._is_valid_futures_symbol(binance_symbol.upper())
+            if not is_valid:
+                logger.warning(f"⚠️ 跳过订阅标记价格: {symbol} -> {binance_symbol} 不是有效的USDT合约或已下架")
+                return False
+
             if stream_name in self.subscribed_streams:
                 logger.debug(f"📊 {symbol} 标记价格已订阅")
                 return True
@@ -304,6 +316,213 @@ class BinanceWebSocketService:
             logger.error(f"❌ 订阅标记价格异常: {e}")
             return False
     
+    async def subscribe_symbol_trades(self, symbol: str, callback: Optional[Callable] = None) -> bool:
+        """订阅单个交易对的聚合交易数据 (aggTrade)"""
+        try:
+            binance_symbol = self._convert_symbol_to_binance(symbol)
+            stream_name = f"{binance_symbol.lower()}@aggTrade"
+            # 校验期货合约（仅在USDT永续合约场景下需要）
+            if binance_symbol.upper().endswith("USDT"):
+                valid = await self._is_valid_futures_symbol(binance_symbol.upper())
+                if not valid:
+                    logger.warning(f"⚠️ 跳过订阅交易: {symbol} 非有效USDT永续合约")
+                    return False
+            if stream_name in self.subscribed_streams:
+                logger.debug(f"💰 {symbol} 交易数据已订阅")
+                return True
+            success = await self._connect_stream(stream_name)
+            if success:
+                if callback:
+                    self.callbacks.setdefault(stream_name, []).append(callback)
+                self.subscriptions[stream_name] = SubscriptionInfo(stream=stream_name, symbol=symbol, callback=callback, last_update=datetime.now())
+                self.subscribed_streams.add(stream_name)
+                logger.info(f"✅ 成功订阅 {symbol} 交易数据")
+                return True
+            logger.error(f"❌ 订阅 {symbol} 交易数据失败")
+            return False
+        except Exception as e:
+            logger.error(f"❌ 订阅交易异常: {e}")
+            return False
+
+    async def subscribe_symbol_kline(self, symbol: str, interval: str, callback: Optional[Callable] = None) -> bool:
+        """订阅单个交易对的K线数据"""
+        try:
+            binance_symbol = self._convert_symbol_to_binance(symbol)
+            stream_name = f"{binance_symbol.lower()}@kline_{interval}"
+            if binance_symbol.upper().endswith("USDT"):
+                valid = await self._is_valid_futures_symbol(binance_symbol.upper())
+                if not valid:
+                    logger.warning(f"⚠️ 跳过订阅K线: {symbol} 非有效USDT永续合约")
+                    return False
+            if stream_name in self.subscribed_streams:
+                logger.debug(f"📈 {symbol} {interval} K线已订阅")
+                return True
+            success = await self._connect_stream(stream_name)
+            if success:
+                if callback:
+                    self.callbacks.setdefault(stream_name, []).append(callback)
+                self.subscriptions[stream_name] = SubscriptionInfo(stream=stream_name, symbol=symbol, callback=callback, last_update=datetime.now())
+                self.subscribed_streams.add(stream_name)
+                logger.info(f"✅ 成功订阅 {symbol} {interval} K线数据")
+                return True
+            logger.error(f"❌ 订阅 {symbol} {interval} K线失败")
+            return False
+        except Exception as e:
+            logger.error(f"❌ 订阅K线异常: {e}")
+            return False
+
+    async def subscribe_all_mark_price(self, callback: Optional[Callable] = None) -> bool:
+        """订阅所有USDT永续合约的标记价格 (使用全市场stream)"""
+        try:
+            # 币安期货支持 wss://fstream.binance.com/ws/!markPrice@arr  返回数组
+            stream_name = "!markPrice@arr"
+            if stream_name in self.subscribed_streams:
+                logger.debug("📊 全市场标记价格已订阅")
+                return True
+            success = await self._connect_stream(stream_name)
+            if success:
+                if callback:
+                    self.callbacks.setdefault(stream_name, []).append(callback)
+                self.subscriptions[stream_name] = SubscriptionInfo(stream=stream_name, symbol="ALL", callback=callback, last_update=datetime.now())
+                self.subscribed_streams.add(stream_name)
+                logger.info("✅ 成功订阅全市场标记价格数组")
+                return True
+            logger.error("❌ 订阅全市场标记价格失败")
+            return False
+        except Exception as e:
+            logger.error(f"❌ 订阅全市场标记价格异常: {e}")
+            return False
+
+    async def subscribe_multi_mark_price(self, symbols: List[str], callback: Optional[Callable] = None, batch_size: int = 30, delay: float = 0.05) -> Dict[str, bool]:
+        """分批通过合并流订阅多个标记价格，减少连接数
+        返回: {symbol: success}
+        说明: 使用 /stream?streams=... 组合 URL，一次连接多个 stream
+        """
+        results: Dict[str, bool] = {}
+        try:
+            # 过滤与转换符号
+            converted = [(s, self._convert_symbol_to_binance(s)) for s in symbols]
+            # 期货有效性过滤
+            valid_pairs = []
+            for original, conv in converted:
+                if await self._is_valid_futures_symbol(conv.upper()):
+                    valid_pairs.append((original, conv))
+                else:
+                    logger.warning(f"⚠️ 跳过无效合约: {original} -> {conv}")
+                    results[original] = False
+            # 分批处理
+            for i in range(0, len(valid_pairs), batch_size):
+                batch = valid_pairs[i:i+batch_size]
+                if not batch:
+                    continue
+                streams = [f"{conv.lower()}@markPrice" for _, conv in batch]
+                combined = "/".join(streams)
+                ws_url = f"{self.ws_base_url}/stream?streams={combined}"
+                logger.debug(f"🔌 合并订阅标记价格: {len(batch)} streams -> {ws_url}")
+                try:
+                    # 建立连接（不使用单stream的 _connect_stream 以保持独立处理）
+                    if self.use_proxy and self.http_session:
+                        ws = await self.http_session.ws_connect(ws_url, proxy=self.proxy_url, heartbeat=self.ping_interval, timeout=self.connection_timeout)
+                    else:
+                        ws = await websockets.connect(ws_url, ping_interval=self.ping_interval, ping_timeout=15, close_timeout=10, max_size=2**20, compression=None, open_timeout=self.connection_timeout)
+                    # 保存单一组合连接
+                    combined_key = f"combined_markprice_{i//batch_size}"  # 唯一键
+                    self.ws_connections[combined_key] = ws
+                    self.connection_states[combined_key] = "connected"
+                    self.is_connected = True
+                    # 为每个子stream登记
+                    now = datetime.now()
+                    for original, conv in batch:
+                        stream_name = f"{conv.lower()}@markPrice"
+                        self.subscribed_streams.add(stream_name)
+                        self.subscriptions[stream_name] = SubscriptionInfo(stream=stream_name, symbol=original, callback=callback, last_update=now)
+                        results[original] = True
+                    # 消息处理任务
+                    message_task = asyncio.create_task(self._handle_messages_combined_mark_price(ws, batch, callback))
+                    self.background_tasks.append(message_task)
+                    logger.info(f"✅ 合并订阅成功: {len(batch)} 标记价格 streams")
+                except Exception as e:
+                    logger.error(f"❌ 合并订阅失败 (batch {i//batch_size}): {e}")
+                    for original, _ in batch:
+                        results[original] = False
+                await asyncio.sleep(delay)
+        except Exception as e:
+            logger.error(f"❌ subscribe_multi_mark_price 异常: {e}")
+        return results
+
+    async def _handle_messages_combined_mark_price(self, ws, batch: List[tuple], callback: Optional[Callable]) -> None:
+        """处理合并标记价格连接的消息 (返回 JSON {'stream': 'xxx', 'data': {...}})"""
+        try:
+            async for message in ws:
+                if not self.is_running:
+                    break
+                try:
+                    payload = json.loads(message) if isinstance(message, (str, bytes)) else message
+                    stream = payload.get('stream')
+                    data = payload.get('data')
+                    if not stream or not data:
+                        continue
+                    # 直接使用单stream处理逻辑
+                    await self._process_message(stream, data)
+                    # 回调（统一回调每个标记价格）
+                    if callback:
+                        if asyncio.iscoroutinefunction(callback):
+                            await callback(data)
+                        else:
+                            callback(data)
+                except Exception as e:
+                    logger.error(f"❌ 合并标记价格消息处理异常: {e}")
+        except Exception as e:
+            logger.error(f"❌ 合并标记价格连接异常: {e}")
+        finally:
+            logger.debug("🔄 合并标记价格消息处理结束")
+
+    async def _is_valid_futures_symbol(self, binance_symbol: str) -> bool:
+        """检查是否为有效的USDT永续合约符号（使用缓存避免频繁请求）"""
+        try:
+            if not binance_symbol.endswith("USDT"):
+                return False
+            now = time.time()
+            if (now - self.symbol_cache_last_update) > self.symbol_cache_ttl or not self.valid_futures_symbols:
+                await self._refresh_futures_symbol_cache()
+            return binance_symbol in self.valid_futures_symbols
+        except Exception as e:
+            logger.warning(f"⚠️ 合约符号校验异常 {binance_symbol}: {e}")
+            return False
+
+    async def _refresh_futures_symbol_cache(self) -> None:
+        """刷新期货合约符号缓存"""
+        async with self.symbol_cache_lock:
+            try:
+                base_url = "https://fapi.binance.com" if not self.testnet else "https://testnet.binancefuture.com"
+                endpoint = f"{base_url}/fapi/v1/exchangeInfo"
+                logger.debug("🔄 刷新期货合约符号缓存...")
+
+                if not self.http_session:
+                    await self._create_http_session()
+
+                async with self.http_session.get(endpoint, proxy=self.proxy_url if self.use_proxy else None, timeout=30) as resp:
+                    if resp.status != 200:
+                        logger.warning(f"⚠️ 获取期货合约信息失败 HTTP {resp.status}")
+                        return
+                    data = await resp.json()
+                    symbols = data.get("symbols", [])
+                    futures_symbols = set()
+                    for item in symbols:
+                        try:
+                            if item.get("contractType") == "PERPETUAL" and item.get("status") == "TRADING" and item.get("quoteAsset") == "USDT":
+                                futures_symbols.add(item.get("symbol"))
+                        except Exception:
+                            continue
+                    if futures_symbols:
+                        self.valid_futures_symbols = futures_symbols
+                        self.symbol_cache_last_update = time.time()
+                        logger.info(f"✅ 期货合约缓存刷新完成, 有效USDT永续合约数量: {len(futures_symbols)}")
+                    else:
+                        logger.warning("⚠️ 期货合约缓存刷新未获取到有效合约列表")
+            except Exception as e:
+                logger.error(f"❌ 刷新期货合约符号缓存失败: {e}")
+
     async def _connect_stream(self, stream_name: str) -> bool:
         """连接数据流"""
         try:
@@ -347,6 +566,14 @@ class BinanceWebSocketService:
             logger.info(f"✅ 成功连接数据流: {stream_name}")
             return True
             
+        except asyncio.TimeoutError:
+            logger.error(f"⏱️ 连接数据流超时 {stream_name}: 打开握手未在 {self.connection_timeout}s 内完成")
+            self.connection_states[stream_name] = "timeout"
+            return False
+        except WebSocketException as e:
+            logger.error(f"❌ WebSocket协议异常 {stream_name}: {e}")
+            self.connection_states[stream_name] = "failed"
+            return False
         except Exception as e:
             logger.error(f"❌ 连接数据流失败 {stream_name}: {e}")
             self.connection_states[stream_name] = "failed"
