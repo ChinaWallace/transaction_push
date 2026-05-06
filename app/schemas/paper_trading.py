@@ -34,6 +34,19 @@ class PaperBacktestStrategy(str, Enum):
     EMA_RSI = "ema_rsi"
     BREAKOUT = "breakout"
     MEAN_REVERSION = "mean_reversion"
+    LONG_ONLY_PORTFOLIO = "long_only_portfolio"
+
+
+class PaperPortfolioBucket(str, Enum):
+    CORE = "core"
+    SATELLITE = "satellite"
+    CASH = "cash"
+
+
+class PaperExecutionMode(str, Enum):
+    PAPER = "paper"
+    TESTNET = "testnet"
+    LIVE_DISABLED = "live_disabled"
 
 
 class PaperTradePlan(BaseModel):
@@ -87,6 +100,7 @@ class PaperScanRequest(BaseModel):
     mode: PaperTradingMode = PaperTradingMode.BALANCED
     dry_run: bool = True
     force_update: bool = False
+    long_only: bool = True
     analysis_type: str = Field(
         default="technical_only",
         description="technical_only, integrated, kronos_only, ml_only",
@@ -137,7 +151,7 @@ class PaperBacktestRequest(BaseModel):
     initial_balance_usdt: float = Field(default=10000.0, gt=0)
     fee_rate: float = Field(default=0.0004, ge=0, le=0.01)
     slippage_rate: float = Field(default=0.0002, ge=0, le=0.01)
-    allow_short: bool = True
+    allow_short: bool = False
     parameters: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -174,4 +188,133 @@ class PaperBacktestResponse(BaseModel):
     trades: List[PaperBacktestTrade] = Field(default_factory=list)
     equity_curve: List[Dict[str, Any]] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+
+class PaperUniverseAsset(BaseModel):
+    symbol: str
+    bucket: PaperPortfolioBucket
+    base_asset: str
+    price: float
+    volume_24h_usdt: float
+    change_percent_24h: float
+    score: float
+    reason: str
+    market_cap_rank: Optional[int] = None
+    max_leverage: float
+    risk_pct: float
+
+
+class PaperUniverseResponse(BaseModel):
+    core: List[PaperUniverseAsset] = Field(default_factory=list)
+    satellite: List[PaperUniverseAsset] = Field(default_factory=list)
+    cash_allocation: float
+    allocation: Dict[str, float]
+    source: str
+    execution_mode: PaperExecutionMode
+    timestamp: datetime = Field(default_factory=datetime.now)
+    warnings: List[str] = Field(default_factory=list)
+
+
+class PaperPortfolioBacktestRequest(BaseModel):
+    core_symbols: Optional[List[str]] = None
+    satellite_symbols: Optional[List[str]] = None
+    timeframe: str = "1h"
+    candles: int = Field(default=1000, ge=100, le=1500)
+    mode: PaperTradingMode = PaperTradingMode.BALANCED
+    initial_balance_usdt: float = Field(default=10000.0, gt=0)
+    fee_rate: float = Field(default=0.0004, ge=0, le=0.01)
+    slippage_rate: float = Field(default=0.0002, ge=0, le=0.01)
+    sample_split: float = Field(default=0.7, gt=0.5, lt=0.95)
+    max_core_symbols: int = Field(default=10, ge=1, le=15)
+    max_satellite_symbols: int = Field(default=8, ge=0, le=20)
+    strategies: List[PaperBacktestStrategy] = Field(
+        default_factory=lambda: [PaperBacktestStrategy.EMA_RSI, PaperBacktestStrategy.BREAKOUT]
+    )
+
+
+class PaperSymbolContribution(BaseModel):
+    symbol: str
+    bucket: PaperPortfolioBucket
+    strategy: PaperBacktestStrategy
+    allocation_usdt: float
+    final_balance_usdt: float
+    total_return_pct: float
+    max_drawdown_pct: float
+    total_trades: int
+    pnl_usdt: float
+
+
+class PaperPortfolioBacktestResponse(BaseModel):
+    strategy: str = "long_only_portfolio"
+    timeframe: str
+    candles: int
+    mode: PaperTradingMode
+    initial_balance_usdt: float
+    final_balance_usdt: float
+    total_return_pct: float
+    max_drawdown_pct: float
+    sharpe_ratio: float
+    win_rate: float
+    profit_factor: float
+    total_trades: int
+    in_sample: Dict[str, Any]
+    out_of_sample: Dict[str, Any]
+    symbol_contributions: List[PaperSymbolContribution] = Field(default_factory=list)
+    exit_reason_stats: Dict[str, int] = Field(default_factory=dict)
+    equity_curve: List[Dict[str, Any]] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+
+class PaperLeaderboardRequest(BaseModel):
+    symbols: Optional[List[str]] = None
+    strategies: List[PaperBacktestStrategy] = Field(
+        default_factory=lambda: [
+            PaperBacktestStrategy.EMA_RSI,
+            PaperBacktestStrategy.BREAKOUT,
+            PaperBacktestStrategy.MEAN_REVERSION,
+        ]
+    )
+    timeframe: str = "1h"
+    candles: int = Field(default=600, ge=100, le=1500)
+    mode: PaperTradingMode = PaperTradingMode.BALANCED
+    initial_balance_usdt: float = Field(default=10000.0, gt=0)
+    max_symbols: int = Field(default=12, ge=1, le=30)
+
+
+class PaperLeaderboardRow(BaseModel):
+    rank: int
+    symbol: str
+    strategy: PaperBacktestStrategy
+    score: float
+    total_return_pct: float
+    max_drawdown_pct: float
+    sharpe_ratio: float
+    win_rate: float
+    profit_factor: float
+    total_trades: int
+
+
+class PaperLeaderboardResponse(BaseModel):
+    rows: List[PaperLeaderboardRow]
+    timestamp: datetime = Field(default_factory=datetime.now)
+    warnings: List[str] = Field(default_factory=list)
+
+
+class PaperRiskStatusResponse(BaseModel):
+    execution_mode: PaperExecutionMode
+    long_only: bool
+    allocation: Dict[str, float]
+    leverage_limits: Dict[str, float]
+    risk_limits: Dict[str, float]
+    current_open_positions: int
+    max_open_positions: int
+    gross_exposure_usdt: float
+    equity_usdt: float
+    exposure_ratio: float
+    realized_pnl_usdt: float
+    unrealized_pnl_usdt: float
+    trading_paused: bool
+    pause_reasons: List[str] = Field(default_factory=list)
     timestamp: datetime = Field(default_factory=datetime.now)

@@ -11,11 +11,17 @@ from app.schemas.paper_trading import (
     PaperBacktestRequest,
     PaperBacktestResponse,
     PaperCloseRequest,
+    PaperLeaderboardRequest,
+    PaperLeaderboardResponse,
+    PaperPortfolioBacktestRequest,
+    PaperPortfolioBacktestResponse,
+    PaperRiskStatusResponse,
     PaperResetRequest,
     PaperScanRequest,
     PaperScanResponse,
     PaperStatusResponse,
     PaperTradeRecord,
+    PaperUniverseResponse,
 )
 from app.services.trading.paper_trading_service import (
     PaperTradingService,
@@ -42,6 +48,7 @@ async def scan_opportunities(
             dry_run=request.dry_run,
             force_update=request.force_update,
             analysis_type=request.analysis_type,
+            long_only=request.long_only,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -56,6 +63,54 @@ async def run_backtest(
         return await service.run_backtest(request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/backtest/portfolio", response_model=PaperPortfolioBacktestResponse)
+async def run_portfolio_backtest(
+    request: PaperPortfolioBacktestRequest,
+    service: PaperTradingService = Depends(get_service),
+) -> PaperPortfolioBacktestResponse:
+    try:
+        return await service.run_portfolio_backtest(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/backtest/leaderboard", response_model=PaperLeaderboardResponse)
+async def run_leaderboard(
+    request: PaperLeaderboardRequest,
+    service: PaperTradingService = Depends(get_service),
+) -> PaperLeaderboardResponse:
+    try:
+        return await service.run_leaderboard(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/universe", response_model=PaperUniverseResponse)
+async def get_universe(
+    max_core_symbols: int = 10,
+    max_satellite_symbols: int = 8,
+    service: PaperTradingService = Depends(get_service),
+) -> PaperUniverseResponse:
+    try:
+        return await service.get_universe(max_core_symbols, max_satellite_symbols)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/risk-status", response_model=PaperRiskStatusResponse)
+async def get_risk_status(
+    service: PaperTradingService = Depends(get_service),
+) -> PaperRiskStatusResponse:
+    try:
+        return await service.get_risk_status()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
