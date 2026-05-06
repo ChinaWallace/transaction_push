@@ -8,12 +8,17 @@ gates. It never calls exchange order APIs.
 
 import asyncio
 import os
+import math
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.logging import get_logger
 from app.schemas.paper_trading import (
+    PaperBacktestRequest,
+    PaperBacktestResponse,
+    PaperBacktestStrategy,
+    PaperBacktestTrade,
     PaperOrderStatus,
     PaperRejectedSignal,
     PaperScanResponse,
@@ -246,6 +251,176 @@ class PaperTradingService:
     async def tick(self) -> PaperStatusResponse:
         await self._mark_to_market_open_positions()
         return await self.get_status()
+
+    async def run_backtest(self, request: PaperBacktestRequest) -> PaperBacktestResponse:
+        exchange = await get_current_exchange_service()
+        if exchange is None:
+            await start_exchange_services()
+            exchange = await get_current_exchange_service()
+        if exchange is None:
+            raise ValueError("exchange service is not available")
+
+        klines = await exchange.get_kline_data(
+            request.symbol.upper(),
+            request.timeframe,
+            request.candles,
+        )
+        candles = self._normalize_klines(klines)
+        if len(candles) < 100:
+            raise ValueError(f"not enough kline data: {len(candles)} candles")
+
+        cfg = self.MODE_CONFIG[request.mode]
+        balance = request.initial_balance_usdt
+        position: Optional[Dict[str, Any]] = None
+        trades: List[PaperBacktestTrade] = []
+        equity_curve: List[Dict[str, Any]] = []
+        fees_paid = 0.0
+        peak_equity = balance
+        max_drawdown = 0.0
+
+        closes = [c["close"] for c in candles]
+        highs = [c["high"] for c in candles]
+        lows = [c["low"] for c in candles]
+        ema_fast = self._ema(closes, int(request.parameters.get("ema_fast", 12)))
+        ema_slow = self._ema(closes, int(request.parameters.get("ema_slow", 26)))
+        rsi = self._rsi(closes, int(request.parameters.get("rsi_period", 14)))
+
+        warmup = max(30, int(request.parameters.get("warmup", 60)))
+        for idx in range(warmup, len(candles)):
+            candle = candles[idx]
+            mark_price = candle["close"]
+
+            if position:
+                exit_price, close_reason = self._backtest_exit_price(position, candle)
+                if close_reason:
+                    fee = position["position_size_usdt"] * request.fee_rate
+                    fees_paid += fee
+                    pnl = self._backtest_pnl(position, exit_price) - fee
+                    balance += pnl
+                    trades.append(
+                        PaperBacktestTrade(
+                            symbol=request.symbol.upper(),
+                            side=position["side"],
+                            entry_time=position["entry_time"],
+                            exit_time=candle["time"],
+                            entry_price=round(position["entry_price"], 8),
+                            exit_price=round(exit_price, 8),
+                            position_size_usdt=round(position["position_size_usdt"], 4),
+                            pnl_usdt=round(pnl, 4),
+                            pnl_percent=round(
+                                (pnl / position["position_size_usdt"]) * 100
+                                if position["position_size_usdt"]
+                                else 0.0,
+                                4,
+                            ),
+                            close_reason=close_reason,
+                        )
+                    )
+                    position = None
+
+            if position is None:
+                side = self._strategy_signal(
+                    request.strategy,
+                    idx,
+                    closes,
+                    highs,
+                    lows,
+                    ema_fast,
+                    ema_slow,
+                    rsi,
+                    request.parameters,
+                )
+                if side and (side == PaperTradeSide.LONG or request.allow_short):
+                    raw_entry = mark_price
+                    entry_price = self._apply_slippage(raw_entry, side, request.slippage_rate, entry=True)
+                    stop_loss, take_profit = self._backtest_levels(entry_price, side, cfg)
+                    stop_distance_pct = abs(entry_price - stop_loss) / entry_price
+                    position_size_usdt = min(
+                        cfg["max_position_usdt"],
+                        (balance * cfg["risk_pct"]) / stop_distance_pct,
+                    )
+                    if position_size_usdt > 0 and balance > 0:
+                        fee = position_size_usdt * request.fee_rate
+                        balance -= fee
+                        fees_paid += fee
+                        position = {
+                            "side": side,
+                            "entry_time": candle["time"],
+                            "entry_price": entry_price,
+                            "stop_loss": stop_loss,
+                            "take_profit": take_profit,
+                            "quantity": position_size_usdt / entry_price,
+                            "position_size_usdt": position_size_usdt,
+                        }
+
+            unrealized = self._backtest_pnl(position, mark_price) if position else 0.0
+            equity = balance + unrealized
+            peak_equity = max(peak_equity, equity)
+            drawdown = (peak_equity - equity) / peak_equity if peak_equity else 0.0
+            max_drawdown = max(max_drawdown, drawdown)
+            equity_curve.append(
+                {
+                    "timestamp": candle["time"],
+                    "equity": round(equity, 4),
+                    "balance": round(balance, 4),
+                    "drawdown_pct": round(drawdown * 100, 4),
+                }
+            )
+
+        if position:
+            last = candles[-1]
+            exit_price = self._apply_slippage(
+                last["close"], position["side"], request.slippage_rate, entry=False
+            )
+            fee = position["position_size_usdt"] * request.fee_rate
+            fees_paid += fee
+            pnl = self._backtest_pnl(position, exit_price) - fee
+            balance += pnl
+            trades.append(
+                PaperBacktestTrade(
+                    symbol=request.symbol.upper(),
+                    side=position["side"],
+                    entry_time=position["entry_time"],
+                    exit_time=last["time"],
+                    entry_price=round(position["entry_price"], 8),
+                    exit_price=round(exit_price, 8),
+                    position_size_usdt=round(position["position_size_usdt"], 4),
+                    pnl_usdt=round(pnl, 4),
+                    pnl_percent=round((pnl / position["position_size_usdt"]) * 100, 4),
+                    close_reason="end_of_backtest",
+                )
+            )
+
+        metrics = self._backtest_metrics(
+            request.initial_balance_usdt,
+            balance,
+            max_drawdown,
+            trades,
+            equity_curve,
+        )
+        warnings = self._backtest_warnings(metrics, len(candles))
+
+        return PaperBacktestResponse(
+            symbol=request.symbol.upper(),
+            strategy=request.strategy,
+            timeframe=request.timeframe,
+            candles=len(candles),
+            mode=request.mode,
+            initial_balance_usdt=round(request.initial_balance_usdt, 4),
+            final_balance_usdt=round(balance, 4),
+            total_return_pct=metrics["total_return_pct"],
+            max_drawdown_pct=metrics["max_drawdown_pct"],
+            sharpe_ratio=metrics["sharpe_ratio"],
+            win_rate=metrics["win_rate"],
+            profit_factor=metrics["profit_factor"],
+            total_trades=metrics["total_trades"],
+            winning_trades=metrics["winning_trades"],
+            losing_trades=metrics["losing_trades"],
+            fees_paid_usdt=round(fees_paid, 4),
+            trades=trades[-200:],
+            equity_curve=equity_curve,
+            warnings=warnings,
+        )
 
     async def _build_plan(
         self, signal: TradingSignal, mode: PaperTradingMode
@@ -589,6 +764,202 @@ class PaperTradingService:
             confidence=signal.final_confidence,
             details=details or {},
         )
+
+    @staticmethod
+    def _normalize_klines(klines: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        candles = []
+        for item in klines:
+            try:
+                ts = int(item["timestamp"])
+                if ts > 10_000_000_000:
+                    dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).replace(tzinfo=None)
+                else:
+                    dt = datetime.fromtimestamp(ts, tz=timezone.utc).replace(tzinfo=None)
+                candles.append(
+                    {
+                        "time": dt,
+                        "open": float(item["open"]),
+                        "high": float(item["high"]),
+                        "low": float(item["low"]),
+                        "close": float(item["close"]),
+                        "volume": float(item.get("volume", 0.0)),
+                    }
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+        return sorted(candles, key=lambda row: row["time"])
+
+    @staticmethod
+    def _ema(values: List[float], period: int) -> List[Optional[float]]:
+        result: List[Optional[float]] = [None] * len(values)
+        if period <= 1 or len(values) < period:
+            return result
+        alpha = 2 / (period + 1)
+        ema_value = sum(values[:period]) / period
+        result[period - 1] = ema_value
+        for idx in range(period, len(values)):
+            ema_value = values[idx] * alpha + ema_value * (1 - alpha)
+            result[idx] = ema_value
+        return result
+
+    @staticmethod
+    def _rsi(values: List[float], period: int) -> List[Optional[float]]:
+        result: List[Optional[float]] = [None] * len(values)
+        if period <= 1 or len(values) <= period:
+            return result
+        gains = []
+        losses = []
+        for idx in range(1, period + 1):
+            change = values[idx] - values[idx - 1]
+            gains.append(max(change, 0))
+            losses.append(abs(min(change, 0)))
+        avg_gain = sum(gains) / period
+        avg_loss = sum(losses) / period
+        result[period] = 100 if avg_loss == 0 else 100 - (100 / (1 + avg_gain / avg_loss))
+        for idx in range(period + 1, len(values)):
+            change = values[idx] - values[idx - 1]
+            gain = max(change, 0)
+            loss = abs(min(change, 0))
+            avg_gain = (avg_gain * (period - 1) + gain) / period
+            avg_loss = (avg_loss * (period - 1) + loss) / period
+            result[idx] = 100 if avg_loss == 0 else 100 - (100 / (1 + avg_gain / avg_loss))
+        return result
+
+    def _strategy_signal(
+        self,
+        strategy: PaperBacktestStrategy,
+        idx: int,
+        closes: List[float],
+        highs: List[float],
+        lows: List[float],
+        ema_fast: List[Optional[float]],
+        ema_slow: List[Optional[float]],
+        rsi: List[Optional[float]],
+        params: Dict[str, Any],
+    ) -> Optional[PaperTradeSide]:
+        if strategy == PaperBacktestStrategy.EMA_RSI:
+            if not ema_fast[idx] or not ema_slow[idx] or rsi[idx] is None:
+                return None
+            long_rsi = float(params.get("long_rsi_max", 68))
+            short_rsi = float(params.get("short_rsi_min", 32))
+            if ema_fast[idx] > ema_slow[idx] and rsi[idx] < long_rsi:
+                return PaperTradeSide.LONG
+            if ema_fast[idx] < ema_slow[idx] and rsi[idx] > short_rsi:
+                return PaperTradeSide.SHORT
+            return None
+
+        lookback = int(params.get("lookback", 20))
+        if idx <= lookback:
+            return None
+
+        if strategy == PaperBacktestStrategy.BREAKOUT:
+            previous_high = max(highs[idx - lookback:idx])
+            previous_low = min(lows[idx - lookback:idx])
+            if closes[idx] > previous_high:
+                return PaperTradeSide.LONG
+            if closes[idx] < previous_low:
+                return PaperTradeSide.SHORT
+            return None
+
+        if strategy == PaperBacktestStrategy.MEAN_REVERSION:
+            window = closes[idx - lookback:idx]
+            average = sum(window) / lookback
+            variance = sum((price - average) ** 2 for price in window) / lookback
+            std = math.sqrt(variance)
+            zscore = (closes[idx] - average) / std if std else 0.0
+            threshold = float(params.get("zscore", 2.0))
+            if zscore <= -threshold:
+                return PaperTradeSide.LONG
+            if zscore >= threshold:
+                return PaperTradeSide.SHORT
+        return None
+
+    @staticmethod
+    def _backtest_levels(
+        entry_price: float, side: PaperTradeSide, cfg: Dict[str, float]
+    ) -> Tuple[float, float]:
+        if side == PaperTradeSide.LONG:
+            return (
+                entry_price * (1 - cfg["default_stop_pct"]),
+                entry_price * (1 + cfg["default_take_pct"]),
+            )
+        return (
+            entry_price * (1 + cfg["default_stop_pct"]),
+            entry_price * (1 - cfg["default_take_pct"]),
+        )
+
+    @staticmethod
+    def _apply_slippage(
+        price: float, side: PaperTradeSide, slippage_rate: float, entry: bool
+    ) -> float:
+        if (side == PaperTradeSide.LONG and entry) or (side == PaperTradeSide.SHORT and not entry):
+            return price * (1 + slippage_rate)
+        return price * (1 - slippage_rate)
+
+    def _backtest_exit_price(
+        self, position: Dict[str, Any], candle: Dict[str, Any]
+    ) -> Tuple[Optional[float], Optional[str]]:
+        side = position["side"]
+        if side == PaperTradeSide.LONG:
+            if candle["low"] <= position["stop_loss"]:
+                return position["stop_loss"], "stop_loss"
+            if candle["high"] >= position["take_profit"]:
+                return position["take_profit"], "take_profit"
+        else:
+            if candle["high"] >= position["stop_loss"]:
+                return position["stop_loss"], "stop_loss"
+            if candle["low"] <= position["take_profit"]:
+                return position["take_profit"], "take_profit"
+        return None, None
+
+    @staticmethod
+    def _backtest_pnl(position: Optional[Dict[str, Any]], price: float) -> float:
+        if not position:
+            return 0.0
+        if position["side"] == PaperTradeSide.LONG:
+            return (price - position["entry_price"]) * position["quantity"]
+        return (position["entry_price"] - price) * position["quantity"]
+
+    @staticmethod
+    def _backtest_metrics(
+        initial_balance: float,
+        final_balance: float,
+        max_drawdown: float,
+        trades: List[PaperBacktestTrade],
+        equity_curve: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        wins = [trade for trade in trades if trade.pnl_usdt > 0]
+        losses = [trade for trade in trades if trade.pnl_usdt < 0]
+        gross_profit = sum(trade.pnl_usdt for trade in wins)
+        gross_loss = abs(sum(trade.pnl_usdt for trade in losses))
+        returns = []
+        for prev, cur in zip(equity_curve, equity_curve[1:]):
+            prev_equity = prev["equity"]
+            returns.append((cur["equity"] - prev_equity) / prev_equity if prev_equity else 0.0)
+        mean_return = sum(returns) / len(returns) if returns else 0.0
+        variance = sum((item - mean_return) ** 2 for item in returns) / len(returns) if returns else 0.0
+        sharpe = (mean_return / math.sqrt(variance) * math.sqrt(365 * 24)) if variance else 0.0
+        return {
+            "total_return_pct": round((final_balance / initial_balance - 1) * 100, 4),
+            "max_drawdown_pct": round(max_drawdown * 100, 4),
+            "sharpe_ratio": round(sharpe, 4),
+            "win_rate": round(len(wins) / len(trades), 4) if trades else 0.0,
+            "profit_factor": round(gross_profit / gross_loss, 4) if gross_loss else (999.0 if gross_profit else 0.0),
+            "total_trades": len(trades),
+            "winning_trades": len(wins),
+            "losing_trades": len(losses),
+        }
+
+    @staticmethod
+    def _backtest_warnings(metrics: Dict[str, Any], candles: int) -> List[str]:
+        warnings = []
+        if candles < 500:
+            warnings.append("Sample is small; use a longer history before trusting the result.")
+        if metrics["total_trades"] < 20:
+            warnings.append("Trade count is low; performance may not be statistically meaningful.")
+        if metrics["max_drawdown_pct"] > 20:
+            warnings.append("Drawdown is high; reduce risk or add a market-regime filter.")
+        return warnings
 
 
 _paper_trading_service: Optional[PaperTradingService] = None

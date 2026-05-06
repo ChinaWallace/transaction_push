@@ -8,6 +8,8 @@ All endpoints here operate on simulated positions only.
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.schemas.paper_trading import (
+    PaperBacktestRequest,
+    PaperBacktestResponse,
     PaperCloseRequest,
     PaperResetRequest,
     PaperScanRequest,
@@ -41,6 +43,19 @@ async def scan_opportunities(
             force_update=request.force_update,
             analysis_type=request.analysis_type,
         )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/backtest", response_model=PaperBacktestResponse)
+async def run_backtest(
+    request: PaperBacktestRequest,
+    service: PaperTradingService = Depends(get_service),
+) -> PaperBacktestResponse:
+    try:
+        return await service.run_backtest(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

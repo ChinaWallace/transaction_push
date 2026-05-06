@@ -30,6 +30,12 @@ class PaperOrderStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class PaperBacktestStrategy(str, Enum):
+    EMA_RSI = "ema_rsi"
+    BREAKOUT = "breakout"
+    MEAN_REVERSION = "mean_reversion"
+
+
 class PaperTradePlan(BaseModel):
     symbol: str
     side: PaperTradeSide
@@ -120,3 +126,52 @@ class PaperCloseRequest(BaseModel):
 
 class PaperResetRequest(BaseModel):
     initial_balance_usdt: Optional[float] = Field(default=None, gt=0)
+
+
+class PaperBacktestRequest(BaseModel):
+    symbol: str = Field(..., description="Example: BTC-USDT-SWAP")
+    strategy: PaperBacktestStrategy = PaperBacktestStrategy.EMA_RSI
+    timeframe: str = "1h"
+    candles: int = Field(default=1000, ge=100, le=1500)
+    mode: PaperTradingMode = PaperTradingMode.BALANCED
+    initial_balance_usdt: float = Field(default=10000.0, gt=0)
+    fee_rate: float = Field(default=0.0004, ge=0, le=0.01)
+    slippage_rate: float = Field(default=0.0002, ge=0, le=0.01)
+    allow_short: bool = True
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+
+
+class PaperBacktestTrade(BaseModel):
+    symbol: str
+    side: PaperTradeSide
+    entry_time: datetime
+    exit_time: datetime
+    entry_price: float
+    exit_price: float
+    position_size_usdt: float
+    pnl_usdt: float
+    pnl_percent: float
+    close_reason: str
+
+
+class PaperBacktestResponse(BaseModel):
+    symbol: str
+    strategy: PaperBacktestStrategy
+    timeframe: str
+    candles: int
+    mode: PaperTradingMode
+    initial_balance_usdt: float
+    final_balance_usdt: float
+    total_return_pct: float
+    max_drawdown_pct: float
+    sharpe_ratio: float
+    win_rate: float
+    profit_factor: float
+    total_trades: int
+    winning_trades: int
+    losing_trades: int
+    fees_paid_usdt: float
+    trades: List[PaperBacktestTrade] = Field(default_factory=list)
+    equity_curve: List[Dict[str, Any]] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    timestamp: datetime = Field(default_factory=datetime.now)
