@@ -104,7 +104,18 @@ from app.schemas.market_anomaly import AnomalyLevel
 settings = get_settings()
 logger = get_logger(__name__)
 
+def startup_analysis_enabled() -> bool:
+    """Return whether heavy startup analysis tasks should run."""
+    return os.getenv("STARTUP_ANALYSIS_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+
 async def perform_startup_core_symbols_push():
+    if not startup_analysis_enabled():
+        return {
+            "status": "skipped",
+            "message": "Startup analysis disabled",
+            "timestamp": datetime.now().isoformat()
+        }
+
     """启动时执行核心币种操作建议推送"""
     try:
         logger.info("📊 开始启动时核心币种操作建议推送...")
@@ -156,6 +167,15 @@ async def perform_startup_core_symbols_push():
         }
 
 async def perform_startup_trading_analysis():
+    if not startup_analysis_enabled():
+        return {
+            "status": "skipped",
+            "message": "Startup analysis disabled",
+            "analysis_results": [],
+            "notifications_sent": 0,
+            "timestamp": datetime.now().isoformat()
+        }
+
     """启动时执行完整的交易决策分析和推送 - 保持兼容性"""
     try:
         logger.info("🎯 启动交易分析 (兼容性保持) - 已由核心币种推送任务处理")
@@ -181,6 +201,13 @@ async def perform_startup_trading_analysis():
 
 # 保留原有的详细分析功能作为备用
 async def perform_detailed_startup_trading_analysis():
+    if not startup_analysis_enabled():
+        return {
+            "status": "skipped",
+            "message": "Startup analysis disabled",
+            "timestamp": datetime.now().isoformat()
+        }
+
     """启动时执行详细的交易决策分析和推送 - 备用功能"""
     try:
         logger.info("🎯 开始启动详细交易决策分析 (Kronos+传统+ML综合)...")
@@ -444,6 +471,15 @@ async def send_startup_summary_notification(app_state, successful_tasks: int, fa
         logger.warning(f"⚠️ 发送启动摘要通知失败: {e}")
 
 async def perform_startup_funding_analysis():
+    if not startup_analysis_enabled():
+        return {
+            "status": "skipped",
+            "message": "Startup analysis disabled",
+            "opportunities_count": 0,
+            "opportunities": [],
+            "timestamp": datetime.now().isoformat()
+        }
+
     """启动时执行负费率分析和推送"""
     try:
         logger.info("💰 开始负费率吃利息机会分析...")
@@ -496,6 +532,15 @@ async def perform_startup_funding_analysis():
         return {"status": "error", "error": str(e)}
 
 async def perform_startup_market_anomaly_analysis():
+    if not startup_analysis_enabled():
+        return {
+            "status": "skipped",
+            "message": "Startup analysis disabled",
+            "anomalies_found": 0,
+            "recommended_count": 0,
+            "timestamp": datetime.now().isoformat()
+        }
+
     """启动时执行市场异常分析和推送"""
     try:
         logger.info("🚨 开始市场异常监控分析...")
@@ -536,6 +581,13 @@ async def perform_startup_market_anomaly_analysis():
         return {"status": "error", "error": str(e)}
 
 async def perform_startup_grid_trading_analysis():
+    if not startup_analysis_enabled():
+        return {
+            "status": "skipped",
+            "message": "Startup analysis disabled",
+            "timestamp": datetime.now().isoformat()
+        }
+
     """启动时执行网格交易机会分析和推送"""
     try:
         logger.info("🔲 开始网格交易机会分析...")
@@ -835,23 +887,33 @@ async def lifespan(app: FastAPI):
         
         # 添加TradingView扫描器定时任务
         from app.services.core.tradingview_scheduler_service import get_tradingview_scheduler_service
+        from app.core.tradingview_config import get_tradingview_config
         
         tradingview_scheduler_service = await get_tradingview_scheduler_service()
+        tradingview_config = get_tradingview_config()
+        startup_scan_enabled = os.getenv(
+            "TRADINGVIEW_ENABLE_STARTUP_SCAN",
+            str(tradingview_config.enable_startup_scan),
+        ).lower() in {"1", "true", "yes", "on"}
         
         # 启动时立即执行一次TradingView扫描
-        try:
-            logger.info("📊 启动时立即执行TradingView强势币种扫描...")
-            startup_scan_result = await tradingview_scheduler_service.scan_and_notify()
-            app.state.startup_tradingview_scan = startup_scan_result
-            
-            if startup_scan_result.get("status") == "success":
-                symbols_count = startup_scan_result.get("symbols_count", 0)
-                logger.info(f"✅ 启动TradingView扫描完成: 发现 {symbols_count} 个强势币种")
-            else:
-                logger.warning(f"⚠️ 启动TradingView扫描异常: {startup_scan_result.get('error', '未知')}")
-        except Exception as e:
-            logger.warning(f"⚠️ 启动TradingView扫描失败: {e}")
-            app.state.startup_tradingview_scan = {"status": "error", "error": str(e)}
+        if startup_scan_enabled:
+            try:
+                logger.info("📊 启动时立即执行TradingView强势币种扫描...")
+                startup_scan_result = await tradingview_scheduler_service.scan_and_notify()
+                app.state.startup_tradingview_scan = startup_scan_result
+                
+                if startup_scan_result.get("status") == "success":
+                    symbols_count = startup_scan_result.get("symbols_count", 0)
+                    logger.info(f"✅ 启动TradingView扫描完成: 发现 {symbols_count} 个强势币种")
+                else:
+                    logger.warning(f"⚠️ 启动TradingView扫描异常: {startup_scan_result.get('error', '未知')}")
+            except Exception as e:
+                logger.warning(f"⚠️ 启动TradingView扫描失败: {e}")
+                app.state.startup_tradingview_scan = {"status": "error", "error": str(e)}
+        else:
+            logger.info("📊 启动TradingView扫描已禁用")
+            app.state.startup_tradingview_scan = {"status": "skipped"}
         
         # 每60分钟执行一次TradingView扫描
         scheduler.add_job(

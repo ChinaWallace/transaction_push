@@ -47,6 +47,8 @@ class TradingViewConfig(BaseSettings):
     class Config:
         env_prefix = "TRADINGVIEW_"
         case_sensitive = False
+        env_file = ".env"
+        extra = "ignore"
 
 
 def get_tradingview_config() -> TradingViewConfig:
