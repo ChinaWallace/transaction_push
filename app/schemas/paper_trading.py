@@ -49,6 +49,12 @@ class PaperExecutionMode(str, Enum):
     LIVE_DISABLED = "live_disabled"
 
 
+class PaperForwardRunnerState(str, Enum):
+    STOPPED = "stopped"
+    RUNNING = "running"
+    STOPPING = "stopping"
+
+
 class PaperTradePlan(BaseModel):
     symbol: str
     side: PaperTradeSide
@@ -355,3 +361,55 @@ class PaperBacktestRunDetail(PaperBacktestHistoryItem):
     symbol_contributions: List[Dict[str, Any]] = Field(default_factory=list)
     exit_reason_stats: Dict[str, int] = Field(default_factory=dict)
     leaderboard_rows: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class PaperForwardRunnerStartRequest(BaseModel):
+    mode: PaperTradingMode = PaperTradingMode.BALANCED
+    analysis_type: str = "technical_only"
+    scan_interval_seconds: int = Field(default=900, ge=60, le=86400)
+    tick_interval_seconds: int = Field(default=60, ge=15, le=3600)
+    max_core_symbols: int = Field(default=5, ge=1, le=15)
+    max_satellite_symbols: int = Field(default=5, ge=0, le=20)
+    force_update: bool = False
+
+
+class PaperForwardRunnerStatus(BaseModel):
+    state: PaperForwardRunnerState
+    running: bool
+    mode: PaperTradingMode
+    analysis_type: str
+    scan_interval_seconds: int
+    tick_interval_seconds: int
+    max_core_symbols: int
+    max_satellite_symbols: int
+    started_at: Optional[datetime] = None
+    stopped_at: Optional[datetime] = None
+    last_tick_at: Optional[datetime] = None
+    last_scan_at: Optional[datetime] = None
+    next_scan_at: Optional[datetime] = None
+    loop_count: int = 0
+    scan_count: int = 0
+    opened_count: int = 0
+    rejected_count: int = 0
+    last_error: Optional[str] = None
+    last_symbols: List[str] = Field(default_factory=list)
+    last_scan_summary: Dict[str, Any] = Field(default_factory=dict)
+
+
+class PaperForwardSnapshotItem(BaseModel):
+    snapshot_id: str
+    created_at: datetime
+    equity_usdt: float
+    balance_usdt: float
+    realized_pnl_usdt: float
+    unrealized_pnl_usdt: float
+    open_positions: int
+    closed_trades: int
+    win_rate: float
+    state: PaperForwardRunnerState
+    scan_count: int
+
+
+class PaperForwardSnapshotResponse(BaseModel):
+    items: List[PaperForwardSnapshotItem] = Field(default_factory=list)
+    total: int

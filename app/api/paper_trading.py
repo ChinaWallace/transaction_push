@@ -16,6 +16,9 @@ from app.schemas.paper_trading import (
     PaperBacktestHistoryResponse,
     PaperBacktestRunDetail,
     PaperCloseRequest,
+    PaperForwardRunnerStartRequest,
+    PaperForwardRunnerStatus,
+    PaperForwardSnapshotResponse,
     PaperLeaderboardRequest,
     PaperLeaderboardResponse,
     PaperPortfolioBacktestRequest,
@@ -164,6 +167,51 @@ async def get_risk_status(
 ) -> PaperRiskStatusResponse:
     try:
         return await service.get_risk_status()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/forward/start", response_model=PaperForwardRunnerStatus)
+async def start_forward_runner(
+    request: PaperForwardRunnerStartRequest,
+    service: PaperTradingService = Depends(get_service),
+) -> PaperForwardRunnerStatus:
+    try:
+        return await service.start_forward_runner(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/forward/stop", response_model=PaperForwardRunnerStatus)
+async def stop_forward_runner(
+    service: PaperTradingService = Depends(get_service),
+) -> PaperForwardRunnerStatus:
+    try:
+        return await service.stop_forward_runner()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/forward/status", response_model=PaperForwardRunnerStatus)
+async def get_forward_runner_status(
+    service: PaperTradingService = Depends(get_service),
+) -> PaperForwardRunnerStatus:
+    try:
+        return service.get_forward_runner_status()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/forward/snapshots", response_model=PaperForwardSnapshotResponse)
+async def list_forward_snapshots(
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    service: PaperTradingService = Depends(get_service),
+) -> PaperForwardSnapshotResponse:
+    try:
+        return service.list_forward_snapshots(limit=limit, offset=offset)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

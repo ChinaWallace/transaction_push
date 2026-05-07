@@ -43,3 +43,27 @@ class PaperBacktestRun(BaseModel):
 
     completed_at = Column(DateTime, default=func.now(), index=True, nullable=False)
 
+
+class PaperForwardSnapshot(BaseModel):
+    """Periodic forward paper-trading account snapshot."""
+
+    __tablename__ = "paper_forward_snapshots"
+
+    snapshot_id = Column(String(36), unique=True, index=True, nullable=False)
+    state = Column(String(20), index=True, nullable=False)
+    mode = Column(String(20))
+    analysis_type = Column(String(50))
+
+    equity_usdt = Column(Float, default=0.0)
+    balance_usdt = Column(Float, default=0.0)
+    realized_pnl_usdt = Column(Float, default=0.0)
+    unrealized_pnl_usdt = Column(Float, default=0.0)
+    open_positions = Column(Integer, default=0)
+    closed_trades = Column(Integer, default=0)
+    win_rate = Column(Float, default=0.0)
+    scan_count = Column(Integer, default=0)
+
+    open_positions_payload = Column(JSON)
+    closed_trades_payload = Column(JSON)
+    runner_payload = Column(JSON)
+

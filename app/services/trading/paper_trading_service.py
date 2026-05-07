@@ -18,7 +18,7 @@ from sqlalchemy import desc
 
 from app.core.database import get_db_session, get_engine
 from app.core.logging import get_logger
-from app.models.paper_trading import PaperBacktestRun
+from app.models.paper_trading import PaperBacktestRun, PaperForwardSnapshot
 from app.schemas.paper_trading import (
     PaperExecutionMode,
     PaperBacktestHistoryItem,
@@ -28,6 +28,11 @@ from app.schemas.paper_trading import (
     PaperBacktestRunDetail,
     PaperBacktestStrategy,
     PaperBacktestTrade,
+    PaperForwardRunnerStartRequest,
+    PaperForwardRunnerState,
+    PaperForwardRunnerStatus,
+    PaperForwardSnapshotItem,
+    PaperForwardSnapshotResponse,
     PaperLeaderboardRequest,
     PaperLeaderboardResponse,
     PaperLeaderboardRow,
@@ -135,6 +140,23 @@ class PaperTradingService:
         self.trades: Dict[str, PaperTradeRecord] = {}
         self._lock = asyncio.Lock()
         self._history_table_ready = False
+        self._forward_table_ready = False
+        self._runner_task: Optional[asyncio.Task] = None
+        self._runner_stop_event: Optional[asyncio.Event] = None
+        self._runner_state = PaperForwardRunnerState.STOPPED
+        self._runner_config = PaperForwardRunnerStartRequest(mode=self.default_mode)
+        self._runner_started_at: Optional[datetime] = None
+        self._runner_stopped_at: Optional[datetime] = None
+        self._runner_last_tick_at: Optional[datetime] = None
+        self._runner_last_scan_at: Optional[datetime] = None
+        self._runner_next_scan_at: Optional[datetime] = None
+        self._runner_loop_count = 0
+        self._runner_scan_count = 0
+        self._runner_opened_count = 0
+        self._runner_rejected_count = 0
+        self._runner_last_error: Optional[str] = None
+        self._runner_last_symbols: List[str] = []
+        self._runner_last_scan_summary: Dict[str, Any] = {}
 
     @staticmethod
     def _env_float(name: str, default: float) -> float:
@@ -308,6 +330,102 @@ class PaperTradingService:
     async def tick(self) -> PaperStatusResponse:
         await self._mark_to_market_open_positions()
         return await self.get_status()
+
+    async def start_forward_runner(
+        self, request: PaperForwardRunnerStartRequest
+    ) -> PaperForwardRunnerStatus:
+        if self._runner_task and not self._runner_task.done():
+            return self.get_forward_runner_status()
+        if self.execution_mode != PaperExecutionMode.PAPER:
+            raise ValueError("forward runner only starts in PAPER execution mode")
+
+        self._runner_config = request
+        self._runner_stop_event = asyncio.Event()
+        self._runner_state = PaperForwardRunnerState.RUNNING
+        self._runner_started_at = datetime.now()
+        self._runner_stopped_at = None
+        self._runner_last_error = None
+        self._runner_last_scan_summary = {}
+        self._runner_last_symbols = []
+        self._runner_next_scan_at = datetime.now()
+        self._runner_task = asyncio.create_task(self._forward_runner_loop())
+        return self.get_forward_runner_status()
+
+    async def stop_forward_runner(self) -> PaperForwardRunnerStatus:
+        if not self._runner_task or self._runner_task.done():
+            self._runner_state = PaperForwardRunnerState.STOPPED
+            self._runner_stopped_at = datetime.now()
+            return self.get_forward_runner_status()
+        self._runner_state = PaperForwardRunnerState.STOPPING
+        if self._runner_stop_event:
+            self._runner_stop_event.set()
+        try:
+            await asyncio.wait_for(self._runner_task, timeout=10)
+        except asyncio.TimeoutError:
+            self._runner_task.cancel()
+        self._runner_state = PaperForwardRunnerState.STOPPED
+        self._runner_stopped_at = datetime.now()
+        return self.get_forward_runner_status()
+
+    def get_forward_runner_status(self) -> PaperForwardRunnerStatus:
+        cfg = self._runner_config
+        return PaperForwardRunnerStatus(
+            state=self._runner_state,
+            running=bool(self._runner_task and not self._runner_task.done()),
+            mode=cfg.mode,
+            analysis_type=cfg.analysis_type,
+            scan_interval_seconds=cfg.scan_interval_seconds,
+            tick_interval_seconds=cfg.tick_interval_seconds,
+            max_core_symbols=cfg.max_core_symbols,
+            max_satellite_symbols=cfg.max_satellite_symbols,
+            started_at=self._runner_started_at,
+            stopped_at=self._runner_stopped_at,
+            last_tick_at=self._runner_last_tick_at,
+            last_scan_at=self._runner_last_scan_at,
+            next_scan_at=self._runner_next_scan_at,
+            loop_count=self._runner_loop_count,
+            scan_count=self._runner_scan_count,
+            opened_count=self._runner_opened_count,
+            rejected_count=self._runner_rejected_count,
+            last_error=self._runner_last_error,
+            last_symbols=self._runner_last_symbols,
+            last_scan_summary=self._runner_last_scan_summary,
+        )
+
+    def list_forward_snapshots(
+        self, limit: int = 200, offset: int = 0
+    ) -> PaperForwardSnapshotResponse:
+        self._ensure_forward_table()
+        limit = max(1, min(limit, 1000))
+        offset = max(0, offset)
+        with get_db_session() as db:
+            query = db.query(PaperForwardSnapshot)
+            total = query.count()
+            rows = (
+                query.order_by(desc(PaperForwardSnapshot.created_at), desc(PaperForwardSnapshot.id))
+                .offset(offset)
+                .limit(limit)
+                .all()
+            )
+            return PaperForwardSnapshotResponse(
+                total=total,
+                items=[
+                    PaperForwardSnapshotItem(
+                        snapshot_id=row.snapshot_id,
+                        created_at=row.created_at,
+                        equity_usdt=row.equity_usdt or 0.0,
+                        balance_usdt=row.balance_usdt or 0.0,
+                        realized_pnl_usdt=row.realized_pnl_usdt or 0.0,
+                        unrealized_pnl_usdt=row.unrealized_pnl_usdt or 0.0,
+                        open_positions=row.open_positions or 0,
+                        closed_trades=row.closed_trades or 0,
+                        win_rate=row.win_rate or 0.0,
+                        state=PaperForwardRunnerState(row.state),
+                        scan_count=row.scan_count or 0,
+                    )
+                    for row in rows
+                ],
+            )
 
     async def get_universe(
         self,
@@ -1840,6 +1958,109 @@ class PaperTradingService:
             raise RuntimeError("database is not available for backtest history")
         PaperBacktestRun.__table__.create(bind=engine, checkfirst=True)
         self._history_table_ready = True
+
+    def _ensure_forward_table(self) -> None:
+        if self._forward_table_ready:
+            return
+        engine = get_engine()
+        if engine is None:
+            raise RuntimeError("database is not available for forward paper snapshots")
+        PaperForwardSnapshot.__table__.create(bind=engine, checkfirst=True)
+        self._forward_table_ready = True
+
+    async def _forward_runner_loop(self) -> None:
+        cfg = self._runner_config
+        next_scan_ts = 0.0
+        try:
+            while self._runner_stop_event and not self._runner_stop_event.is_set():
+                now_ts = datetime.now().timestamp()
+                status = await self.tick()
+                self._runner_last_tick_at = datetime.now()
+                self._runner_loop_count += 1
+                self._record_forward_snapshot(status)
+
+                if now_ts >= next_scan_ts:
+                    risk = await self.get_risk_status()
+                    if risk.trading_paused:
+                        self._runner_last_scan_summary = {
+                            "skipped": True,
+                            "pause_reasons": risk.pause_reasons,
+                        }
+                    else:
+                        universe = await self.get_universe(
+                            max_core_symbols=cfg.max_core_symbols,
+                            max_satellite_symbols=cfg.max_satellite_symbols,
+                        )
+                        symbols = [asset.symbol for asset in universe.core + universe.satellite]
+                        self._runner_last_symbols = symbols
+                        scan = await self.scan_and_trade(
+                            symbols=symbols,
+                            mode=cfg.mode,
+                            dry_run=False,
+                            force_update=cfg.force_update,
+                            analysis_type=cfg.analysis_type,
+                            long_only=True,
+                        )
+                        self._runner_scan_count += 1
+                        self._runner_opened_count += scan.opened_count
+                        self._runner_rejected_count += len(scan.rejected)
+                        self._runner_last_scan_at = datetime.now()
+                        self._runner_last_scan_summary = {
+                            "scanned_symbols": scan.scanned_symbols,
+                            "opened_count": scan.opened_count,
+                            "candidate_count": len(scan.candidate_plans),
+                            "rejected_count": len(scan.rejected),
+                            "rejected_reasons": self._rejection_reason_counts(scan.rejected),
+                        }
+                    next_scan_ts = datetime.now().timestamp() + cfg.scan_interval_seconds
+                    self._runner_next_scan_at = datetime.fromtimestamp(next_scan_ts)
+
+                sleep_seconds = max(1, min(cfg.tick_interval_seconds, max(1, next_scan_ts - datetime.now().timestamp())))
+                try:
+                    await asyncio.wait_for(self._runner_stop_event.wait(), timeout=sleep_seconds)
+                except asyncio.TimeoutError:
+                    continue
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self._runner_last_error = str(exc)
+            logger.exception("Paper forward runner failed: %s", exc)
+        finally:
+            self._runner_state = PaperForwardRunnerState.STOPPED
+            self._runner_stopped_at = datetime.now()
+
+    def _record_forward_snapshot(self, status: PaperStatusResponse) -> None:
+        try:
+            self._ensure_forward_table()
+            with get_db_session() as db:
+                db.add(
+                    PaperForwardSnapshot(
+                        snapshot_id=str(uuid.uuid4()),
+                        state=self._runner_state.value,
+                        mode=status.mode.value,
+                        analysis_type=self._runner_config.analysis_type,
+                        equity_usdt=status.equity_usdt,
+                        balance_usdt=status.balance_usdt,
+                        realized_pnl_usdt=status.realized_pnl_usdt,
+                        unrealized_pnl_usdt=status.unrealized_pnl_usdt,
+                        open_positions=len(status.open_positions),
+                        closed_trades=status.total_trades,
+                        win_rate=status.win_rate,
+                        scan_count=self._runner_scan_count,
+                        open_positions_payload=self._model_payload(status.open_positions),
+                        closed_trades_payload=self._model_payload(status.closed_trades),
+                        runner_payload=self._model_payload(self.get_forward_runner_status()),
+                    )
+                )
+        except Exception as exc:
+            logger.warning("Failed to record paper forward snapshot: %s", exc)
+
+    @staticmethod
+    def _rejection_reason_counts(rejected: List[PaperRejectedSignal]) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        for item in rejected:
+            counts[item.reason] = counts.get(item.reason, 0) + 1
+        return counts
 
     def _save_backtest_run(self, **values: Any) -> PaperBacktestRun:
         self._ensure_history_table()
