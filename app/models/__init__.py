@@ -11,6 +11,7 @@ from .base import *
 from .exchange_data import *
 from .data_converters import *
 from .unified_exchange_data import *
+from .paper_trading import *
 
 __all__ = [
     # 数据库模型
@@ -61,5 +62,6 @@ __all__ = [
     "validate_decimal_precision",
     "sanitize_raw_data",
     "validate_unified_instrument",
-    "sanitize_instrument_data"
+    "sanitize_instrument_data",
+    "PaperBacktestRun"
 ]

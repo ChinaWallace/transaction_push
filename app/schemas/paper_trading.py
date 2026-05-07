@@ -318,3 +318,40 @@ class PaperRiskStatusResponse(BaseModel):
     trading_paused: bool
     pause_reasons: List[str] = Field(default_factory=list)
     timestamp: datetime = Field(default_factory=datetime.now)
+
+
+class PaperBacktestHistoryItem(BaseModel):
+    run_id: str
+    run_type: str
+    title: str
+    symbol: Optional[str] = None
+    symbols: List[str] = Field(default_factory=list)
+    strategy: Optional[str] = None
+    timeframe: Optional[str] = None
+    candles: int = 0
+    mode: Optional[str] = None
+    initial_balance_usdt: float = 0.0
+    final_balance_usdt: float = 0.0
+    total_return_pct: float = 0.0
+    max_drawdown_pct: float = 0.0
+    sharpe_ratio: float = 0.0
+    win_rate: float = 0.0
+    profit_factor: float = 0.0
+    total_trades: int = 0
+    completed_at: datetime
+    warnings: List[str] = Field(default_factory=list)
+
+
+class PaperBacktestHistoryResponse(BaseModel):
+    items: List[PaperBacktestHistoryItem] = Field(default_factory=list)
+    total: int
+
+
+class PaperBacktestRunDetail(PaperBacktestHistoryItem):
+    request_payload: Dict[str, Any] = Field(default_factory=dict)
+    summary: Dict[str, Any] = Field(default_factory=dict)
+    equity_curve: List[Dict[str, Any]] = Field(default_factory=list)
+    trades: List[Dict[str, Any]] = Field(default_factory=list)
+    symbol_contributions: List[Dict[str, Any]] = Field(default_factory=list)
+    exit_reason_stats: Dict[str, int] = Field(default_factory=dict)
+    leaderboard_rows: List[Dict[str, Any]] = Field(default_factory=list)

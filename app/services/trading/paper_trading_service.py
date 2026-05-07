@@ -14,11 +14,18 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from sqlalchemy import desc
+
+from app.core.database import get_db_session, get_engine
 from app.core.logging import get_logger
+from app.models.paper_trading import PaperBacktestRun
 from app.schemas.paper_trading import (
     PaperExecutionMode,
+    PaperBacktestHistoryItem,
+    PaperBacktestHistoryResponse,
     PaperBacktestRequest,
     PaperBacktestResponse,
+    PaperBacktestRunDetail,
     PaperBacktestStrategy,
     PaperBacktestTrade,
     PaperLeaderboardRequest,
@@ -127,6 +134,7 @@ class PaperTradingService:
         )
         self.trades: Dict[str, PaperTradeRecord] = {}
         self._lock = asyncio.Lock()
+        self._history_table_ready = False
 
     @staticmethod
     def _env_float(name: str, default: float) -> float:
@@ -536,6 +544,158 @@ class PaperTradingService:
         for idx, row in enumerate(rows, 1):
             row.rank = idx
         return PaperLeaderboardResponse(rows=rows, warnings=warnings)
+
+    def record_single_backtest(
+        self, request: PaperBacktestRequest, result: PaperBacktestResponse
+    ) -> PaperBacktestHistoryItem:
+        payload = self._model_payload(result)
+        run = self._save_backtest_run(
+            run_type="single",
+            title=f"{result.symbol} {result.strategy.value} {result.timeframe}",
+            symbol=result.symbol,
+            symbols=[result.symbol],
+            strategy=result.strategy.value,
+            timeframe=result.timeframe,
+            candles=result.candles,
+            mode=result.mode.value,
+            initial_balance_usdt=result.initial_balance_usdt,
+            final_balance_usdt=result.final_balance_usdt,
+            total_return_pct=result.total_return_pct,
+            max_drawdown_pct=result.max_drawdown_pct,
+            sharpe_ratio=result.sharpe_ratio,
+            win_rate=result.win_rate,
+            profit_factor=result.profit_factor,
+            total_trades=result.total_trades,
+            request_payload=self._model_payload(request),
+            summary={
+                "winning_trades": result.winning_trades,
+                "losing_trades": result.losing_trades,
+                "fees_paid_usdt": result.fees_paid_usdt,
+            },
+            equity_curve=payload.get("equity_curve", []),
+            trades=payload.get("trades", []),
+            warnings=payload.get("warnings", []),
+        )
+        return self._history_item_from_model(run)
+
+    def record_portfolio_backtest(
+        self,
+        request: PaperPortfolioBacktestRequest,
+        result: PaperPortfolioBacktestResponse,
+    ) -> PaperBacktestHistoryItem:
+        payload = self._model_payload(result)
+        symbols = [item.get("symbol") for item in payload.get("symbol_contributions", []) if item.get("symbol")]
+        run = self._save_backtest_run(
+            run_type="portfolio",
+            title=f"Long-only portfolio {result.timeframe} {result.candles}",
+            symbol=None,
+            symbols=symbols,
+            strategy=result.strategy,
+            timeframe=result.timeframe,
+            candles=result.candles,
+            mode=result.mode.value,
+            initial_balance_usdt=result.initial_balance_usdt,
+            final_balance_usdt=result.final_balance_usdt,
+            total_return_pct=result.total_return_pct,
+            max_drawdown_pct=result.max_drawdown_pct,
+            sharpe_ratio=result.sharpe_ratio,
+            win_rate=result.win_rate,
+            profit_factor=result.profit_factor,
+            total_trades=result.total_trades,
+            request_payload=self._model_payload(request),
+            summary={
+                "in_sample": result.in_sample,
+                "out_of_sample": result.out_of_sample,
+            },
+            equity_curve=payload.get("equity_curve", []),
+            symbol_contributions=payload.get("symbol_contributions", []),
+            exit_reason_stats=payload.get("exit_reason_stats", {}),
+            warnings=payload.get("warnings", []),
+        )
+        return self._history_item_from_model(run)
+
+    def record_leaderboard(
+        self, request: PaperLeaderboardRequest, result: PaperLeaderboardResponse
+    ) -> PaperBacktestHistoryItem:
+        payload = self._model_payload(result)
+        rows = payload.get("rows", [])
+        best = rows[0] if rows else {}
+        return_pct = float(best.get("total_return_pct", 0.0) or 0.0)
+        max_drawdown = float(best.get("max_drawdown_pct", 0.0) or 0.0)
+        final_balance = request.initial_balance_usdt * (1 + return_pct / 100)
+        run = self._save_backtest_run(
+            run_type="leaderboard",
+            title=f"Strategy leaderboard {request.timeframe} {request.candles}",
+            symbol=best.get("symbol"),
+            symbols=request.symbols or [],
+            strategy=best.get("strategy"),
+            timeframe=request.timeframe,
+            candles=request.candles,
+            mode=request.mode.value,
+            initial_balance_usdt=request.initial_balance_usdt,
+            final_balance_usdt=round(final_balance, 4),
+            total_return_pct=return_pct,
+            max_drawdown_pct=max_drawdown,
+            sharpe_ratio=float(best.get("sharpe_ratio", 0.0) or 0.0),
+            win_rate=float(best.get("win_rate", 0.0) or 0.0),
+            profit_factor=float(best.get("profit_factor", 0.0) or 0.0),
+            total_trades=int(best.get("total_trades", 0) or 0),
+            request_payload=self._model_payload(request),
+            summary={"best": best, "rows_count": len(rows)},
+            leaderboard_rows=rows,
+            warnings=payload.get("warnings", []),
+        )
+        return self._history_item_from_model(run)
+
+    def list_backtest_history(
+        self,
+        limit: int = 30,
+        offset: int = 0,
+        run_type: Optional[str] = None,
+        symbol: Optional[str] = None,
+        strategy: Optional[str] = None,
+    ) -> PaperBacktestHistoryResponse:
+        self._ensure_history_table()
+        limit = max(1, min(limit, 200))
+        offset = max(0, offset)
+        with get_db_session() as db:
+            query = db.query(PaperBacktestRun)
+            if run_type:
+                query = query.filter(PaperBacktestRun.run_type == run_type)
+            if symbol:
+                normalized = self._normalize_symbol(symbol)
+                query = query.filter(PaperBacktestRun.symbol == normalized)
+            if strategy:
+                query = query.filter(PaperBacktestRun.strategy == strategy)
+            total = query.count()
+            runs = (
+                query.order_by(desc(PaperBacktestRun.completed_at), desc(PaperBacktestRun.id))
+                .offset(offset)
+                .limit(limit)
+                .all()
+            )
+            return PaperBacktestHistoryResponse(
+                items=[self._history_item_from_model(run) for run in runs],
+                total=total,
+            )
+
+    def get_backtest_run(self, run_id: str) -> PaperBacktestRunDetail:
+        self._ensure_history_table()
+        with get_db_session() as db:
+            run = db.query(PaperBacktestRun).filter(PaperBacktestRun.run_id == run_id).first()
+            if not run:
+                raise ValueError("backtest run not found")
+            item = self._history_item_from_model(run)
+            return PaperBacktestRunDetail(
+                **self._model_payload(item),
+                request_payload=run.request_payload or {},
+                summary=run.summary or {},
+                equity_curve=run.equity_curve or [],
+                trades=run.trades or [],
+                symbol_contributions=run.symbol_contributions or [],
+                exit_reason_stats=run.exit_reason_stats or {},
+                leaderboard_rows=run.leaderboard_rows or [],
+            )
 
     async def run_backtest(self, request: PaperBacktestRequest) -> PaperBacktestResponse:
         exchange = await get_current_exchange_service()
@@ -1671,6 +1831,71 @@ class PaperTradingService:
         if not contributions:
             warnings.append("No tradable symbols were backtested.")
         return warnings
+
+    def _ensure_history_table(self) -> None:
+        if self._history_table_ready:
+            return
+        engine = get_engine()
+        if engine is None:
+            raise RuntimeError("database is not available for backtest history")
+        PaperBacktestRun.__table__.create(bind=engine, checkfirst=True)
+        self._history_table_ready = True
+
+    def _save_backtest_run(self, **values: Any) -> PaperBacktestRun:
+        self._ensure_history_table()
+        clean_values = {
+            key: value
+            for key, value in values.items()
+            if hasattr(PaperBacktestRun, key)
+        }
+        with get_db_session() as db:
+            run = PaperBacktestRun(
+                run_id=str(uuid.uuid4()),
+                completed_at=datetime.now(),
+                **clean_values,
+            )
+            db.add(run)
+            db.flush()
+            db.refresh(run)
+            return run
+
+    @staticmethod
+    def _model_payload(model: Any) -> Any:
+        if model is None:
+            return None
+        if isinstance(model, list):
+            return [PaperTradingService._model_payload(item) for item in model]
+        if isinstance(model, dict):
+            return {key: PaperTradingService._model_payload(value) for key, value in model.items()}
+        if hasattr(model, "model_dump"):
+            return model.model_dump(mode="json")
+        if hasattr(model, "dict"):
+            return model.dict()
+        return model
+
+    @staticmethod
+    def _history_item_from_model(run: PaperBacktestRun) -> PaperBacktestHistoryItem:
+        return PaperBacktestHistoryItem(
+            run_id=run.run_id,
+            run_type=run.run_type,
+            title=run.title,
+            symbol=run.symbol,
+            symbols=run.symbols or ([] if not run.symbol else [run.symbol]),
+            strategy=run.strategy,
+            timeframe=run.timeframe,
+            candles=run.candles or 0,
+            mode=run.mode,
+            initial_balance_usdt=run.initial_balance_usdt or 0.0,
+            final_balance_usdt=run.final_balance_usdt or 0.0,
+            total_return_pct=run.total_return_pct or 0.0,
+            max_drawdown_pct=run.max_drawdown_pct or 0.0,
+            sharpe_ratio=run.sharpe_ratio or 0.0,
+            win_rate=run.win_rate or 0.0,
+            profit_factor=run.profit_factor or 0.0,
+            total_trades=run.total_trades or 0,
+            completed_at=run.completed_at,
+            warnings=run.warnings or [],
+        )
 
     @staticmethod
     def _leaderboard_score(result: PaperBacktestResponse) -> float:

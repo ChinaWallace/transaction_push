@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Paper Trading Backtests</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --line: #d9dee7;
+      --text: #172033;
+      --muted: #667085;
+      --green: #168356;
+      --red: #c33b3b;
+      --blue: #1f6feb;
+      --amber: #a15c00;
+      --ink: #0f172a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+    }
+    header {
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+    }
+    h1 {
+      font-size: 18px;
+      line-height: 1;
+      margin: 0;
+      letter-spacing: 0;
+    }
+    main {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      min-height: calc(100vh - 56px);
+    }
+    aside {
+      border-right: 1px solid var(--line);
+      background: #fff;
+      padding: 16px;
+      overflow: auto;
+    }
+    section {
+      padding: 16px 20px 28px;
+      overflow: auto;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+    .panel h2 {
+      margin: 0 0 12px;
+      font-size: 15px;
+      line-height: 1.2;
+    }
+    label {
+      display: block;
+      margin: 10px 0 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    input, select {
+      width: 100%;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 10px;
+      background: #fff;
+      color: var(--text);
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    button {
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--text);
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button.primary {
+      border-color: var(--blue);
+      background: var(--blue);
+      color: #fff;
+    }
+    button:disabled {
+      opacity: .55;
+      cursor: wait;
+    }
+    .status {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(120px, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .kpi {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 72px;
+    }
+    .kpi span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .kpi strong {
+      display: block;
+      font-size: 20px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+    .positive { color: var(--green); }
+    .negative { color: var(--red); }
+    .chart-panel {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 320px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 9px 10px;
+      text-align: left;
+      white-space: nowrap;
+    }
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      background: #fafbfc;
+      font-weight: 600;
+    }
+    tr:last-child td { border-bottom: 0; }
+    tbody tr { cursor: pointer; }
+    tbody tr:hover { background: #f3f6fb; }
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    .bars {
+      display: grid;
+      gap: 8px;
+    }
+    .bar-line {
+      display: grid;
+      grid-template-columns: 130px 1fr 70px;
+      gap: 8px;
+      align-items: center;
+    }
+    .bar-track {
+      height: 10px;
+      background: #edf0f5;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      background: var(--blue);
+    }
+    .bar-fill.loss {
+      background: var(--red);
+    }
+    .muted { color: var(--muted); }
+    .empty {
+      padding: 22px;
+      color: var(--muted);
+      text-align: center;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+    @media (max-width: 980px) {
+      main { grid-template-columns: 1fr; }
+      aside { border-right: 0; border-bottom: 1px solid var(--line); }
+      .kpis { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .split { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>回测工作台</h1>
+    <div class="status" id="serviceStatus">连接中</div>
+  </header>
+  <main>
+    <aside>
+      <div class="panel">
+        <h2>组合回测</h2>
+        <label>核心币</label>
+        <input id="coreSymbols" value="BTC-USDT-SWAP,ETH-USDT-SWAP,ZEC-USDT-SWAP">
+        <label>小仓位机会币</label>
+        <input id="satelliteSymbols" placeholder="留空则用自动候选池">
+        <div class="row">
+          <div>
+            <label>周期</label>
+            <select id="timeframe">
+              <option value="1h">1h</option>
+              <option value="4h">4h</option>
+              <option value="15m">15m</option>
+            </select>
+          </div>
+          <div>
+            <label>K线数量</label>
+            <input id="candles" type="number" min="100" max="1500" value="500">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>初始资金</label>
+            <input id="balance" type="number" min="100" value="10000">
+          </div>
+          <div>
+            <label>候选数量</label>
+            <input id="maxSatellite" type="number" min="0" max="20" value="5">
+          </div>
+        </div>
+        <div class="actions">
+          <button class="primary" id="runPortfolio">运行组合</button>
+          <button id="runLeaderboard">策略排行</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>历史记录</h2>
+        <div class="row">
+          <select id="typeFilter">
+            <option value="">全部</option>
+            <option value="portfolio">组合</option>
+            <option value="single">单币</option>
+            <option value="leaderboard">排行</option>
+          </select>
+          <button id="refreshHistory">刷新</button>
+        </div>
+        <div id="historyList" style="margin-top:10px;"></div>
+      </div>
+    </aside>
+    <section>
+      <div class="kpis">
+        <div class="kpi"><span>收益率</span><strong id="kpiReturn">-</strong></div>
+        <div class="kpi"><span>最大回撤</span><strong id="kpiDrawdown">-</strong></div>
+        <div class="kpi"><span>夏普</span><strong id="kpiSharpe">-</strong></div>
+        <div class="kpi"><span>胜率</span><strong id="kpiWinRate">-</strong></div>
+        <div class="kpi"><span>盈亏比</span><strong id="kpiProfitFactor">-</strong></div>
+        <div class="kpi"><span>交易数</span><strong id="kpiTrades">-</strong></div>
+      </div>
+      <div class="chart-panel">
+        <h2 id="detailTitle">资金曲线</h2>
+        <canvas id="equityCanvas" width="1200" height="360"></canvas>
+      </div>
+      <div class="split">
+        <div class="panel">
+          <h2>币种贡献</h2>
+          <div id="contributionBars" class="bars"></div>
+        </div>
+        <div class="panel">
+          <h2>退出原因</h2>
+          <div id="exitStats" class="bars"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>策略排行</h2>
+        <div id="leaderboardTable"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const state = { selectedRun: null };
+
+    function splitSymbols(value) {
+      return value.split(",").map(s => s.trim()).filter(Boolean);
+    }
+
+    function fmtPct(value) {
+      if (value === undefined || value === null || Number.isNaN(Number(value))) return "-";
+      return `${Number(value).toFixed(2)}%`;
+    }
+
+    function fmtNum(value, digits = 2) {
+      if (value === undefined || value === null || Number.isNaN(Number(value))) return "-";
+      return Number(value).toFixed(digits);
+    }
+
+    function colorClass(value) {
+      return Number(value) >= 0 ? "positive" : "negative";
+    }
+
+    function setBusy(isBusy) {
+      $("runPortfolio").disabled = isBusy;
+      $("runLeaderboard").disabled = isBusy;
+      $("refreshHistory").disabled = isBusy;
+    }
+
+    async function api(path, options = {}) {
+      const res = await fetch(path, options);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || res.statusText);
+      }
+      return res.json();
+    }
+
+    async function loadStatus() {
+      try {
+        const health = await api("/health");
+        $("serviceStatus").textContent = `${health.status} · ${new Date().toLocaleTimeString()}`;
+      } catch {
+        $("serviceStatus").textContent = "连接失败";
+      }
+    }
+
+    async function runPortfolio() {
+      setBusy(true);
+      try {
+        const body = {
+          timeframe: $("timeframe").value,
+          candles: Number($("candles").value),
+          initial_balance_usdt: Number($("balance").value),
+          max_satellite_symbols: Number($("maxSatellite").value)
+        };
+        const core = splitSymbols($("coreSymbols").value);
+        const satellite = splitSymbols($("satelliteSymbols").value);
+        if (core.length) body.core_symbols = core;
+        if (satellite.length) body.satellite_symbols = satellite;
+        const result = await api("/api/paper-trading/backtest/portfolio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        await loadHistory();
+        renderDetail(result, "portfolio");
+      } catch (err) {
+        alert(`组合回测失败: ${err.message}`);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function runLeaderboard() {
+      setBusy(true);
+      try {
+        const symbols = splitSymbols($("coreSymbols").value).slice(0, 6);
+        const body = {
+          symbols,
+          strategies: ["ema_rsi", "breakout", "mean_reversion"],
+          timeframe: $("timeframe").value,
+          candles: Number($("candles").value),
+          initial_balance_usdt: Number($("balance").value),
+          max_symbols: Math.max(1, symbols.length || 6)
+        };
+        const result = await api("/api/paper-trading/backtest/leaderboard", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        await loadHistory();
+        renderLeaderboard(result.rows || []);
+      } catch (err) {
+        alert(`策略排行失败: ${err.message}`);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function loadHistory() {
+      const type = $("typeFilter").value;
+      const query = new URLSearchParams({ limit: "50" });
+      if (type) query.set("run_type", type);
+      const data = await api(`/api/paper-trading/backtest/history?${query.toString()}`);
+      const rows = data.items || [];
+      if (!rows.length) {
+        $("historyList").innerHTML = `<div class="empty">暂无历史</div>`;
+        return;
+      }
+      $("historyList").innerHTML = `
+        <table>
+          <thead><tr><th>类型</th><th>策略</th><th>收益</th><th>时间</th></tr></thead>
+          <tbody>
+            ${rows.map(row => `
+              <tr data-run="${row.run_id}">
+                <td>${row.run_type}</td>
+                <td>${row.strategy || "-"}</td>
+                <td class="${colorClass(row.total_return_pct)}">${fmtPct(row.total_return_pct)}</td>
+                <td>${new Date(row.completed_at).toLocaleString()}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>`;
+      document.querySelectorAll("[data-run]").forEach(tr => {
+        tr.addEventListener("click", () => loadDetail(tr.dataset.run));
+      });
+      if (!state.selectedRun && rows[0]) loadDetail(rows[0].run_id);
+    }
+
+    async function loadDetail(runId) {
+      state.selectedRun = runId;
+      const detail = await api(`/api/paper-trading/backtest/history/${runId}`);
+      renderDetail(detail, detail.run_type);
+    }
+
+    function renderDetail(data, type) {
+      $("detailTitle").textContent = data.title || `${type || "回测"}资金曲线`;
+      setKpis(data);
+      drawEquity(data.equity_curve || []);
+      renderContributions(data.symbol_contributions || []);
+      renderExitStats(data.exit_reason_stats || {});
+      renderLeaderboard(data.leaderboard_rows || data.rows || []);
+    }
+
+    function setKpis(data) {
+      $("kpiReturn").textContent = fmtPct(data.total_return_pct);
+      $("kpiReturn").className = colorClass(data.total_return_pct);
+      $("kpiDrawdown").textContent = fmtPct(data.max_drawdown_pct);
+      $("kpiSharpe").textContent = fmtNum(data.sharpe_ratio);
+      $("kpiWinRate").textContent = fmtPct(Number(data.win_rate || 0) * 100);
+      $("kpiProfitFactor").textContent = fmtNum(data.profit_factor);
+      $("kpiTrades").textContent = data.total_trades ?? "-";
+    }
+
+    function drawEquity(curve) {
+      const canvas = $("equityCanvas");
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w, h);
+      if (!curve.length) {
+        ctx.fillStyle = "#667085";
+        ctx.font = "16px Segoe UI";
+        ctx.fillText("没有资金曲线", 28, 46);
+        return;
+      }
+      const values = curve.map(p => Number(p.equity || 0));
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const pad = 34;
+      const span = Math.max(1, max - min);
+      ctx.strokeStyle = "#d9dee7";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 5; i++) {
+        const y = pad + i * (h - pad * 2) / 4;
+        ctx.beginPath();
+        ctx.moveTo(pad, y);
+        ctx.lineTo(w - pad, y);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = values[values.length - 1] >= values[0] ? "#168356" : "#c33b3b";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      values.forEach((value, i) => {
+        const x = pad + i * (w - pad * 2) / Math.max(1, values.length - 1);
+        const y = h - pad - ((value - min) / span) * (h - pad * 2);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.fillStyle = "#667085";
+      ctx.font = "13px Segoe UI";
+      ctx.fillText(`高 ${max.toFixed(2)}`, pad, 18);
+      ctx.fillText(`低 ${min.toFixed(2)}`, pad, h - 10);
+    }
+
+    function renderContributions(items) {
+      if (!items.length) {
+        $("contributionBars").innerHTML = `<div class="empty">暂无贡献数据</div>`;
+        return;
+      }
+      const maxAbs = Math.max(...items.map(x => Math.abs(Number(x.pnl_usdt || 0))), 1);
+      $("contributionBars").innerHTML = items.map(item => {
+        const pnl = Number(item.pnl_usdt || 0);
+        const width = Math.max(3, Math.abs(pnl) / maxAbs * 100);
+        return `
+          <div class="bar-line">
+            <span>${item.symbol}</span>
+            <div class="bar-track"><div class="bar-fill ${pnl < 0 ? "loss" : ""}" style="width:${width}%"></div></div>
+            <strong class="${colorClass(pnl)}">${fmtNum(pnl)}</strong>
+          </div>`;
+      }).join("");
+    }
+
+    function renderExitStats(stats) {
+      const entries = Object.entries(stats);
+      if (!entries.length) {
+        $("exitStats").innerHTML = `<div class="empty">暂无退出统计</div>`;
+        return;
+      }
+      const max = Math.max(...entries.map(([, v]) => Number(v)), 1);
+      $("exitStats").innerHTML = entries.map(([reason, count]) => `
+        <div class="bar-line">
+          <span>${reason}</span>
+          <div class="bar-track"><div class="bar-fill" style="width:${Number(count) / max * 100}%"></div></div>
+          <strong>${count}</strong>
+        </div>`).join("");
+    }
+
+    function renderLeaderboard(rows) {
+      if (!rows.length) {
+        $("leaderboardTable").innerHTML = `<div class="empty">暂无排行数据</div>`;
+        return;
+      }
+      $("leaderboardTable").innerHTML = `
+        <table>
+          <thead><tr><th>#</th><th>币种</th><th>策略</th><th>得分</th><th>收益</th><th>回撤</th><th>交易</th></tr></thead>
+          <tbody>
+            ${rows.map(row => `
+              <tr>
+                <td>${row.rank ?? "-"}</td>
+                <td>${row.symbol ?? "-"}</td>
+                <td>${row.strategy ?? "-"}</td>
+                <td>${fmtNum(row.score)}</td>
+                <td class="${colorClass(row.total_return_pct)}">${fmtPct(row.total_return_pct)}</td>
+                <td>${fmtPct(row.max_drawdown_pct)}</td>
+                <td>${row.total_trades ?? "-"}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>`;
+    }
+
+    $("runPortfolio").addEventListener("click", runPortfolio);
+    $("runLeaderboard").addEventListener("click", runLeaderboard);
+    $("refreshHistory").addEventListener("click", loadHistory);
+    $("typeFilter").addEventListener("change", () => { state.selectedRun = null; loadHistory(); });
+
+    loadStatus();
+    loadHistory();
+    setInterval(loadStatus, 30000);
+  </script>
+</body>
+</html>

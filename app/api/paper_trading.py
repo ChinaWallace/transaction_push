@@ -5,11 +5,16 @@ Paper trading API.
 All endpoints here operate on simulated positions only.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import HTMLResponse
 
 from app.schemas.paper_trading import (
     PaperBacktestRequest,
     PaperBacktestResponse,
+    PaperBacktestHistoryResponse,
+    PaperBacktestRunDetail,
     PaperCloseRequest,
     PaperLeaderboardRequest,
     PaperLeaderboardResponse,
@@ -30,6 +35,7 @@ from app.services.trading.paper_trading_service import (
 
 
 router = APIRouter(prefix="/api/paper-trading", tags=["Paper Trading"])
+DASHBOARD_PATH = Path(__file__).resolve().parents[1] / "static" / "paper_trading_dashboard.html"
 
 
 async def get_service() -> PaperTradingService:
@@ -60,7 +66,9 @@ async def run_backtest(
     service: PaperTradingService = Depends(get_service),
 ) -> PaperBacktestResponse:
     try:
-        return await service.run_backtest(request)
+        result = await service.run_backtest(request)
+        service.record_single_backtest(request, result)
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -73,7 +81,9 @@ async def run_portfolio_backtest(
     service: PaperTradingService = Depends(get_service),
 ) -> PaperPortfolioBacktestResponse:
     try:
-        return await service.run_portfolio_backtest(request)
+        result = await service.run_portfolio_backtest(request)
+        service.record_portfolio_backtest(request, result)
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -86,11 +96,54 @@ async def run_leaderboard(
     service: PaperTradingService = Depends(get_service),
 ) -> PaperLeaderboardResponse:
     try:
-        return await service.run_leaderboard(request)
+        result = await service.run_leaderboard(request)
+        service.record_leaderboard(request, result)
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/backtest/history", response_model=PaperBacktestHistoryResponse)
+async def list_backtest_history(
+    limit: int = Query(default=30, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    run_type: str | None = Query(default=None),
+    symbol: str | None = Query(default=None),
+    strategy: str | None = Query(default=None),
+    service: PaperTradingService = Depends(get_service),
+) -> PaperBacktestHistoryResponse:
+    try:
+        return service.list_backtest_history(
+            limit=limit,
+            offset=offset,
+            run_type=run_type,
+            symbol=symbol,
+            strategy=strategy,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/backtest/history/{run_id}", response_model=PaperBacktestRunDetail)
+async def get_backtest_history_detail(
+    run_id: str,
+    service: PaperTradingService = Depends(get_service),
+) -> PaperBacktestRunDetail:
+    try:
+        return service.get_backtest_run(run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/dashboard", response_class=HTMLResponse)
+async def paper_trading_dashboard() -> HTMLResponse:
+    if not DASHBOARD_PATH.exists():
+        raise HTTPException(status_code=404, detail="dashboard file not found")
+    return HTMLResponse(DASHBOARD_PATH.read_text(encoding="utf-8"))
 
 
 @router.get("/universe", response_model=PaperUniverseResponse)
