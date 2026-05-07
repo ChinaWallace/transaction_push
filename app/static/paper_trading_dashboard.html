@@ -118,6 +118,25 @@
       color: var(--muted);
       font-size: 12px;
     }
+    .run-state {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 22px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #edf0f5;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .run-state.running {
+      background: #e7f5ee;
+      color: var(--green);
+    }
+    .run-state.stopping {
+      background: #fff3df;
+      color: var(--amber);
+    }
     .kpis {
       display: grid;
       grid-template-columns: repeat(6, minmax(120px, 1fr));
@@ -296,7 +315,7 @@
           <button class="primary" id="startForward">开始模拟</button>
           <button id="stopForward">停止模拟</button>
         </div>
-        <div class="status" id="forwardStatusText" style="margin-top:10px;">未运行</div>
+        <div style="margin-top:10px;"><span class="run-state" id="forwardStatusText">未运行</span></div>
       </div>
     </aside>
     <section>
@@ -359,8 +378,10 @@
       $("runPortfolio").disabled = isBusy;
       $("runLeaderboard").disabled = isBusy;
       $("refreshHistory").disabled = isBusy;
-      $("startForward").disabled = isBusy;
-      $("stopForward").disabled = isBusy;
+      if (isBusy) {
+        $("startForward").disabled = true;
+        $("stopForward").disabled = true;
+      }
     }
 
     async function api(path, options = {}) {
@@ -384,6 +405,8 @@
 
     async function startForward() {
       setBusy(true);
+      $("forwardStatusText").textContent = "启动中";
+      $("forwardStatusText").className = "run-state stopping";
       try {
         const body = {
           mode: "balanced",
@@ -404,11 +427,14 @@
         alert(`模拟盘启动失败: ${err.message}`);
       } finally {
         setBusy(false);
+        await loadForwardStatus();
       }
     }
 
     async function stopForward() {
       setBusy(true);
+      $("forwardStatusText").textContent = "停止中";
+      $("forwardStatusText").className = "run-state stopping";
       try {
         await api("/api/paper-trading/forward/stop", { method: "POST" });
         await loadForwardStatus();
@@ -416,6 +442,7 @@
         alert(`模拟盘停止失败: ${err.message}`);
       } finally {
         setBusy(false);
+        await loadForwardStatus();
       }
     }
 
@@ -429,10 +456,16 @@
     }
 
     function renderForwardStatus(runner, account, latestSnapshot) {
+      setForwardControls(runner);
       $("forwardStatusText").textContent = `${runner.state} · 扫描 ${runner.scan_count} 次 · 开仓 ${runner.opened_count} 次`;
+      $("forwardStatusText").className = `run-state ${runner.state}`;
       const nextScan = runner.next_scan_at ? new Date(runner.next_scan_at).toLocaleString() : "-";
       const lastScan = runner.last_scan_at ? new Date(runner.last_scan_at).toLocaleString() : "-";
       const latest = latestSnapshot ? new Date(latestSnapshot.created_at).toLocaleString() : "-";
+      const summary = runner.last_scan_summary || {};
+      const rejectedReasons = summary.rejected_reasons
+        ? Object.entries(summary.rejected_reasons).map(([k, v]) => `${k}: ${v}`).join(", ")
+        : "-";
       $("forwardStatusPanel").className = "";
       $("forwardStatusPanel").innerHTML = `
         <table>
@@ -442,11 +475,24 @@
             <tr><th>持仓数</th><td>${account.open_positions.length} / ${account.max_open_positions}</td><th>已平仓</th><td>${account.total_trades}</td></tr>
             <tr><th>上次扫描</th><td>${lastScan}</td><th>下次扫描</th><td>${nextScan}</td></tr>
             <tr><th>扫描币种</th><td colspan="3">${(runner.last_symbols || []).join(", ") || "-"}</td></tr>
+            <tr><th>最近扫描</th><td colspan="3">候选 ${summary.candidate_count ?? 0} · 开仓 ${summary.opened_count ?? 0} · 拒绝 ${summary.rejected_count ?? 0}</td></tr>
+            <tr><th>拒绝原因</th><td colspan="3">${rejectedReasons}</td></tr>
             <tr><th>最新快照</th><td>${latest}</td><th>错误</th><td>${runner.last_error || "-"}</td></tr>
           </tbody>
         </table>
         ${renderOpenPositions(account.open_positions || [])}
       `;
+    }
+
+    function setForwardControls(runner) {
+      const running = runner.running || runner.state === "running";
+      const stopping = runner.state === "stopping";
+      $("startForward").disabled = running || stopping;
+      $("stopForward").disabled = !running || stopping;
+      $("startForward").textContent = running ? "模拟运行中" : "开始模拟";
+      $("stopForward").textContent = stopping ? "停止中" : "停止模拟";
+      $("scanInterval").disabled = running || stopping;
+      $("tickInterval").disabled = running || stopping;
     }
 
     function renderOpenPositions(positions) {

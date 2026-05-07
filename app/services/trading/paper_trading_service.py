@@ -1075,8 +1075,9 @@ class PaperTradingService:
                 {"risk_reward_ratio": risk_reward_ratio, "min_rr": cfg["min_rr"]},
             )
 
-        position_size_usdt = self._position_size_usdt(stop_distance_pct, cfg)
         bucket = self._bucket_for_symbol(signal.symbol)
+        sizing_cfg = self._sizing_config_for_bucket(cfg, bucket)
+        position_size_usdt = self._position_size_usdt(stop_distance_pct, sizing_cfg)
         leverage = self._max_leverage_for_symbol(signal.symbol, bucket)
         quantity = position_size_usdt * leverage / entry_price
         max_loss_usdt = position_size_usdt * leverage * stop_distance_pct
@@ -1118,6 +1119,20 @@ class PaperTradingService:
         risk_budget = self._current_equity_snapshot() * cfg["risk_pct"]
         risk_based_size = risk_budget / stop_distance_pct if stop_distance_pct else 0.0
         return max(0.0, min(cfg["max_position_usdt"], risk_based_size))
+
+    def _sizing_config_for_bucket(
+        self, cfg: Dict[str, float], bucket: PaperPortfolioBucket
+    ) -> Dict[str, float]:
+        result = dict(cfg)
+        equity = self._current_equity_snapshot()
+        if bucket == PaperPortfolioBucket.CORE:
+            result["risk_pct"] = self.RISK_LIMITS["core_trade_risk_pct"]
+            bucket_cap = equity * self.ALLOCATION["core"] / max(1, self.max_open_positions)
+        else:
+            result["risk_pct"] = self.RISK_LIMITS["satellite_trade_risk_pct"]
+            bucket_cap = equity * self.ALLOCATION["satellite"] / max(1, self.max_open_positions)
+        result["max_position_usdt"] = min(result["max_position_usdt"], bucket_cap)
+        return result
 
     def _opportunity_score(
         self,
