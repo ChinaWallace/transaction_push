@@ -18,7 +18,7 @@ from sqlalchemy import desc
 
 from app.core.database import get_db_session, get_engine
 from app.core.logging import get_logger
-from app.models.paper_trading import PaperBacktestRun, PaperForwardSnapshot
+from app.models.paper_trading import PaperBacktestRun, PaperForwardSession, PaperForwardSnapshot
 from app.schemas.paper_trading import (
     PaperExecutionMode,
     PaperBacktestHistoryItem,
@@ -31,6 +31,9 @@ from app.schemas.paper_trading import (
     PaperForwardRunnerStartRequest,
     PaperForwardRunnerState,
     PaperForwardRunnerStatus,
+    PaperForwardSessionDetail,
+    PaperForwardSessionItem,
+    PaperForwardSessionResponse,
     PaperForwardSnapshotItem,
     PaperForwardSnapshotResponse,
     PaperLeaderboardRequest,
@@ -129,7 +132,7 @@ class PaperTradingService:
             self.default_mode = PaperTradingMode.BALANCED
         self.initial_balance_usdt = self._env_float("PAPER_TRADING_INITIAL_BALANCE", 10000.0)
         self.balance_usdt = self.initial_balance_usdt
-        self.max_open_positions = self._env_int("PAPER_TRADING_MAX_OPEN_POSITIONS", 5)
+        self.max_open_positions = self._env_int("PAPER_TRADING_MAX_OPEN_POSITIONS", 20)
         self.execution_mode = self._parse_execution_mode(
             os.getenv("PAPER_TRADING_EXECUTION_MODE", PaperExecutionMode.PAPER.value)
         )
@@ -141,6 +144,7 @@ class PaperTradingService:
         self._lock = asyncio.Lock()
         self._history_table_ready = False
         self._forward_table_ready = False
+        self._forward_session_table_ready = False
         self._runner_task: Optional[asyncio.Task] = None
         self._runner_stop_event: Optional[asyncio.Event] = None
         self._runner_state = PaperForwardRunnerState.STOPPED
@@ -352,9 +356,13 @@ class PaperTradingService:
         return self.get_forward_runner_status()
 
     async def stop_forward_runner(self) -> PaperForwardRunnerStatus:
+        status_before_clear: Optional[PaperStatusResponse] = None
         if not self._runner_task or self._runner_task.done():
             self._runner_state = PaperForwardRunnerState.STOPPED
             self._runner_stopped_at = datetime.now()
+            status_before_clear = await self.get_status()
+            self._record_forward_session(status_before_clear)
+            self._clear_forward_runtime()
             return self.get_forward_runner_status()
         self._runner_state = PaperForwardRunnerState.STOPPING
         if self._runner_stop_event:
@@ -365,6 +373,9 @@ class PaperTradingService:
             self._runner_task.cancel()
         self._runner_state = PaperForwardRunnerState.STOPPED
         self._runner_stopped_at = datetime.now()
+        status_before_clear = await self.get_status()
+        self._record_forward_session(status_before_clear)
+        self._clear_forward_runtime()
         return self.get_forward_runner_status()
 
     def get_forward_runner_status(self) -> PaperForwardRunnerStatus:
@@ -425,6 +436,40 @@ class PaperTradingService:
                     )
                     for row in rows
                 ],
+            )
+
+    def list_forward_sessions(
+        self, limit: int = 50, offset: int = 0
+    ) -> PaperForwardSessionResponse:
+        self._ensure_forward_session_table()
+        limit = max(1, min(limit, 200))
+        offset = max(0, offset)
+        with get_db_session() as db:
+            query = db.query(PaperForwardSession)
+            total = query.count()
+            rows = (
+                query.order_by(desc(PaperForwardSession.stopped_at), desc(PaperForwardSession.id))
+                .offset(offset)
+                .limit(limit)
+                .all()
+            )
+            return PaperForwardSessionResponse(
+                total=total,
+                items=[self._forward_session_item(row) for row in rows],
+            )
+
+    def get_forward_session(self, session_id: str) -> PaperForwardSessionDetail:
+        self._ensure_forward_session_table()
+        with get_db_session() as db:
+            row = db.query(PaperForwardSession).filter(PaperForwardSession.session_id == session_id).first()
+            if not row:
+                raise ValueError("forward session not found")
+            item = self._forward_session_item(row)
+            return PaperForwardSessionDetail(
+                **self._model_payload(item),
+                open_positions_payload=row.open_positions_payload or [],
+                closed_trades_payload=row.closed_trades_payload or [],
+                runner_payload=row.runner_payload or {},
             )
 
     async def get_universe(
@@ -1990,6 +2035,15 @@ class PaperTradingService:
         PaperForwardSnapshot.__table__.create(bind=engine, checkfirst=True)
         self._forward_table_ready = True
 
+    def _ensure_forward_session_table(self) -> None:
+        if self._forward_session_table_ready:
+            return
+        engine = get_engine()
+        if engine is None:
+            raise RuntimeError("database is not available for forward paper sessions")
+        PaperForwardSession.__table__.create(bind=engine, checkfirst=True)
+        self._forward_session_table_ready = True
+
     async def _forward_runner_loop(self) -> None:
         cfg = self._runner_config
         next_scan_ts = 0.0
@@ -2030,7 +2084,7 @@ class PaperTradingService:
                             and scan.opened_count == 0
                             and all(item.reason == "not_actionable" for item in scan.rejected)
                         ):
-                            probe_opened, probe_rejected = await self._open_momentum_probe_trades(universe)
+                            probe_opened, probe_rejected = await self._open_probe_trades(universe, scan.rejected)
                         self._runner_scan_count += 1
                         opened_count = scan.opened_count + len(probe_opened)
                         rejected_count = len(scan.rejected) + len(probe_rejected)
@@ -2091,43 +2145,227 @@ class PaperTradingService:
         except Exception as exc:
             logger.warning("Failed to record paper forward snapshot: %s", exc)
 
-    async def _open_momentum_probe_trades(
-        self, universe: PaperUniverseResponse
+    def _record_forward_session(self, status: PaperStatusResponse) -> None:
+        if (
+            self._runner_started_at is None
+            and self._runner_scan_count <= 0
+            and self._runner_opened_count <= 0
+            and self._runner_rejected_count <= 0
+            and not self.trades
+        ):
+            return
+        try:
+            self._ensure_forward_session_table()
+            started = self._runner_started_at
+            stopped = self._runner_stopped_at or datetime.now()
+            duration = int((stopped - started).total_seconds()) if started else 0
+            with get_db_session() as db:
+                db.add(
+                    PaperForwardSession(
+                        session_id=str(uuid.uuid4()),
+                        state=PaperForwardRunnerState.STOPPED.value,
+                        mode=status.mode.value,
+                        analysis_type=self._runner_config.analysis_type,
+                        started_at=started,
+                        stopped_at=stopped,
+                        duration_seconds=duration,
+                        scan_count=self._runner_scan_count,
+                        opened_count=self._runner_opened_count,
+                        rejected_count=self._runner_rejected_count,
+                        final_equity_usdt=status.equity_usdt,
+                        final_balance_usdt=status.balance_usdt,
+                        realized_pnl_usdt=status.realized_pnl_usdt,
+                        unrealized_pnl_usdt=status.unrealized_pnl_usdt,
+                        open_positions=len(status.open_positions),
+                        closed_trades=status.total_trades,
+                        win_rate=status.win_rate,
+                        open_positions_payload=self._model_payload(status.open_positions),
+                        closed_trades_payload=self._model_payload(status.closed_trades),
+                        runner_payload=self._model_payload(self.get_forward_runner_status()),
+                        last_scan_summary=self._runner_last_scan_summary,
+                    )
+                )
+        except Exception as exc:
+            logger.warning("Failed to record paper forward session: %s", exc)
+
+    def _clear_forward_runtime(self) -> None:
+        self.balance_usdt = self.initial_balance_usdt
+        self.trades.clear()
+        self._runner_task = None
+        self._runner_stop_event = None
+        self._runner_state = PaperForwardRunnerState.STOPPED
+        self._runner_started_at = None
+        self._runner_stopped_at = datetime.now()
+        self._runner_last_tick_at = None
+        self._runner_last_scan_at = None
+        self._runner_next_scan_at = None
+        self._runner_loop_count = 0
+        self._runner_scan_count = 0
+        self._runner_opened_count = 0
+        self._runner_rejected_count = 0
+        self._runner_last_error = None
+        self._runner_last_symbols = []
+        self._runner_last_scan_summary = {}
+
+    async def _open_probe_trades(
+        self, universe: PaperUniverseResponse, rejected_signals: List[PaperRejectedSignal]
     ) -> Tuple[List[PaperTradeRecord], List[PaperRejectedSignal]]:
         opened: List[PaperTradeRecord] = []
         rejected: List[PaperRejectedSignal] = []
+        rejected_by_symbol = {item.symbol: item for item in rejected_signals}
+        core_candidates = [
+            asset
+            for asset in universe.core
+            if asset.symbol in self.pinned_core_symbols and asset.symbol in rejected_by_symbol
+        ]
+        core_candidates = sorted(
+            core_candidates,
+            key=lambda item: (
+                self._hold_signal_score(rejected_by_symbol.get(item.symbol)),
+                item.change_percent_24h,
+                item.volume_24h_usdt,
+            ),
+            reverse=True,
+        )
+        for asset in core_candidates:
+            if len(opened) >= 2:
+                break
+            signal_reject = rejected_by_symbol.get(asset.symbol)
+            plan, reject = self._build_core_hold_probe_plan(asset, signal_reject)
+            trade, trade_reject = self._try_open_probe_plan(plan, reject, "core_hold_probe")
+            if trade:
+                opened.append(trade)
+            elif trade_reject:
+                rejected.append(trade_reject)
+
         candidates = sorted(
-            list(universe.satellite) + [
-                asset for asset in universe.core if asset.change_percent_24h >= 3.0
-            ],
+            list(universe.satellite),
             key=lambda item: item.score,
             reverse=True,
         )
         for asset in candidates:
-            if len(opened) >= 1:
+            if len(opened) >= 3:
                 break
             plan, reject = self._build_momentum_probe_plan(asset)
-            if reject:
-                rejected.append(reject)
-                continue
-            async with self._lock:
-                reject_reason = self._portfolio_reject_reason(plan.symbol)
-                if reject_reason:
-                    rejected.append(
-                        PaperRejectedSignal(
-                            symbol=plan.symbol,
-                            reason=reject_reason,
-                            action="momentum_probe",
-                            confidence=plan.confidence,
-                            opportunity_score=plan.opportunity_score,
-                            details={"source": "momentum_probe"},
-                        )
-                    )
-                    continue
-                trade = PaperTradeRecord(id=str(uuid.uuid4()), plan=plan)
-                self.trades[trade.id] = trade
+            trade, trade_reject = self._try_open_probe_plan(plan, reject, "momentum_probe")
+            if trade:
                 opened.append(trade)
+            elif trade_reject:
+                rejected.append(trade_reject)
         return opened, rejected
+
+    def _try_open_probe_plan(
+        self,
+        plan: Optional[PaperTradePlan],
+        reject: Optional[PaperRejectedSignal],
+        source: str,
+    ) -> Tuple[Optional[PaperTradeRecord], Optional[PaperRejectedSignal]]:
+        if reject:
+            return None, reject
+        if not plan:
+            return None, PaperRejectedSignal(symbol="UNKNOWN", reason=f"{source}_no_plan")
+        reject_reason = self._portfolio_reject_reason(plan.symbol)
+        if reject_reason:
+            return None, PaperRejectedSignal(
+                symbol=plan.symbol,
+                reason=reject_reason,
+                action=source,
+                confidence=plan.confidence,
+                opportunity_score=plan.opportunity_score,
+                details={"source": source},
+            )
+        trade = PaperTradeRecord(id=str(uuid.uuid4()), plan=plan)
+        self.trades[trade.id] = trade
+        return trade, None
+
+    def _build_core_hold_probe_plan(
+        self, asset: PaperUniverseAsset, signal_reject: Optional[PaperRejectedSignal]
+    ) -> Tuple[Optional[PaperTradePlan], Optional[PaperRejectedSignal]]:
+        if asset.price <= 0:
+            return None, PaperRejectedSignal(symbol=asset.symbol, reason="core_probe_missing_price")
+        score = self._hold_signal_score(signal_reject)
+        min_score = 60.0
+        min_volume = 300_000_000
+        if score < min_score:
+            return None, PaperRejectedSignal(
+                symbol=asset.symbol,
+                reason="core_hold_score_too_low",
+                action="core_hold_probe",
+                confidence=signal_reject.confidence if signal_reject else 0.0,
+                details={"hold_signal_score": score, "min_score": min_score},
+            )
+        if asset.volume_24h_usdt < min_volume:
+            return None, PaperRejectedSignal(
+                symbol=asset.symbol,
+                reason="core_probe_volume_too_low",
+                action="core_hold_probe",
+                confidence=signal_reject.confidence if signal_reject else 0.0,
+                details={"volume_24h_usdt": asset.volume_24h_usdt, "min_volume": min_volume},
+            )
+        stop_pct = 0.06
+        take_pct = 0.12
+        leverage = self._max_leverage_for_symbol(asset.symbol, asset.bucket)
+        cfg = self._sizing_config_for_bucket(self.MODE_CONFIG[self._runner_config.mode], asset.bucket)
+        cfg["max_position_usdt"] = min(cfg["max_position_usdt"], self._current_equity_snapshot() * 0.08)
+        position_size_usdt = self._position_size_usdt(stop_pct, cfg)
+        quantity = position_size_usdt * leverage / asset.price
+        confidence = max(0.58, min(0.7, (signal_reject.confidence if signal_reject else 0.5) + score / 500))
+        opportunity_score = min(100.0, 58 + score * 0.35 + max(0, asset.change_percent_24h) * 1.2)
+        plan = PaperTradePlan(
+            symbol=asset.symbol,
+            side=PaperTradeSide.LONG,
+            confidence=round(confidence, 4),
+            opportunity_score=round(opportunity_score, 2),
+            entry_price=round(asset.price, 8),
+            stop_loss=round(asset.price * (1 - stop_pct), 8),
+            take_profit=round(asset.price * (1 + take_pct), 8),
+            risk_reward_ratio=round(take_pct / stop_pct, 4),
+            position_size_usdt=round(position_size_usdt, 4),
+            quantity=round(quantity, 10),
+            max_loss_usdt=round(position_size_usdt * leverage * stop_pct, 4),
+            leverage=leverage,
+            invalidation_reason=f"Core hold probe exits if price loses {stop_pct:.1%}.",
+            reasons=[
+                "core_hold_probe",
+                "empty core position converted from hold to starter long",
+                f"hold_signal_score={score:.1f}",
+                f"24h_change={asset.change_percent_24h:.2f}%",
+                f"volume_24h_usdt={asset.volume_24h_usdt:.0f}",
+            ],
+            source_signal={
+                "source": "core_hold_probe",
+                "original_action": signal_reject.action if signal_reject else None,
+                "original_confidence": signal_reject.confidence if signal_reject else None,
+                "hold_signal_score": score,
+                "reasoning": (signal_reject.details or {}).get("reasoning") if signal_reject else None,
+            },
+        )
+        return plan, None
+
+    @staticmethod
+    def _hold_signal_score(reject: Optional[PaperRejectedSignal]) -> float:
+        if not reject:
+            return 0.0
+        text = f"{reject.action or ''} {(reject.details or {}).get('reasoning', '')} {(reject.details or {}).get('normalized_action', '')}".lower()
+        score = 0.0
+        for token, value in (
+            ("trend100", 35),
+            ("趋势100", 35),
+            ("trend90", 25),
+            ("趋势90", 25),
+            ("trend86", 20),
+            ("趋势86", 20),
+            ("momentum100", 30),
+            ("动量100", 30),
+            ("bollinger(buy)", 15),
+            ("布林带(buy)", 15),
+            ("buy", 10),
+        ):
+            if token in text:
+                score += value
+        if (reject.confidence or 0) >= 0.5:
+            score += 10
+        return min(100.0, score)
 
     def _build_momentum_probe_plan(
         self, asset: PaperUniverseAsset
@@ -2224,6 +2462,29 @@ class PaperTradingService:
             )
         return samples
 
+    @staticmethod
+    def _forward_session_item(row: PaperForwardSession) -> PaperForwardSessionItem:
+        return PaperForwardSessionItem(
+            session_id=row.session_id,
+            state=PaperForwardRunnerState(row.state),
+            mode=row.mode,
+            analysis_type=row.analysis_type,
+            started_at=row.started_at,
+            stopped_at=row.stopped_at,
+            duration_seconds=row.duration_seconds or 0,
+            scan_count=row.scan_count or 0,
+            opened_count=row.opened_count or 0,
+            rejected_count=row.rejected_count or 0,
+            final_equity_usdt=row.final_equity_usdt or 0.0,
+            final_balance_usdt=row.final_balance_usdt or 0.0,
+            realized_pnl_usdt=row.realized_pnl_usdt or 0.0,
+            unrealized_pnl_usdt=row.unrealized_pnl_usdt or 0.0,
+            open_positions=row.open_positions or 0,
+            closed_trades=row.closed_trades or 0,
+            win_rate=row.win_rate or 0.0,
+            last_scan_summary=row.last_scan_summary or {},
+        )
+
     def _save_backtest_run(self, **values: Any) -> PaperBacktestRun:
         self._ensure_history_table()
         clean_values = {
@@ -2301,3 +2562,4 @@ def get_paper_trading_service() -> PaperTradingService:
     if _paper_trading_service is None:
         _paper_trading_service = PaperTradingService()
     return _paper_trading_service
+

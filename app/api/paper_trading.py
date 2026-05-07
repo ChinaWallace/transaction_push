@@ -18,6 +18,8 @@ from app.schemas.paper_trading import (
     PaperCloseRequest,
     PaperForwardRunnerStartRequest,
     PaperForwardRunnerStatus,
+    PaperForwardSessionDetail,
+    PaperForwardSessionResponse,
     PaperForwardSnapshotResponse,
     PaperLeaderboardRequest,
     PaperLeaderboardResponse,
@@ -212,6 +214,31 @@ async def list_forward_snapshots(
 ) -> PaperForwardSnapshotResponse:
     try:
         return service.list_forward_snapshots(limit=limit, offset=offset)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/forward/sessions", response_model=PaperForwardSessionResponse)
+async def list_forward_sessions(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    service: PaperTradingService = Depends(get_service),
+) -> PaperForwardSessionResponse:
+    try:
+        return service.list_forward_sessions(limit=limit, offset=offset)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/forward/sessions/{session_id}", response_model=PaperForwardSessionDetail)
+async def get_forward_session(
+    session_id: str,
+    service: PaperTradingService = Depends(get_service),
+) -> PaperForwardSessionDetail:
+    try:
+        return service.get_forward_session(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

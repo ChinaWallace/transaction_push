@@ -67,3 +67,33 @@ class PaperForwardSnapshot(BaseModel):
     closed_trades_payload = Column(JSON)
     runner_payload = Column(JSON)
 
+
+class PaperForwardSession(BaseModel):
+    """Completed forward paper-trading simulation session."""
+
+    __tablename__ = "paper_forward_sessions"
+
+    session_id = Column(String(36), unique=True, index=True, nullable=False)
+    state = Column(String(20), index=True, nullable=False)
+    mode = Column(String(20))
+    analysis_type = Column(String(50))
+
+    started_at = Column(DateTime, index=True)
+    stopped_at = Column(DateTime, default=func.now(), index=True)
+    duration_seconds = Column(Integer, default=0)
+
+    scan_count = Column(Integer, default=0)
+    opened_count = Column(Integer, default=0)
+    rejected_count = Column(Integer, default=0)
+    final_equity_usdt = Column(Float, default=0.0)
+    final_balance_usdt = Column(Float, default=0.0)
+    realized_pnl_usdt = Column(Float, default=0.0)
+    unrealized_pnl_usdt = Column(Float, default=0.0)
+    open_positions = Column(Integer, default=0)
+    closed_trades = Column(Integer, default=0)
+    win_rate = Column(Float, default=0.0)
+
+    open_positions_payload = Column(JSON)
+    closed_trades_payload = Column(JSON)
+    runner_payload = Column(JSON)
+    last_scan_summary = Column(JSON)

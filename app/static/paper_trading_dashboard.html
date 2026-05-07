@@ -278,7 +278,7 @@
           </div>
           <div>
             <label>候选数量</label>
-            <input id="maxSatellite" type="number" min="0" max="20" value="5">
+            <input id="maxSatellite" type="number" min="0" max="20" value="20">
           </div>
         </div>
         <div class="actions">
@@ -315,7 +315,12 @@
           <button class="primary" id="startForward">开始模拟</button>
           <button id="stopForward">停止模拟</button>
         </div>
+        <button id="loadForwardSessions" style="width:100%;margin-top:8px;">模拟记录</button>
         <div style="margin-top:10px;"><span class="run-state" id="forwardStatusText">未运行</span></div>
+      </div>
+      <div class="panel">
+        <h2>模拟记录</h2>
+        <div id="forwardSessionList" class="empty">暂无模拟记录</div>
       </div>
     </aside>
     <section>
@@ -334,6 +339,10 @@
       <div class="panel">
         <h2>模拟盘状态</h2>
         <div id="forwardStatusPanel" class="empty">暂无模拟盘运行状态</div>
+      </div>
+      <div class="panel">
+        <h2>模拟记录详情</h2>
+        <div id="forwardSessionDetail" class="empty">点击左侧模拟记录查看详情</div>
       </div>
       <div class="split">
         <div class="panel">
@@ -413,10 +422,10 @@
           analysis_type: "technical_only",
           scan_interval_seconds: Number($("scanInterval").value),
           tick_interval_seconds: Number($("tickInterval").value),
-          max_core_symbols: Math.max(1, splitSymbols($("coreSymbols").value).length || 5),
+          max_core_symbols: Math.min(20, Math.max(1, splitSymbols($("coreSymbols").value).length || 10)),
           max_satellite_symbols: Number($("maxSatellite").value),
-          force_update: false
-          ,momentum_probe_enabled: true
+          force_update: false,
+          momentum_probe_enabled: true
         };
         await api("/api/paper-trading/forward/start", {
           method: "POST",
@@ -439,6 +448,7 @@
       try {
         await api("/api/paper-trading/forward/stop", { method: "POST" });
         await loadForwardStatus();
+        await loadForwardSessions();
       } catch (err) {
         alert(`模拟盘停止失败: ${err.message}`);
       } finally {
@@ -489,6 +499,93 @@
         </table>
         ${renderOpenPositions(account.open_positions || [])}
       `;
+    }
+
+    async function loadForwardSessions() {
+      const data = await api("/api/paper-trading/forward/sessions?limit=30");
+      const rows = data.items || [];
+      if (!rows.length) {
+        $("forwardSessionList").innerHTML = `<div class="empty">暂无模拟记录</div>`;
+        return;
+      }
+      $("forwardSessionList").innerHTML = `
+        <table>
+          <thead><tr><th>停止时间</th><th>扫描</th><th>开仓</th><th>权益</th></tr></thead>
+          <tbody>
+            ${rows.map(row => `
+              <tr data-session="${row.session_id}">
+                <td>${row.stopped_at ? new Date(row.stopped_at).toLocaleString() : "-"}</td>
+                <td>${row.scan_count}</td>
+                <td>${row.opened_count}</td>
+                <td class="${colorClass(row.final_equity_usdt - Number($("balance").value))}">${fmtNum(row.final_equity_usdt)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>`;
+      document.querySelectorAll("[data-session]").forEach(tr => {
+        tr.addEventListener("click", () => loadForwardSessionDetail(tr.dataset.session));
+      });
+    }
+
+    async function loadForwardSessionDetail(sessionId) {
+      const detail = await api(`/api/paper-trading/forward/sessions/${sessionId}`);
+      const summary = detail.last_scan_summary || {};
+      const opened = detail.open_positions_payload || [];
+      const closed = detail.closed_trades_payload || [];
+      $("forwardSessionDetail").className = "";
+      $("forwardSessionDetail").innerHTML = `
+        <table>
+          <tbody>
+            <tr><th>开始</th><td>${detail.started_at ? new Date(detail.started_at).toLocaleString() : "-"}</td><th>停止</th><td>${detail.stopped_at ? new Date(detail.stopped_at).toLocaleString() : "-"}</td></tr>
+            <tr><th>扫描</th><td>${detail.scan_count}</td><th>开仓</th><td>${detail.opened_count}</td></tr>
+            <tr><th>权益</th><td>${fmtNum(detail.final_equity_usdt)}</td><th>已实现</th><td class="${colorClass(detail.realized_pnl_usdt)}">${fmtNum(detail.realized_pnl_usdt)}</td></tr>
+            <tr><th>未实现</th><td class="${colorClass(detail.unrealized_pnl_usdt)}">${fmtNum(detail.unrealized_pnl_usdt)}</td><th>胜率</th><td>${fmtPct(detail.win_rate * 100)}</td></tr>
+            <tr><th>最后扫描</th><td colspan="3">候选 ${summary.candidate_count ?? 0} · 试探开仓 ${summary.probe_opened_count ?? 0} · 拒绝 ${summary.rejected_count ?? 0}</td></tr>
+          </tbody>
+        </table>
+        <h2 style="margin-top:12px;">停止时持仓</h2>
+        ${renderSessionPositions(opened)}
+        <h2 style="margin-top:12px;">已平仓记录</h2>
+        ${renderSessionTrades(closed)}
+      `;
+    }
+
+    function renderSessionPositions(positions) {
+      if (!positions.length) return `<div class="empty">无持仓</div>`;
+      return `
+        <table>
+          <thead><tr><th>币种</th><th>入场</th><th>止损</th><th>止盈</th><th>未实现</th></tr></thead>
+          <tbody>
+            ${positions.map(pos => `
+              <tr>
+                <td>${pos.plan?.symbol ?? "-"}</td>
+                <td>${fmtNum(pos.plan?.entry_price, 4)}</td>
+                <td>${fmtNum(pos.plan?.stop_loss, 4)}</td>
+                <td>${fmtNum(pos.plan?.take_profit, 4)}</td>
+                <td class="${colorClass(pos.unrealized_pnl_usdt)}">${fmtNum(pos.unrealized_pnl_usdt)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>`;
+    }
+
+    function renderSessionTrades(trades) {
+      if (!trades.length) return `<div class="empty">无已平仓</div>`;
+      return `
+        <table>
+          <thead><tr><th>币种</th><th>入场</th><th>出场</th><th>盈亏</th><th>原因</th></tr></thead>
+          <tbody>
+            ${trades.map(trade => `
+              <tr>
+                <td>${trade.plan?.symbol ?? "-"}</td>
+                <td>${fmtNum(trade.plan?.entry_price, 4)}</td>
+                <td>${fmtNum(trade.exit_price, 4)}</td>
+                <td class="${colorClass(trade.realized_pnl_usdt)}">${fmtNum(trade.realized_pnl_usdt)}</td>
+                <td>${trade.close_reason ?? "-"}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>`;
     }
 
     function setForwardControls(runner) {
@@ -737,9 +834,11 @@
     $("typeFilter").addEventListener("change", () => { state.selectedRun = null; loadHistory(); });
     $("startForward").addEventListener("click", startForward);
     $("stopForward").addEventListener("click", stopForward);
+    $("loadForwardSessions").addEventListener("click", loadForwardSessions);
 
     loadStatus();
     loadHistory();
+    loadForwardSessions();
     setInterval(loadStatus, 30000);
   </script>
 </body>

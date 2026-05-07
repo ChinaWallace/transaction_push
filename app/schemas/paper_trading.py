@@ -232,8 +232,8 @@ class PaperPortfolioBacktestRequest(BaseModel):
     fee_rate: float = Field(default=0.0004, ge=0, le=0.01)
     slippage_rate: float = Field(default=0.0002, ge=0, le=0.01)
     sample_split: float = Field(default=0.7, gt=0.5, lt=0.95)
-    max_core_symbols: int = Field(default=10, ge=1, le=15)
-    max_satellite_symbols: int = Field(default=8, ge=0, le=20)
+    max_core_symbols: int = Field(default=10, ge=1, le=20)
+    max_satellite_symbols: int = Field(default=20, ge=0, le=20)
     strategies: List[PaperBacktestStrategy] = Field(
         default_factory=lambda: [PaperBacktestStrategy.EMA_RSI, PaperBacktestStrategy.BREAKOUT]
     )
@@ -368,8 +368,8 @@ class PaperForwardRunnerStartRequest(BaseModel):
     analysis_type: str = "technical_only"
     scan_interval_seconds: int = Field(default=900, ge=60, le=86400)
     tick_interval_seconds: int = Field(default=60, ge=15, le=3600)
-    max_core_symbols: int = Field(default=5, ge=1, le=15)
-    max_satellite_symbols: int = Field(default=5, ge=0, le=20)
+    max_core_symbols: int = Field(default=10, ge=1, le=20)
+    max_satellite_symbols: int = Field(default=20, ge=0, le=20)
     force_update: bool = False
     momentum_probe_enabled: bool = True
 
@@ -413,4 +413,36 @@ class PaperForwardSnapshotItem(BaseModel):
 
 class PaperForwardSnapshotResponse(BaseModel):
     items: List[PaperForwardSnapshotItem] = Field(default_factory=list)
+    total: int
+
+
+class PaperForwardSessionItem(BaseModel):
+    session_id: str
+    state: PaperForwardRunnerState
+    mode: Optional[str] = None
+    analysis_type: Optional[str] = None
+    started_at: Optional[datetime] = None
+    stopped_at: Optional[datetime] = None
+    duration_seconds: int = 0
+    scan_count: int = 0
+    opened_count: int = 0
+    rejected_count: int = 0
+    final_equity_usdt: float = 0.0
+    final_balance_usdt: float = 0.0
+    realized_pnl_usdt: float = 0.0
+    unrealized_pnl_usdt: float = 0.0
+    open_positions: int = 0
+    closed_trades: int = 0
+    win_rate: float = 0.0
+    last_scan_summary: Dict[str, Any] = Field(default_factory=dict)
+
+
+class PaperForwardSessionDetail(PaperForwardSessionItem):
+    open_positions_payload: List[Dict[str, Any]] = Field(default_factory=list)
+    closed_trades_payload: List[Dict[str, Any]] = Field(default_factory=list)
+    runner_payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class PaperForwardSessionResponse(BaseModel):
+    items: List[PaperForwardSessionItem] = Field(default_factory=list)
     total: int

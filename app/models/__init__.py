@@ -64,5 +64,6 @@ __all__ = [
     "validate_unified_instrument",
     "sanitize_instrument_data",
     "PaperBacktestRun",
-    "PaperForwardSnapshot"
+    "PaperForwardSnapshot",
+    "PaperForwardSession"
 ]
