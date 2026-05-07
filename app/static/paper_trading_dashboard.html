@@ -416,6 +416,7 @@
           max_core_symbols: Math.max(1, splitSymbols($("coreSymbols").value).length || 5),
           max_satellite_symbols: Number($("maxSatellite").value),
           force_update: false
+          ,momentum_probe_enabled: true
         };
         await api("/api/paper-trading/forward/start", {
           method: "POST",
@@ -466,6 +467,10 @@
       const rejectedReasons = summary.rejected_reasons
         ? Object.entries(summary.rejected_reasons).map(([k, v]) => `${k}: ${v}`).join(", ")
         : "-";
+      const rejectedSamples = summary.rejected_samples
+        ? summary.rejected_samples.map(item => `${item.symbol} ${item.action || "-"} ${item.confidence ?? "-"} · ${item.reason}`).join("<br>")
+        : "-";
+      const openedSymbols = (summary.opened_symbols || []).join(", ") || "-";
       $("forwardStatusPanel").className = "";
       $("forwardStatusPanel").innerHTML = `
         <table>
@@ -475,8 +480,10 @@
             <tr><th>持仓数</th><td>${account.open_positions.length} / ${account.max_open_positions}</td><th>已平仓</th><td>${account.total_trades}</td></tr>
             <tr><th>上次扫描</th><td>${lastScan}</td><th>下次扫描</th><td>${nextScan}</td></tr>
             <tr><th>扫描币种</th><td colspan="3">${(runner.last_symbols || []).join(", ") || "-"}</td></tr>
-            <tr><th>最近扫描</th><td colspan="3">候选 ${summary.candidate_count ?? 0} · 开仓 ${summary.opened_count ?? 0} · 拒绝 ${summary.rejected_count ?? 0}</td></tr>
+            <tr><th>最近扫描</th><td colspan="3">候选 ${summary.candidate_count ?? 0} · 开仓 ${summary.opened_count ?? 0} · 试探开仓 ${summary.probe_opened_count ?? 0} · 拒绝 ${summary.rejected_count ?? 0}</td></tr>
+            <tr><th>开仓币种</th><td colspan="3">${openedSymbols}</td></tr>
             <tr><th>拒绝原因</th><td colspan="3">${rejectedReasons}</td></tr>
+            <tr><th>拒绝样本</th><td colspan="3">${rejectedSamples}</td></tr>
             <tr><th>最新快照</th><td>${latest}</td><th>错误</th><td>${runner.last_error || "-"}</td></tr>
           </tbody>
         </table>

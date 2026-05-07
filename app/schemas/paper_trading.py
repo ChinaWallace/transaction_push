@@ -371,6 +371,7 @@ class PaperForwardRunnerStartRequest(BaseModel):
     max_core_symbols: int = Field(default=5, ge=1, le=15)
     max_satellite_symbols: int = Field(default=5, ge=0, le=20)
     force_update: bool = False
+    momentum_probe_enabled: bool = True
 
 
 class PaperForwardRunnerStatus(BaseModel):

@@ -1389,12 +1389,19 @@ class PaperTradingService:
     def _reject(
         signal: TradingSignal, reason: str, details: Optional[Dict[str, Any]] = None
     ) -> PaperRejectedSignal:
+        merged_details = {
+            "normalized_action": PaperTradingService._normalized_action_text(signal.final_action),
+            "reasoning": signal.reasoning,
+            "key_factors": signal.key_factors[:5] if signal.key_factors else [],
+        }
+        if details:
+            merged_details.update(details)
         return PaperRejectedSignal(
             symbol=signal.symbol,
             reason=reason,
             action=signal.final_action,
             confidence=signal.final_confidence,
-            details=details or {},
+            details=merged_details,
         )
 
     @staticmethod
@@ -2016,16 +2023,30 @@ class PaperTradingService:
                             analysis_type=cfg.analysis_type,
                             long_only=True,
                         )
+                        probe_opened: List[PaperTradeRecord] = []
+                        probe_rejected: List[PaperRejectedSignal] = []
+                        if (
+                            cfg.momentum_probe_enabled
+                            and scan.opened_count == 0
+                            and all(item.reason == "not_actionable" for item in scan.rejected)
+                        ):
+                            probe_opened, probe_rejected = await self._open_momentum_probe_trades(universe)
                         self._runner_scan_count += 1
-                        self._runner_opened_count += scan.opened_count
-                        self._runner_rejected_count += len(scan.rejected)
+                        opened_count = scan.opened_count + len(probe_opened)
+                        rejected_count = len(scan.rejected) + len(probe_rejected)
+                        self._runner_opened_count += opened_count
+                        self._runner_rejected_count += rejected_count
                         self._runner_last_scan_at = datetime.now()
                         self._runner_last_scan_summary = {
                             "scanned_symbols": scan.scanned_symbols,
-                            "opened_count": scan.opened_count,
+                            "opened_count": opened_count,
                             "candidate_count": len(scan.candidate_plans),
-                            "rejected_count": len(scan.rejected),
-                            "rejected_reasons": self._rejection_reason_counts(scan.rejected),
+                            "probe_opened_count": len(probe_opened),
+                            "probe_rejected_count": len(probe_rejected),
+                            "rejected_count": rejected_count,
+                            "rejected_reasons": self._rejection_reason_counts(scan.rejected + probe_rejected),
+                            "rejected_samples": self._rejection_samples(scan.rejected + probe_rejected),
+                            "opened_symbols": [trade.plan.symbol for trade in probe_opened + scan.opened_trades],
                         }
                     next_scan_ts = datetime.now().timestamp() + cfg.scan_interval_seconds
                     self._runner_next_scan_at = datetime.fromtimestamp(next_scan_ts)
@@ -2070,12 +2091,138 @@ class PaperTradingService:
         except Exception as exc:
             logger.warning("Failed to record paper forward snapshot: %s", exc)
 
+    async def _open_momentum_probe_trades(
+        self, universe: PaperUniverseResponse
+    ) -> Tuple[List[PaperTradeRecord], List[PaperRejectedSignal]]:
+        opened: List[PaperTradeRecord] = []
+        rejected: List[PaperRejectedSignal] = []
+        candidates = sorted(
+            list(universe.satellite) + [
+                asset for asset in universe.core if asset.change_percent_24h >= 3.0
+            ],
+            key=lambda item: item.score,
+            reverse=True,
+        )
+        for asset in candidates:
+            if len(opened) >= 1:
+                break
+            plan, reject = self._build_momentum_probe_plan(asset)
+            if reject:
+                rejected.append(reject)
+                continue
+            async with self._lock:
+                reject_reason = self._portfolio_reject_reason(plan.symbol)
+                if reject_reason:
+                    rejected.append(
+                        PaperRejectedSignal(
+                            symbol=plan.symbol,
+                            reason=reject_reason,
+                            action="momentum_probe",
+                            confidence=plan.confidence,
+                            opportunity_score=plan.opportunity_score,
+                            details={"source": "momentum_probe"},
+                        )
+                    )
+                    continue
+                trade = PaperTradeRecord(id=str(uuid.uuid4()), plan=plan)
+                self.trades[trade.id] = trade
+                opened.append(trade)
+        return opened, rejected
+
+    def _build_momentum_probe_plan(
+        self, asset: PaperUniverseAsset
+    ) -> Tuple[Optional[PaperTradePlan], Optional[PaperRejectedSignal]]:
+        if asset.price <= 0:
+            return None, PaperRejectedSignal(symbol=asset.symbol, reason="probe_missing_price")
+        min_change = 8.0 if asset.bucket == PaperPortfolioBucket.SATELLITE else 3.0
+        min_score = 90.0 if asset.bucket == PaperPortfolioBucket.SATELLITE else 100.0
+        min_volume = 30_000_000 if asset.bucket == PaperPortfolioBucket.SATELLITE else 300_000_000
+        if asset.change_percent_24h < min_change:
+            return None, PaperRejectedSignal(
+                symbol=asset.symbol,
+                reason="probe_momentum_too_weak",
+                action="momentum_probe",
+                confidence=0.0,
+                details={"change_percent_24h": asset.change_percent_24h, "min_change": min_change},
+            )
+        if asset.score < min_score:
+            return None, PaperRejectedSignal(
+                symbol=asset.symbol,
+                reason="probe_score_too_low",
+                action="momentum_probe",
+                confidence=0.0,
+                details={"score": asset.score, "min_score": min_score},
+            )
+        if asset.volume_24h_usdt < min_volume:
+            return None, PaperRejectedSignal(
+                symbol=asset.symbol,
+                reason="probe_volume_too_low",
+                action="momentum_probe",
+                confidence=0.0,
+                details={"volume_24h_usdt": asset.volume_24h_usdt, "min_volume": min_volume},
+            )
+
+        stop_pct = 0.055 if asset.bucket == PaperPortfolioBucket.SATELLITE else 0.045
+        take_pct = 0.11 if asset.bucket == PaperPortfolioBucket.SATELLITE else 0.09
+        leverage = self._max_leverage_for_symbol(asset.symbol, asset.bucket)
+        cfg = self._sizing_config_for_bucket(self.MODE_CONFIG[self._runner_config.mode], asset.bucket)
+        position_size_usdt = self._position_size_usdt(stop_pct, cfg)
+        quantity = position_size_usdt * leverage / asset.price
+        confidence = min(0.72, 0.52 + min(asset.change_percent_24h, 50) / 250 + min(asset.score, 200) / 1000)
+        opportunity_score = min(100.0, asset.score * 0.45 + asset.change_percent_24h * 0.8)
+        plan = PaperTradePlan(
+            symbol=asset.symbol,
+            side=PaperTradeSide.LONG,
+            confidence=round(confidence, 4),
+            opportunity_score=round(opportunity_score, 2),
+            entry_price=round(asset.price, 8),
+            stop_loss=round(asset.price * (1 - stop_pct), 8),
+            take_profit=round(asset.price * (1 + take_pct), 8),
+            risk_reward_ratio=round(take_pct / stop_pct, 4),
+            position_size_usdt=round(position_size_usdt, 4),
+            quantity=round(quantity, 10),
+            max_loss_usdt=round(position_size_usdt * leverage * stop_pct, 4),
+            leverage=leverage,
+            invalidation_reason=f"Momentum probe exits if price loses {stop_pct:.1%}.",
+            reasons=[
+                "momentum_probe",
+                f"24h_change={asset.change_percent_24h:.2f}%",
+                f"volume_24h_usdt={asset.volume_24h_usdt:.0f}",
+                f"universe_score={asset.score:.1f}",
+                asset.reason,
+            ],
+            source_signal={
+                "source": "universe_momentum_probe",
+                "bucket": asset.bucket.value,
+                "base_asset": asset.base_asset,
+                "change_percent_24h": asset.change_percent_24h,
+                "volume_24h_usdt": asset.volume_24h_usdt,
+                "score": asset.score,
+            },
+        )
+        return plan, None
+
     @staticmethod
     def _rejection_reason_counts(rejected: List[PaperRejectedSignal]) -> Dict[str, int]:
         counts: Dict[str, int] = {}
         for item in rejected:
             counts[item.reason] = counts.get(item.reason, 0) + 1
         return counts
+
+    @staticmethod
+    def _rejection_samples(rejected: List[PaperRejectedSignal], limit: int = 8) -> List[Dict[str, Any]]:
+        samples = []
+        for item in rejected[:limit]:
+            samples.append(
+                {
+                    "symbol": item.symbol,
+                    "reason": item.reason,
+                    "action": item.action,
+                    "confidence": item.confidence,
+                    "details": item.details,
+                }
+            )
+        return samples
 
     def _save_backtest_run(self, **values: Any) -> PaperBacktestRun:
         self._ensure_history_table()
