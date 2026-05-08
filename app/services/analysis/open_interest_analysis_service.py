@@ -12,7 +12,7 @@ from enum import Enum
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.services.exchanges.okx.okx_service import OKXService
+from app.services.binance_service import BinanceService
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -64,7 +64,7 @@ class OpenInterestAnalysisService:
     def __init__(self):
         self.settings = get_settings()
         self.logger = get_logger(__name__)
-        self.okx_service = OKXService()
+        self.binance_service = BinanceService()
         
         # 分析配置
         self.analysis_config = {
@@ -104,13 +104,15 @@ class OpenInterestAnalysisService:
                 return self._oi_cache.get(cache_key)
             
             # 获取持仓量数据
-            oi_data = await self.okx_service.get_open_interest(symbol)
-            if not oi_data:
+            binance_symbol = symbol.replace('-USDT-SWAP', 'USDT').replace('-USDT', 'USDT')
+            oi_history = await self.binance_service.get_open_interest_statistics(binance_symbol, period="1h", limit=24)
+            if not oi_history:
                 self.logger.warning(f"⚠️ {symbol} 无法获取持仓量数据")
                 return None
             
-            current_oi = float(oi_data.get('oi', 0))
-            oi_change_24h = float(oi_data.get('oiCcy24h', 0))
+            current_oi = float(oi_history[-1].get('sumOpenInterestValue') or oi_history[-1].get('sumOpenInterest') or 0)
+            start_oi = float(oi_history[0].get('sumOpenInterestValue') or oi_history[0].get('sumOpenInterest') or current_oi)
+            oi_change_24h = current_oi - start_oi
             
             # 检查最小持仓量要求
             if current_oi < self.analysis_config['min_oi_value']:
@@ -252,9 +254,10 @@ class OpenInterestAnalysisService:
     async def _get_price_change_24h(self, symbol: str) -> float:
         """获取24小时价格变化"""
         try:
-            ticker = await self.okx_service.get_ticker(symbol)
-            if ticker:
-                return float(ticker.get('sodUtc0', 0))  # 24小时涨跌幅
+            binance_symbol = symbol.replace('-USDT-SWAP', 'USDT').replace('-USDT', 'USDT')
+            tickers = await self.binance_service.get_24hr_ticker(binance_symbol)
+            if tickers:
+                return float(tickers[0].get('priceChangePercent', 0))
             return 0.0
         except Exception as e:
             self.logger.warning(f"⚠️ 获取 {symbol} 价格变化失败: {e}")

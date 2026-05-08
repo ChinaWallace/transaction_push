@@ -17,7 +17,7 @@ from app.schemas.market_anomaly import (
     MarketAnomalyData,
     TrendDirection,
 )
-from app.services.exchanges.okx.okx_service import OKXService
+from app.services.binance_service import BinanceService
 from app.services.notification.core_notification_service import (
     get_core_notification_service,
 )
@@ -39,7 +39,7 @@ class MarketAnomalyMonitorService:
     """市场异常监控服务"""
     
     def __init__(self):
-        self.okx_service = OKXService()
+        self.binance_service = BinanceService()
         self.notification_service = None
         
         # 异常检测阈值配置
@@ -78,18 +78,24 @@ class MarketAnomalyMonitorService:
         try:
             logger.info(f"🔍 获取前{limit}个活跃交易对...")
             
-            async with self.okx_service:
+            async with self.binance_service:
                 # 获取所有SWAP合约的24小时统计
-                tickers_result = await self.okx_service._make_request(
-                    'GET', '/api/v5/market/tickers', 
-                    params={'instType': 'SWAP'}
-                )
+                raw_tickers = await self.binance_service.get_24hr_ticker()
+                tickers_result = [
+                    {
+                        'instId': ticker.get('symbol', '').replace('USDT', '-USDT-SWAP'),
+                        'vol24h': ticker.get('volume', '0'),
+                        'last': ticker.get('lastPrice', '0')
+                    }
+                    for ticker in raw_tickers
+                    if ticker.get('symbol', '').endswith('USDT')
+                ]
                 
                 # 获取合约规格信息
-                instruments_result = await self.okx_service._make_request(
-                    'GET', '/api/v5/public/instruments',
-                    params={'instType': 'SWAP'}
-                )
+                instruments_result = [
+                    {'instId': ticker['instId'], 'ctVal': '1'}
+                    for ticker in tickers_result
+                ]
                 
                 if not tickers_result or not instruments_result:
                     logger.warning("未获取到交易对数据或合约规格")
@@ -148,10 +154,11 @@ class MarketAnomalyMonitorService:
             
             logger.debug(f"📊 获取{symbol}的{days}天历史数据...")
             
-            async with self.okx_service:
+            async with self.binance_service:
                 # 获取1小时K线数据
-                klines = await self.okx_service.get_kline_data(
-                    symbol, '1H', limit=days * 24
+                binance_symbol = symbol.replace('-USDT-SWAP', 'USDT').replace('-USDT', 'USDT')
+                klines = await self.binance_service.get_kline_data(
+                    binance_symbol, '1h', limit=days * 24
                 )
                 
                 if not klines or len(klines) < 24:  # 至少需要24小时数据
@@ -164,17 +171,18 @@ class MarketAnomalyMonitorService:
                 volumes = []
                 
                 for kline in klines:
-                    timestamps.append(datetime.fromtimestamp(kline['timestamp'] / 1000))
+                    timestamp = kline.get('timestamp') or kline.get('open_time')
+                    timestamps.append(timestamp if isinstance(timestamp, datetime) else datetime.fromtimestamp(timestamp / 1000))
                     prices.append(float(kline['close']))
                     # 使用volume_currency字段，这是以USDT为单位的成交量
-                    volumes.append(float(kline.get('volume_currency', kline.get('volume', 0))))
+                    volumes.append(float(kline.get('quote_volume', kline.get('volume', 0))))
                 
                 # 获取持仓量数据（如果是期货合约）
                 open_interests = []
                 try:
-                    oi_data = await self.okx_service.get_open_interest_history(symbol, limit=days * 24)
+                    oi_data = await self.binance_service.get_open_interest_statistics(symbol.replace('-USDT-SWAP', 'USDT').replace('-USDT', 'USDT'), period="1h", limit=days * 24)
                     if oi_data:
-                        open_interests = [float(item['oi']) for item in oi_data]
+                        open_interests = [float(item.get('sumOpenInterestValue') or item.get('sumOpenInterest') or 0) for item in oi_data]
                     else:
                         open_interests = [0.0] * len(prices)
                 except:
@@ -202,12 +210,10 @@ class MarketAnomalyMonitorService:
     async def get_current_market_data(self, symbol: str) -> Optional[Dict[str, Any]]:
         """获取当前市场数据"""
         try:
-            async with self.okx_service:
+            async with self.binance_service:
                 # 获取24小时统计数据
-                ticker_result = await self.okx_service._make_request(
-                    'GET', '/api/v5/market/ticker',
-                    params={'instId': symbol}
-                )
+                binance_symbol = symbol.replace('-USDT-SWAP', 'USDT').replace('-USDT', 'USDT')
+                ticker_result = await self.binance_service.get_24hr_ticker(binance_symbol)
                 
                 if not ticker_result:
                     return None
@@ -217,52 +223,26 @@ class MarketAnomalyMonitorService:
                 # 获取持仓量数据
                 oi_data = None
                 try:
-                    oi_result = await self.okx_service._make_request(
-                        'GET', '/api/v5/public/open-interest',
-                        params={'instId': symbol}
-                    )
+                    oi_result = await self.binance_service.get_open_interest_statistics(binance_symbol, period="1h", limit=24)
                     if oi_result:
-                        oi_data = oi_result[0]
+                        oi_data = oi_result
                 except:
                     pass
                 
-                # 价格变化处理：使用24小时开盘价计算
-                current_price = float(ticker.get('last', '0') or '0')
-                open_24h = ticker.get('open24h')
-                
-                if open_24h and float(open_24h) > 0:
-                    open_price = float(open_24h)
-                    price_change_24h = (current_price - open_price) / open_price
-                else:
-                    # 如果没有开盘价，尝试使用K线数据
-                    price_change_24h = 0.0
-                    try:
-                        kline_result = await self.okx_service._make_request(
-                            'GET', '/api/v5/market/history-candles',
-                            params={
-                                'instId': symbol,
-                                'bar': '1H',
-                                'limit': '25'
-                            }
-                        )
-                        
-                        if kline_result and len(kline_result) >= 24:
-                            price_24h_ago = float(kline_result[23][4])
-                            if price_24h_ago > 0:
-                                price_change_24h = (current_price - price_24h_ago) / price_24h_ago
-                    except Exception as e:
-                        logger.debug(f"获取{symbol}历史价格失败: {e}")
-                        price_change_24h = 0.0
+                current_price = float(ticker.get('lastPrice', '0') or '0')
+                price_change_24h = float(ticker.get('priceChangePercent', '0') or '0') / 100
+                current_oi = float(oi_data[-1].get('sumOpenInterestValue') or oi_data[-1].get('sumOpenInterest') or 0) if oi_data else 0.0
+                start_oi = float(oi_data[0].get('sumOpenInterestValue') or oi_data[0].get('sumOpenInterest') or current_oi) if oi_data else 0.0
                 
                 return {
                     'symbol': symbol,
                     'current_price': current_price,
                     'price_change_24h': price_change_24h,  # 小数形式（如0.05表示5%）
-                    'volume_24h': float(ticker.get('volCcy24h', '0') or '0'),
-                    'high_24h': float(ticker.get('high24h', '0') or '0'),
-                    'low_24h': float(ticker.get('low24h', '0') or '0'),
-                    'open_interest': float(oi_data.get('oi', '0') or '0') if oi_data else 0.0,
-                    'oi_change_24h': float(oi_data.get('oiChg', '0') or '0') if oi_data else 0.0,
+                    'volume_24h': float(ticker.get('quoteVolume', '0') or '0'),
+                    'high_24h': float(ticker.get('highPrice', '0') or '0'),
+                    'low_24h': float(ticker.get('lowPrice', '0') or '0'),
+                    'open_interest': current_oi,
+                    'oi_change_24h': current_oi - start_oi,
                     'timestamp': datetime.now()
                 }
                 
@@ -718,7 +698,7 @@ class MarketAnomalyMonitorService:
             for i, anomaly in enumerate(recommended_anomalies, 1):
                 symbol_name = anomaly.symbol_name
                 score = anomaly.anomaly_score
-                # OKX的price_change_24h已经是小数形式，需要转换为百分比
+                # price_change_24h 已经是小数形式，需要转换为百分比
                 price_change = anomaly.price_change_24h * 100
                 volume_ratio = anomaly.volume_ratio
                 

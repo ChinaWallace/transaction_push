@@ -62,27 +62,6 @@ async def get_exchange_service() -> ExchangeInterface:
     return await coordinate_service_init(f"exchange_service_{exchange_provider}", _init_exchange_service)
 
 
-async def get_okx_service():
-    """
-    获取OKX服务 - 兼容性函数
-    Get OKX service - compatibility function
-    
-    注意：这个函数仅用于向后兼容，新代码应该使用 get_exchange_service()
-    """
-    logger.warning("⚠️ 使用了已弃用的 get_okx_service()，建议使用 get_exchange_service()")
-    
-    # 检查当前配置是否为OKX
-    settings = get_settings()
-    exchange_provider = getattr(settings, 'exchange_provider', 'binance').lower()
-    
-    if exchange_provider == 'okx':
-        return await get_exchange_service()
-    else:
-        logger.warning(f"⚠️ 当前配置为 {exchange_provider}，但代码请求OKX服务")
-        # 仍然返回配置的交易所服务
-        return await get_exchange_service()
-
-
 async def get_binance_service():
     """
     获取币安服务 - 兼容性函数
@@ -134,17 +113,6 @@ def get_current_exchange_name() -> str:
     return getattr(settings, 'exchange_provider', 'binance').lower()
 
 
-def is_okx_configured() -> bool:
-    """
-    检查是否配置为使用OKX
-    Check if configured to use OKX
-    
-    Returns:
-        bool: 是否使用OKX
-    """
-    return get_current_exchange_name() == 'okx'
-
-
 def is_binance_configured() -> bool:
     """
     检查是否配置为使用币安
@@ -171,6 +139,9 @@ async def switch_exchange(new_exchange: str) -> ExchangeInterface:
     
     async with _service_lock:
         try:
+            if new_exchange.lower() != 'binance':
+                raise TradingToolError(f"仅支持 Binance，无法切换到: {new_exchange}")
+
             logger.info(f"🔄 切换交易所到: {new_exchange}")
             
             # 通过工厂切换交易所
@@ -197,7 +168,6 @@ def get_service_status() -> Dict[str, Any]:
     """
     return {
         'current_exchange': get_current_exchange_name(),
-        'is_okx_configured': is_okx_configured(),
         'is_binance_configured': is_binance_configured(),
         'has_active_service': _current_exchange_service is not None,
         'factory_status': ExchangeFactory.get_factory_status(),

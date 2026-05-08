@@ -21,7 +21,6 @@ einops>=0.7.0  # 张量操作库，用于Kronos模型
 # 交易所API
 python-binance==1.0.19
 ccxt==4.1.48
-okx>=2.1.2  # OKX官方Python SDK
 
 # HTTP请求
 requests==2.31.0

@@ -40,7 +40,6 @@ __all__ = [
     
     # 数据转换器
     "BaseDataConverter",
-    "OKXDataConverter",
     "BinanceDataConverter",
     "get_data_converter",
     "batch_convert_tickers",

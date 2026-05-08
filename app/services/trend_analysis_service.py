@@ -125,7 +125,6 @@ class TrendAnalysisService:
         from app.services.exchanges.exchange_service_manager import get_current_exchange_name
         self.exchange = exchange.lower() if exchange else get_current_exchange_name()
         self.exchange_service = None  # 将在需要时异步初始化
-        self._is_okx = self.exchange == 'okx'
         self.supertrend_indicator = SuperTrendIndicator(period=10, multiplier=3.0)
     
     async def _ensure_exchange_service(self):

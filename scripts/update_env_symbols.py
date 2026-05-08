@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-自动更新.env文件中的OKX币种配置
-Auto update OKX symbols in .env file
+自动更新.env文件中的币安币种配置
+Auto update Binance symbols in .env file
 """
 
 import asyncio
@@ -19,8 +19,8 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 
-async def get_all_okx_swap_symbols():
-    """获取OKX所有永续合约币种"""
+async def get_all_binance_swap_symbols():
+    """获取币安所有永续合约币种"""
     try:
         exchange_service = await get_exchange_service()
         
@@ -38,7 +38,7 @@ async def get_all_okx_swap_symbols():
         return usdt_swaps
         
     except Exception as e:
-        logger.error(f"获取OKX币种失败: {e}")
+        logger.error(f"获取币安币种失败: {e}")
         return []
 
 
@@ -77,7 +77,7 @@ def update_env_file(symbols):
             print("✅ 找到现有配置，正在更新...")
         else:
             # 如果没有找到，则添加到文件末尾
-            new_content = content.rstrip() + '\n\n# OKX所有永续合约费率监控（排除主要监控币种）\n' + new_line + '\n'
+            new_content = content.rstrip() + '\n\n# 币安所有永续合约费率监控（排除主要监控币种）\n' + new_line + '\n'
             print("✅ 未找到现有配置，正在添加...")
         
         # 写回文件
@@ -94,11 +94,11 @@ def update_env_file(symbols):
 
 async def main():
     """主函数"""
-    print("🚀 开始更新OKX币种配置...")
+    print("🚀 开始更新币安币种配置...")
     
     # 获取所有币种
-    print("📡 正在从OKX获取所有永续合约币种...")
-    symbols = await get_all_okx_swap_symbols()
+    print("📡 正在从币安获取所有永续合约币种...")
+    symbols = await get_all_binance_swap_symbols()
     
     if not symbols:
         print("❌ 获取币种失败，请检查网络连接和API配置")

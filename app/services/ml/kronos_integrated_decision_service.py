@@ -761,10 +761,10 @@ class KronosIntegratedDecisionService:
     
     def _convert_kline_to_dataframe(self, kline_data: List[Dict]) -> Optional[pd.DataFrame]:
         """
-        将OKX返回的K线数据转换为Kronos需要的DataFrame格式
+        将交易所返回的K线数据转换为Kronos需要的DataFrame格式
         
         Args:
-            kline_data: OKX返回的K线数据列表
+            kline_data: 交易所返回的K线数据列表
             
         Returns:
             转换后的DataFrame，包含Kronos需要的列

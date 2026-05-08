@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.services.exchanges.okx.okx_service import OKXService
+from app.services.binance_service import BinanceService
 # Lazy import to avoid circular imports
 # from app.services.trading.core_trading_service import get_core_trading_service, AnalysisType
 from app.services.notification.core_notification_service import get_core_notification_service
@@ -113,7 +113,7 @@ class CoreOpportunityService:
     def __init__(self):
         self.settings = get_settings()
         self.logger = get_logger(__name__)
-        self.okx_service = OKXService()
+        self.binance_service = BinanceService()
         self.notification_service = None
         self.trading_service = None
         
@@ -583,14 +583,14 @@ class CoreOpportunityService:
     async def _get_active_symbols(self) -> List[str]:
         """获取活跃交易对"""
         try:
-            async with self.okx_service as exchange:
-                instruments = await exchange.get_all_instruments('SWAP')
+            async with self.binance_service as exchange:
+                instruments = await exchange.get_raw_instruments('SWAP')
             
             if instruments:
                 # 按成交量排序，返回活跃的交易对
                 active_symbols = [
-                    inst['instId'] for inst in instruments
-                    if inst.get('state') == 'live'
+                    f"{inst['baseAsset']}-USDT-SWAP" for inst in instruments
+                    if inst.get('status') == 'TRADING' and inst.get('quoteAsset') == 'USDT'
                 ]
                 return active_symbols[:50]  # 返回前50个
             

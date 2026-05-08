@@ -595,23 +595,16 @@ class NegativeFundingMonitorService:
             from app.services.exchanges.exchange_service_manager import get_current_exchange_name
             
             exchange_name = get_current_exchange_name()
-            if exchange_name == 'okx':
-                from app.services.exchanges.okx.okx_service import OKXService
-                async with OKXService() as rest_service:
-                    history = await rest_service.get_funding_rate_history(symbol, limit=5)
-            elif exchange_name == 'binance':
-                # 使用币安费率历史查询
+            if exchange_name != 'binance':
+                logger.warning(f"不支持的交易所: {exchange_name}，使用默认间隔")
+                history = None
+            else:
                 from app.services.exchanges.binance.binance_service import BinanceService
                 binance_service = BinanceService()
                 history = await binance_service.get_funding_rate_history(symbol, limit=5)
-            else:
-                logger.warning(f"不支持的交易所: {exchange_name}，使用默认间隔")
-                history = None
             
             if history:
-                if exchange_name == 'okx':
-                    interval = rest_service.calculate_funding_interval(history)
-                elif exchange_name == 'binance':
+                if exchange_name == 'binance':
                     interval = binance_service.calculate_funding_interval(history)
                 else:
                     interval = 8  # 默认值

@@ -581,7 +581,7 @@ async def main():
     parser = argparse.ArgumentParser(description="性能监控脚本")
     parser.add_argument("--test-type", choices=["comprehensive", "stress", "monitoring"], 
                        default="comprehensive", help="测试类型")
-    parser.add_argument("--exchange", choices=["okx", "binance"], 
+    parser.add_argument("--exchange", choices=["binance"], 
                        help="指定交易所")
     parser.add_argument("--duration", type=int, default=10, 
                        help="测试持续时间（分钟）")

@@ -12,7 +12,6 @@ from app.core.logging import get_logger
 from app.utils.exceptions import TradingToolError
 from .base_adapter import ExchangeDataAdapter
 from .binance_adapter import BinanceDataAdapter
-from .okx_adapter import OKXDataAdapter
 
 logger = get_logger(__name__)
 
@@ -27,8 +26,7 @@ class AdapterFactory:
     
     # 注册的适配器类
     _adapters: Dict[str, Type[ExchangeDataAdapter]] = {
-        'binance': BinanceDataAdapter,
-        'okx': OKXDataAdapter
+        'binance': BinanceDataAdapter
     }
     
     # 适配器实例缓存

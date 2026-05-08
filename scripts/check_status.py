@@ -73,10 +73,10 @@ def check_configuration():
             print(f"✅ 配置加载: 成功")
             
             # 检查API配置
-            if hasattr(settings, 'okx_api_key') and settings.okx_api_key:
-                print("✅ OKX API: 已配置")
+            if hasattr(settings, 'binance_api_key') and settings.binance_api_key:
+                print("✅ Binance API: 已配置")
             else:
-                print("⚠️ OKX API: 未配置")
+                print("⚠️ Binance API: 未配置")
                 
         except Exception as e:
             print(f"❌ 配置加载: 失败 - {e}")
@@ -135,7 +135,7 @@ def check_network():
     
     # 测试API连接
     test_urls = [
-        ("OKX API", "https://www.okx.com/api/v5/public/time"),
+        ("Binance API", "https://fapi.binance.com/fapi/v1/time"),
         ("百度", "https://www.baidu.com"),
     ]
     

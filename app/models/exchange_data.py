@@ -17,7 +17,6 @@ logger = get_logger(__name__)
 
 class ExchangeType(Enum):
     """交易所类型枚举"""
-    OKX = "okx"
     BINANCE = "binance"
 
 

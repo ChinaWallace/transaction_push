@@ -12,7 +12,7 @@ import pandas as pd
 import numpy as np
 
 from app.core.logging import get_logger
-from app.services.exchanges.okx.okx_service import OKXService
+from app.services.binance_service import BinanceService
 from app.utils.indicators import SuperTrendIndicator, MovingAverageIndicator, RSIIndicator, VolumeIndicator
 
 logger = get_logger(__name__)
@@ -64,7 +64,7 @@ class DetailedTechnicalAnalysisService:
     """详细技术分析服务类"""
     
     def __init__(self):
-        self.okx_service = OKXService()
+        self.binance_service = BinanceService()
         self.supertrend_indicator = SuperTrendIndicator()
         self.ma_indicator = MovingAverageIndicator()
         self.rsi_indicator = RSIIndicator()
@@ -101,7 +101,7 @@ class DetailedTechnicalAnalysisService:
         try:
             # 获取多周期数据
             timeframes = ['1d', '4h', '1h', '15m']
-            klines_data = await self.okx_service.get_multi_timeframe_klines(
+            klines_data = await self.binance_service.get_multi_timeframe_klines(
                 symbol, timeframes, limit=100
             )
             

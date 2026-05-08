@@ -56,15 +56,6 @@ def ensure_factory_initialized():
         except Exception as e:
             logger.error(f"❌ 同步初始化交易所服务失败: {e}")
 
-# 便利函数 - 快速获取特定交易所服务
-def get_okx_service():
-    """获取OKX服务的便利函数"""
-    try:
-        return get_exchange_by_name('okx')
-    except Exception as e:
-        logger.error(f"❌ 获取OKX服务失败: {e}")
-        return None
-
 def get_binance_service():
     """获取币安服务的便利函数"""
     try:
@@ -97,7 +88,5 @@ __all__ = [
     'initialize_exchanges',
     'ensure_factory_initialized',
     
-    # 便利函数
-    'get_okx_service',
     'get_binance_service'
 ]

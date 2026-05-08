@@ -163,7 +163,7 @@ class Settings(BaseSettings):
     port: int = Field(default=8000, description="服务端口")
     
     # 交易所选择配置
-    exchange_provider: str = Field(default="okx", description="交易所提供商: okx, binance")
+    exchange_provider: str = Field(default="binance", description="交易所提供商: binance")
     
     # 数据库配置
     database_url: str = Field(default="mysql+pymysql://root:8964@localhost:3306/trading_db", description="数据库连接URL")
@@ -186,13 +186,6 @@ class Settings(BaseSettings):
     binance_base_url: str = Field(default="https://fapi.binance.com", description="币安API基础URL")
     binance_websocket_url: str = Field(default="wss://fstream.binance.com/ws/", description="币安WebSocket URL")
     binance_enable_websocket: bool = Field(default=True, description="是否启用币安WebSocket")
-    
-    # OKX API配置
-    okx_api_key: str = Field(default="", description="OKX API Key")
-    okx_secret_key: str = Field(default="", description="OKX Secret Key")
-    okx_passphrase: str = Field(default="", description="OKX API Passphrase")
-    okx_sandbox: bool = Field(default=False, description="是否使用OKX沙盒环境")
-    okx_base_url: str = Field(default="https://www.okx.com", description="OKX API基础URL")
     
     # Redis配置
     redis_url: Optional[str] = Field(default=None, description="Redis连接URL")
@@ -574,7 +567,7 @@ class Settings(BaseSettings):
             'enable': True,
             'use_cached_data': True,
             'max_cache_age_minutes': 30,
-            'fallback_exchanges': ['okx', 'binance'],  # 备用交易所
+            'fallback_exchanges': ['binance'],  # 备用交易所
             'retry_original_after_minutes': 10
         },
         'notification_fallback': {
@@ -661,7 +654,7 @@ class Settings(BaseSettings):
     @validator("exchange_provider")
     def validate_exchange_provider(cls, v):
         """验证交易所提供商"""
-        valid_exchanges = ["okx", "binance"]
+        valid_exchanges = ["binance"]
         if v.lower() not in valid_exchanges:
             raise ValueError(f"Exchange provider must be one of {valid_exchanges}")
         return v.lower()
@@ -669,7 +662,7 @@ class Settings(BaseSettings):
     @validator("binance_api_key")
     def validate_binance_api_key(cls, v, values):
         """验证币安API Key"""
-        exchange_provider = values.get("exchange_provider", "okx")
+        exchange_provider = values.get("exchange_provider", "binance")
         if exchange_provider == "binance" and not v:
             raise ValueError("Binance API key is required when exchange_provider is 'binance'")
         return v
@@ -677,33 +670,9 @@ class Settings(BaseSettings):
     @validator("binance_secret_key")
     def validate_binance_secret_key(cls, v, values):
         """验证币安Secret Key"""
-        exchange_provider = values.get("exchange_provider", "okx")
+        exchange_provider = values.get("exchange_provider", "binance")
         if exchange_provider == "binance" and not v:
             raise ValueError("Binance secret key is required when exchange_provider is 'binance'")
-        return v
-    
-    @validator("okx_api_key")
-    def validate_okx_api_key(cls, v, values):
-        """验证OKX API Key"""
-        exchange_provider = values.get("exchange_provider", "okx")
-        if exchange_provider == "okx" and not v:
-            raise ValueError("OKX API key is required when exchange_provider is 'okx'")
-        return v
-    
-    @validator("okx_secret_key")
-    def validate_okx_secret_key(cls, v, values):
-        """验证OKX Secret Key"""
-        exchange_provider = values.get("exchange_provider", "okx")
-        if exchange_provider == "okx" and not v:
-            raise ValueError("OKX secret key is required when exchange_provider is 'okx'")
-        return v
-    
-    @validator("okx_passphrase")
-    def validate_okx_passphrase(cls, v, values):
-        """验证OKX Passphrase"""
-        exchange_provider = values.get("exchange_provider", "okx")
-        if exchange_provider == "okx" and not v:
-            raise ValueError("OKX passphrase is required when exchange_provider is 'okx'")
         return v
     
     @property
@@ -713,17 +682,13 @@ class Settings(BaseSettings):
     
     def validate_exchange_config(self) -> bool:
         """验证交易所配置是否完整"""
-        if self.exchange_provider == "okx":
-            return bool(self.okx_api_key and self.okx_secret_key and self.okx_passphrase)
-        elif self.exchange_provider == "binance":
+        if self.exchange_provider == "binance":
             return bool(self.binance_api_key and self.binance_secret_key)
         return False
     
     def get_active_exchange_config(self) -> dict:
         """获取当前激活的交易所配置"""
-        if self.exchange_provider == "okx":
-            return self.okx_config
-        elif self.exchange_provider == "binance":
+        if self.exchange_provider == "binance":
             return self.binance_config
         else:
             raise ValueError(f"Unsupported exchange provider: {self.exchange_provider}")
@@ -764,30 +729,6 @@ class Settings(BaseSettings):
                 "enable_compression": False,
                 "enable_auto_reconnect": True,
                 "heartbeat_interval": 20
-            }
-        }
-    
-    @property
-    def okx_config(self) -> dict:
-        """获取OKX API配置"""
-        return {
-            "api_key": self.okx_api_key,
-            "secret_key": self.okx_secret_key,
-            "passphrase": self.okx_passphrase,
-            "sandbox": self.okx_sandbox,
-            "base_url": self.okx_base_url,
-            "enable_websocket": True,  # 启用WebSocket
-            "websocket_config": {
-                "public_url": "wss://ws.okx.com:8443/ws/v5/public" if not self.okx_sandbox else "wss://wspap.okx.com:8443/ws/v5/public?brokerId=9999",
-                "private_url": "wss://ws.okx.com:8443/ws/v5/private" if not self.okx_sandbox else "wss://wspap.okx.com:8443/ws/v5/private?brokerId=9999",
-                "reconnect_interval": 5,
-                "max_reconnect_attempts": 10,
-                "ping_interval": 25,
-                "connection_timeout": 30,
-                "max_subscriptions_per_connection": 240,  # OKX限制
-                "enable_compression": True,
-                "enable_auto_reconnect": True,
-                "heartbeat_interval": 25
             }
         }
     

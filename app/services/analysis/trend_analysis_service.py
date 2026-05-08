@@ -120,10 +120,9 @@ class TrendAnalysisService:
         )
     }
     
-    def __init__(self, exchange: str = 'okx'):
+    def __init__(self, exchange: str = 'binance'):
         self.exchange = exchange.lower()
         self.exchange_service = None  # 将在需要时异步初始化
-        self._is_okx = self.exchange == 'okx'
         self.supertrend_indicator = SuperTrendIndicator(period=10, multiplier=3.0)
     
     async def _ensure_exchange_service(self):

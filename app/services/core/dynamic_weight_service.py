@@ -13,7 +13,7 @@ import numpy as np
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.services.exchanges.okx.okx_service import OKXService
+from app.services.binance_service import BinanceService
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -74,7 +74,7 @@ class DynamicWeightService:
     def __init__(self):
         self.settings = get_settings()
         self.logger = get_logger(__name__)
-        self.okx_service = OKXService()
+        self.binance_service = BinanceService()
         
         # 基础权重配置 - 降低Kronos权重，提高技术分析权重
         self.base_weights = {
@@ -150,9 +150,9 @@ class DynamicWeightService:
                 return self._market_condition_cache.get(cache_key)
             
             # 获取K线数据（24小时，1小时周期）
-            klines = await self.okx_service.get_kline_data(
+            klines = await self.binance_service.get_kline_data(
                 symbol=symbol,
-                timeframe='1h',
+                interval='1h',
                 limit=24
             )
             

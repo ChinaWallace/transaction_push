@@ -30,7 +30,7 @@ router = APIRouter(prefix="/api/exchange", tags=["交易所管理"])
 
 class SwitchExchangeRequest(BaseModel):
     """切换交易所请求"""
-    exchange: str = Field(..., description="目标交易所名称 (okx, binance)")
+    exchange: str = Field(..., description="目标交易所名称 (binance)")
     force: bool = Field(default=False, description="是否强制切换")
     update_config: bool = Field(default=False, description="是否同时更新配置文件")
 

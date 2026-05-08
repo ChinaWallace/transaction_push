@@ -22,8 +22,7 @@ class BinanceDataConverter:
     币安数据格式转换器
     Binance Data Format Converter
     
-    负责将币安交易所的数据格式转换为与OKX一致的统一格式
-    确保不同交易所之间的数据格式完全兼容
+    负责将币安交易所的数据格式转换为项目统一格式
     """
     
     @staticmethod

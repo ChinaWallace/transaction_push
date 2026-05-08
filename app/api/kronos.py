@@ -16,7 +16,7 @@ from app.schemas.kronos import (
     PredictionDataPoint
 )
 from app.services.ml.kronos_prediction_service import get_kronos_service, KronosPredictionService
-from app.services.exchanges.okx.okx_service import OKXService
+from app.services.binance_service import BinanceService
 from app.core.logging import get_logger
 
 router = APIRouter()
@@ -87,10 +87,10 @@ async def predict_symbol(
     """生成单个交易对的Kronos预测"""
     try:
         # 获取历史数据
-        async with OKXService() as okx_service:
-            historical_data = await okx_service.get_kline_data(
+        async with BinanceService() as binance_service:
+            historical_data = await binance_service.get_kline_data(
                 symbol=symbol,
-                timeframe='1h',
+                interval='1h',
                 limit=lookback_periods + 50  # 多获取一些数据以确保足够
             )
         
@@ -155,15 +155,15 @@ async def predict_batch(
 ) -> KronosBatchPredictionResponse:
     """批量生成多个交易对的Kronos预测"""
     try:
-        async with OKXService() as okx_service:
+        async with BinanceService() as binance_service:
             symbols_data = {}
             
             # 获取所有交易对的历史数据
             for symbol in request.symbols:
                 try:
-                    historical_data = await okx_service.get_kline_data(
+                    historical_data = await binance_service.get_kline_data(
                         symbol=symbol,
-                        timeframe='1h',
+                        interval='1h',
                         limit=request.lookback_periods + 50
                     )
                     

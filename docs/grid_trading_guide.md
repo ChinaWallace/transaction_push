@@ -173,7 +173,7 @@ GET /grid-trading-status
 
 ### v1.0.0 (2025-01-01)
 - ✅ 初始版本发布
-- ✅ 支持OKX和Binance交易所
+- ✅ 支持Binance交易所
 - ✅ 智能机会筛选和推荐
 - ✅ 完整的API接口
 - ✅ 自动化推送功能

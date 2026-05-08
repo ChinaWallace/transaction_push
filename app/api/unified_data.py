@@ -31,7 +31,7 @@ async def get_market_data_endpoint(
     symbol: str,
     timeframe: str = Query("1h", description="时间周期"),
     limit: int = Query(500, description="数据条数"),
-    source: str = Query("auto", description="数据源 (auto/binance/okx)"),
+    source: str = Query("auto", description="数据源 (auto/binance)"),
     use_cache: bool = Query(True, description="是否使用缓存")
 ):
     """
@@ -43,8 +43,7 @@ async def get_market_data_endpoint(
         # 转换数据源参数
         source_mapping = {
             "auto": DataSource.AUTO,
-            "binance": DataSource.BINANCE,
-            "okx": DataSource.OKX
+            "binance": DataSource.BINANCE
         }
         
         data_source = source_mapping.get(source.lower(), DataSource.AUTO)

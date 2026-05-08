@@ -15,8 +15,7 @@ from app.services.binance_service import BinanceService
 from app.data.data_converter import DataConverter
 from app.data.data_cache import DataCache
 from app.utils.exceptions import DataNotFoundError
-# Temporarily commented out to avoid circular import
-# from app.services.data.unified_data_service import get_unified_data_service, DataRequest, DataSource
+from app.services.data.unified_data_service import get_unified_data_service, DataRequest, DataSource
 
 logger = get_logger(__name__)
 
@@ -111,7 +110,7 @@ class DataProvider:
         Args:
             symbol: 交易对
             timeframe: 时间周期
-            exchange: 交易所 ('auto', 'binance', 'okx')
+            exchange: 交易所 ('auto', 'binance')
             since: 开始时间
             limit: 数据条数
             use_cache: 是否使用缓存
@@ -128,8 +127,6 @@ class DataProvider:
                 source = DataSource.AUTO
             elif exchange == 'binance':
                 source = DataSource.BINANCE
-            elif exchange == 'okx':
-                source = DataSource.OKX
             else:
                 # 回退到传统方式
                 return await self._get_ohlcv_legacy(symbol, timeframe, exchange, since, limit, use_cache)
@@ -224,8 +221,6 @@ class DataProvider:
                 source = DataSource.AUTO
             elif exchange == 'binance':
                 source = DataSource.BINANCE
-            elif exchange == 'okx':
-                source = DataSource.OKX
             else:
                 source = DataSource.AUTO
             

@@ -438,20 +438,9 @@ class StrategyTradingService:
             from app.services.exchanges.exchange_service_manager import get_current_exchange_name
             
             exchange_name = get_current_exchange_name()
-            if exchange_name == 'okx':
-                from app.services.exchanges.okx.okx_service import OKXService
-                async with OKXService() as exchange:
-                    result = await exchange.place_grid_order(
-                        symbol=strategy.symbol,
-                        grid_num=strategy.grid_num,
-                        max_price=strategy.max_price,
-                        min_price=strategy.min_price,
-                        investment=strategy.investment
-                    )
-            elif exchange_name == 'binance':
-                raise TradingToolError("币安网格交易功能尚未实现")
-            else:
+            if exchange_name != 'binance':
                 raise TradingToolError(f"不支持的交易所: {exchange_name}")
+            raise TradingToolError("币安网格交易功能尚未实现")
             
             logger.info(f"网格策略创建成功: {result}")
             return result
@@ -470,20 +459,9 @@ class StrategyTradingService:
             from app.services.exchanges.exchange_service_manager import get_current_exchange_name
             
             exchange_name = get_current_exchange_name()
-            if exchange_name == 'okx':
-                from app.services.exchanges.okx.okx_service import OKXService
-                async with OKXService() as exchange:
-                    result = await exchange.place_dca_order(
-                        symbol=strategy.symbol,
-                        side=strategy.side,
-                        investment=strategy.investment,
-                        price_ratio=strategy.price_ratio,
-                        take_profit_ratio=strategy.take_profit_ratio
-                    )
-            elif exchange_name == 'binance':
-                raise TradingToolError("币安定投交易功能尚未实现")
-            else:
+            if exchange_name != 'binance':
                 raise TradingToolError(f"不支持的交易所: {exchange_name}")
+            raise TradingToolError("币安定投交易功能尚未实现")
             
             logger.info(f"定投策略创建成功: {result}")
             return result
@@ -502,14 +480,9 @@ class StrategyTradingService:
             from app.services.exchanges.exchange_service_manager import get_current_exchange_name
             
             exchange_name = get_current_exchange_name()
-            if exchange_name == 'okx':
-                from app.services.exchanges.okx.okx_service import OKXService
-                async with OKXService() as exchange:
-                    strategies = await exchange.get_trading_bot_orders()
-            elif exchange_name == 'binance':
-                raise TradingToolError("币安策略查询功能尚未实现")
-            else:
+            if exchange_name != 'binance':
                 raise TradingToolError(f"不支持的交易所: {exchange_name}")
+            raise TradingToolError("币安策略查询功能尚未实现")
             
             # 添加详细信息
             for strategy in strategies:
@@ -532,14 +505,9 @@ class StrategyTradingService:
             from app.services.exchanges.exchange_service_manager import get_current_exchange_name
             
             exchange_name = get_current_exchange_name()
-            if exchange_name == 'okx':
-                from app.services.exchanges.okx.okx_service import OKXService
-                async with OKXService() as exchange:
-                    result = await exchange.stop_trading_bot(algo_id, strategy_type)
-            elif exchange_name == 'binance':
-                raise TradingToolError("币安策略停止功能尚未实现")
-            else:
+            if exchange_name != 'binance':
                 raise TradingToolError(f"不支持的交易所: {exchange_name}")
+            raise TradingToolError("币安策略停止功能尚未实现")
             
             if result:
                     logger.info(f"策略停止成功: {algo_id}")

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.services.exchanges.okx.okx_service import OKXService
+from app.services.binance_service import BinanceService
 from app.services.notification.core_notification_service import get_core_notification_service
 from app.services.negative_funding_monitor_service import NegativeFundingMonitorService
 from app.services.monitoring.funding_rate_monitor_service import FundingRateMonitorService
@@ -83,7 +83,7 @@ class CoreMonitoringService:
     def __init__(self):
         self.settings = get_settings()
         self.logger = get_logger(__name__)
-        self.okx_service = OKXService()
+        self.binance_service = BinanceService()
         self.notification_service = None
         
         # 整合原有监控服务
@@ -354,23 +354,23 @@ class CoreMonitoringService:
             
             health_status = {
                 'database': True,
-                'okx_api': True,
+                'binance_api': True,
                 'notification_service': True,
                 'kronos_service': True
             }
             
             issues = []
             
-            # 检查OKX API
+            # 检查 Binance API
             try:
-                async with self.okx_service as exchange:
+                async with self.binance_service as exchange:
                     test_result = await exchange.health_check()
-                    health_status['okx_api'] = test_result
+                    health_status['binance_api'] = test_result
                     if not test_result:
-                        issues.append("OKX API连接异常")
+                        issues.append("Binance API连接异常")
             except Exception as e:
-                health_status['okx_api'] = False
-                issues.append(f"OKX API检查失败: {e}")
+                health_status['binance_api'] = False
+                issues.append(f"Binance API检查失败: {e}")
             
             # 检查数据库
             try:
@@ -428,13 +428,13 @@ class CoreMonitoringService:
         
         try:
             # 获取所有永续合约
-            async with self.okx_service as exchange:
-                instruments = await exchange.get_all_instruments('SWAP')
+            async with self.binance_service as exchange:
+                instruments = await exchange.get_raw_instruments('SWAP')
             
             if instruments:
                 symbols = [
-                    inst['instId'] for inst in instruments
-                    if inst.get('state') == 'live'
+                    f"{inst['baseAsset']}-USDT-SWAP" for inst in instruments
+                    if inst.get('status') == 'TRADING' and inst.get('quoteAsset') == 'USDT'
                 ]
                 
                 # 更新缓存
@@ -639,11 +639,13 @@ class CoreMonitoringService:
             for symbol in symbols:
                 try:
                     # 获取持仓量数据
-                    oi_data = await self.okx_service.get_open_interest(symbol)
+                    binance_symbol = symbol.replace('-USDT-SWAP', 'USDT').replace('-USDT', 'USDT')
+                    oi_data = await self.binance_service.get_open_interest_statistics(binance_symbol, period="1h", limit=24)
                     
                     if oi_data:
-                        current_oi = float(oi_data.get('oi', 0))
-                        change_24h = float(oi_data.get('oiCcy24h', 0))
+                        current_oi = float(oi_data[-1].get('sumOpenInterestValue') or oi_data[-1].get('sumOpenInterest') or 0)
+                        start_oi = float(oi_data[0].get('sumOpenInterestValue') or oi_data[0].get('sumOpenInterest') or current_oi)
+                        change_24h = current_oi - start_oi
                         
                         # 计算变化百分比
                         if current_oi > 0:

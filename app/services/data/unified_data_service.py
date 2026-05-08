@@ -16,7 +16,6 @@ from app.core.logging import get_logger
 from app.core.config import get_settings
 from app.data.data_cache import DataCache
 from app.services.binance_service import BinanceService
-from app.services.exchanges.exchange_service_manager import get_exchange_service
 from app.utils.exceptions import DataNotFoundError
 
 logger = get_logger(__name__)
@@ -26,7 +25,6 @@ settings = get_settings()
 class DataSource(Enum):
     """数据源枚举"""
     BINANCE = "binance"
-    OKX = "okx"
     AUTO = "auto"  # 自动选择最佳数据源
 
 
@@ -69,16 +67,14 @@ class UnifiedDataService:
         self.cache = DataCache()
         
         # 数据源优先级配置
-        self.source_priority = [DataSource.BINANCE, DataSource.OKX]
+        self.source_priority = [DataSource.BINANCE]
         
         # 服务实例（延迟初始化）
         self._binance_service = None
-        self._okx_service = None
         
         # 数据源健康状态
         self._source_health = {
-            DataSource.BINANCE: {"healthy": True, "last_check": None, "error_count": 0},
-            DataSource.OKX: {"healthy": True, "last_check": None, "error_count": 0}
+            DataSource.BINANCE: {"healthy": True, "last_check": None, "error_count": 0}
         }
         
         # 请求统计
@@ -99,12 +95,6 @@ class UnifiedDataService:
         if self._binance_service is None:
             self._binance_service = BinanceService()
         return self._binance_service
-    
-    async def _get_okx_service(self):
-        """获取交易所服务实例"""
-        if self._okx_service is None:
-            self._okx_service = await get_exchange_service()
-        return self._okx_service
     
     async def get_kline_data(self, request: DataRequest) -> MarketDataResult:
         """
@@ -259,27 +249,6 @@ class UnifiedDataService:
                     self._mark_source_healthy(source)
                     return data
                 
-            elif source == DataSource.OKX:
-                service = await self._get_okx_service()
-                klines = await service.get_kline_data(
-                    symbol=request.symbol,
-                    timeframe=request.timeframe,
-                    limit=request.limit
-                )
-                
-                if klines:
-                    data = pd.DataFrame([{
-                        'timestamp': pd.to_datetime(k['timestamp'], unit='ms'),
-                        'open': k['open'],
-                        'high': k['high'],
-                        'low': k['low'],
-                        'close': k['close'],
-                        'volume': k['volume']
-                    } for k in klines])
-                    data.set_index('timestamp', inplace=True)
-                    self._mark_source_healthy(source)
-                    return data
-            
             # 如果没有数据，标记为轻微错误
             self._mark_source_error(source, is_critical=False)
             return pd.DataFrame()
@@ -375,9 +344,8 @@ class UnifiedDataService:
     async def get_funding_rates(self, symbols: List[str]) -> Dict[str, Any]:
         """获取资金费率数据（统一接口）"""
         try:
-            # 优先使用OKX（支持更多币种）
-            okx_service = await self._get_okx_service()
-            rates = await okx_service.get_funding_rate()
+            binance_service = await self._get_binance_service()
+            rates = await binance_service.get_funding_rate()
             
             # 转换为统一格式
             result = {}
@@ -385,8 +353,8 @@ class UnifiedDataService:
                 if rate and 'symbol' in rate:
                     result[rate['symbol']] = {
                         'funding_rate': rate['funding_rate'],
-                        'next_funding_time': rate.get('next_funding_time'),
-                        'source': 'okx',
+                        'next_funding_time': rate.get('next_funding_time') or rate.get('funding_time'),
+                        'source': 'binance',
                         'timestamp': datetime.now()
                     }
             
@@ -421,21 +389,12 @@ class UnifiedDataService:
             binance_healthy = await binance_service.health_check()
             health_status["sources"]["binance"] = "healthy" if binance_healthy else "unhealthy"
             
-            # 检查OKX服务
-            okx_service = await self._get_okx_service()
-            okx_status = okx_service.get_service_status()
-            okx_healthy = okx_status.get('websocket_enabled', False) and okx_status.get('is_initialized', False)
-            health_status["sources"]["okx"] = "healthy" if okx_healthy else "unhealthy"
-            
             # 更新健康状态
             self._source_health[DataSource.BINANCE]["healthy"] = binance_healthy
-            self._source_health[DataSource.OKX]["healthy"] = okx_healthy
             
             # 判断整体健康状态
-            if not binance_healthy and not okx_healthy:
+            if not binance_healthy:
                 health_status["overall"] = "critical"
-            elif not binance_healthy or not okx_healthy:
-                health_status["overall"] = "degraded"
             
         except Exception as e:
             self.logger.error(f"健康检查失败: {e}")

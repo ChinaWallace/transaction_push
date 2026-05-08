@@ -11,7 +11,6 @@ from app.models.exchange_data import (
     TickerData, KlineData, FundingRateData, OpenInterestData, 
     OrderBookData, TradeData, ExchangeType, DataSource
 )
-from app.services.exchanges.okx.okx_data_converter import OKXDataConverter
 from app.services.exchanges.binance.binance_data_converter import BinanceDataConverter
 from app.core.logging import get_logger
 
@@ -57,42 +56,6 @@ class BaseDataConverter(ABC):
     @abstractmethod
     def convert_symbol_from_standard(self, standard_symbol: str) -> str:
         """转换标准符号为交易所格式"""
-
-
-class OKXDataConverterWrapper(BaseDataConverter):
-    """
-    OKX数据转换器包装类
-    OKX Data Converter Wrapper
-    """
-    
-    def __init__(self):
-        self.converter = OKXDataConverter()
-    
-    def convert_ticker_data(self, raw_data: Dict[str, Any], data_source: DataSource = DataSource.REST_API) -> TickerData:
-        return self.converter.convert_ticker_data(raw_data, data_source)
-    
-    def convert_kline_data(self, raw_data: List[List], symbol: str, timeframe: str, 
-                          data_source: DataSource = DataSource.REST_API) -> List[KlineData]:
-        return self.converter.convert_kline_data(raw_data, symbol, timeframe, data_source)
-    
-    def convert_funding_rate_data(self, raw_data: Dict[str, Any], data_source: DataSource = DataSource.REST_API) -> FundingRateData:
-        return self.converter.convert_funding_rate_data(raw_data, data_source)
-    
-    def convert_open_interest_data(self, raw_data: Dict[str, Any], symbol: str, 
-                                  data_source: DataSource = DataSource.REST_API) -> OpenInterestData:
-        return self.converter.convert_open_interest_data(raw_data, symbol, data_source)
-    
-    def convert_order_book_data(self, raw_data: Dict[str, Any], data_source: DataSource = DataSource.WEBSOCKET) -> OrderBookData:
-        return self.converter.convert_order_book_data(raw_data, data_source)
-    
-    def convert_trade_data(self, raw_data: Dict[str, Any], data_source: DataSource = DataSource.WEBSOCKET) -> TradeData:
-        return self.converter.convert_trade_data(raw_data, data_source)
-    
-    def convert_symbol_to_standard(self, exchange_symbol: str) -> str:
-        return self.converter.convert_symbol_to_standard(exchange_symbol)
-    
-    def convert_symbol_from_standard(self, standard_symbol: str) -> str:
-        return self.converter.convert_symbol_to_okx(standard_symbol)
 
 
 class BinanceDataConverterWrapper(BaseDataConverter):
@@ -154,9 +117,7 @@ class DataConverterFactory:
             BaseDataConverter: 数据转换器实例
         """
         if exchange_type not in cls._converters:
-            if exchange_type == ExchangeType.OKX:
-                cls._converters[exchange_type] = OKXDataConverterWrapper()
-            elif exchange_type == ExchangeType.BINANCE:
+            if exchange_type == ExchangeType.BINANCE:
                 cls._converters[exchange_type] = BinanceDataConverterWrapper()
             else:
                 raise ValueError(f"Unsupported exchange type: {exchange_type}")

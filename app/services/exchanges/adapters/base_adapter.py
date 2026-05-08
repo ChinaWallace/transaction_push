@@ -221,10 +221,6 @@ class ExchangeDataAdapter(ABC):
                 if symbol.endswith('USDT') and len(symbol) > 4:
                     base = symbol[:-4]
                     return f"{base}-USDT-SWAP"
-            elif exchange_format == 'okx':
-                # OKX格式: BTC-USDT-SWAP -> 保持不变
-                return symbol
-            
             # 默认处理：尝试识别USDT结尾的交易对
             if symbol.endswith('USDT') and len(symbol) > 4:
                 base = symbol[:-4]

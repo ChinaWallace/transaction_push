@@ -15,11 +15,9 @@ try:
     )
     from .exchanges.exchange_service_manager import (
         get_exchange_service, get_current_exchange_name, 
-        is_okx_configured, is_binance_configured
+        is_binance_configured
     )
-    # 保留特定交易所服务的导入以便向后兼容
     try:
-        from .exchanges.okx import OKXHybridService, get_okx_hybrid_service
         from .exchanges.binance import BinanceHybridService
     except ImportError:
         logger.warning("⚠️ 特定交易所服务导入失败，使用统一服务管理器")
@@ -121,11 +119,7 @@ __all__ = [
     'ExchangeFactory',
     'get_exchange_service',
     'get_current_exchange_name',
-    'is_okx_configured',
     'is_binance_configured',
-    # 向后兼容的特定交易所服务
-    'OKXHybridService',
-    'get_okx_hybrid_service',
     'BinanceHybridService',
     
     # 交易服务

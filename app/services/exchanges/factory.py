@@ -54,7 +54,7 @@ class ExchangeFactory:
         Register exchange class
         
         Args:
-            name: 交易所名称 / Exchange name (e.g., 'okx', 'binance')
+            name: 交易所名称 / Exchange name (e.g., 'binance')
             exchange_class: 交易所类 / Exchange class
         """
         cls._exchange_registry[name.lower()] = exchange_class
@@ -324,23 +324,19 @@ class ExchangeFactory:
             if hasattr(settings, 'exchange_provider'):
                 return settings.exchange_provider.lower()
             
-            # 临时回退逻辑：检查哪个交易所的配置更完整
-            if (hasattr(settings, 'okx_api_key') and settings.okx_api_key and 
-                hasattr(settings, 'okx_secret_key') and settings.okx_secret_key):
-                logger.info("🔧 使用OKX作为默认交易所（基于API配置）")
-                return 'okx'
-            elif (hasattr(settings, 'binance_api_key') and settings.binance_api_key and 
+            # 临时回退逻辑：检查 Binance 配置是否完整
+            if (hasattr(settings, 'binance_api_key') and settings.binance_api_key and 
                   hasattr(settings, 'binance_secret_key') and settings.binance_secret_key):
                 logger.info("🔧 使用币安作为默认交易所（基于API配置）")
                 return 'binance'
             else:
-                # 最终回退：使用OKX作为默认值
-                logger.info("🔧 使用OKX作为默认交易所（默认选择）")
-                return 'okx'
+                # 最终回退：使用 Binance 作为默认值
+                logger.info("🔧 使用币安作为默认交易所（默认选择）")
+                return 'binance'
                 
         except Exception as e:
-            logger.warning(f"⚠️ 获取默认交易所配置失败，使用OKX: {e}")
-            return 'okx'
+            logger.warning(f"⚠️ 获取默认交易所配置失败，使用币安: {e}")
+            return 'binance'
     
     @classmethod
     def get_factory_status(cls) -> Dict[str, Any]:
@@ -414,9 +410,6 @@ class ExchangeFactory:
         try:
             logger.info("🏗️ 初始化交易所工厂...")
             
-            # 注册OKX交易所
-            await cls._register_okx_exchange()
-            
             # 注册币安交易所
             await cls._register_binance_exchange()
             
@@ -428,28 +421,6 @@ class ExchangeFactory:
         except Exception as e:
             logger.error(f"❌ 交易所工厂初始化失败: {e}")
             raise TradingToolError(f"交易所工厂初始化失败: {e}")
-    
-    @classmethod
-    async def _register_okx_exchange(cls) -> None:
-        """
-        注册OKX交易所
-        Register OKX exchange
-        """
-        try:
-            # 动态导入OKX混合服务
-            from app.services.exchanges.okx.okx_hybrid_service import OKXHybridService
-            
-            # 注册OKX交易所
-            cls.register_exchange('okx', OKXHybridService)
-            
-            logger.info("✅ OKX交易所注册成功")
-            
-        except ImportError as e:
-            logger.error(f"❌ 导入OKX服务失败: {e}")
-            raise TradingToolError(f"OKX服务导入失败: {e}")
-        except Exception as e:
-            logger.error(f"❌ 注册OKX交易所失败: {e}")
-            raise TradingToolError(f"OKX交易所注册失败: {e}")
     
     @classmethod
     async def _register_binance_exchange(cls) -> None:

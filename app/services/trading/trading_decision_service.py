@@ -111,7 +111,6 @@ class TradingDecisionService:
         
         # 初始化服务
         self.exchange_service = None  # 将在需要时异步初始化
-        self._is_okx = self.exchange == 'okx'
         
         # 技术分析配置 - 在__init__中初始化
         try:

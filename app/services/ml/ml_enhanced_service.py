@@ -22,7 +22,6 @@ import joblib
 from app.core.logging import get_logger, trading_logger
 from app.core.config import get_settings
 from app.services.binance_service import BinanceService
-from app.services.exchanges.okx.okx_service import OKXService
 from app.services.analysis.trend_analysis_service import TrendAnalysisService
 from app.utils.exceptions import MLModelError, DataNotFoundError
 
@@ -75,12 +74,9 @@ class AnomalyDetection:
 class MLEnhancedService:
     """机器学习增强服务类"""
     
-    def __init__(self, exchange: str = 'okx'):
-        self.exchange = exchange.lower()
-        if self.exchange == 'okx':
-            self.exchange_service = OKXService()
-        else:
-            self.exchange_service = BinanceService()
+    def __init__(self, exchange: str = 'binance'):
+        self.exchange = 'binance'
+        self.exchange_service = BinanceService()
         self.trend_service = TrendAnalysisService()
         self.ml_config = settings.ml_config
         
@@ -378,7 +374,7 @@ class MLEnhancedService:
             
             # 处理时间戳字段
             if 'timestamp' in df.columns:
-                # OKX格式
+                # 毫秒时间戳格式
                 df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             elif 'open_time' in df.columns:
                 # Binance格式

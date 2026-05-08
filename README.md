@@ -5,20 +5,6 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![AI Powered](https://img.shields.io/badge/AI-Kronos%20Powered-purple.svg)](https://github.com/NeoQuasar/Kronos)
 
-## ⚠️ 重要声明
-
-**关于OKX交易所支持变更**
-
-由于OKX交易所存在恶意平掉用户仓位的不当行为，严重损害了用户利益和交易公平性，**本项目自即日起不再支持OKX交易所的新功能开发**。
-
-- ✅ **保留现有代码**：已有的OKX相关代码将继续保留，确保现有用户的使用不受影响
-- ❌ **停止新功能开发**：不再为OKX交易所开发新功能或进行适配优化
-- 🎯 **专注币安适配**：后续所有新功能将专注于Binance交易所的支持和优化
-
-我们建议用户迁移至更加可靠和公平的Binance交易所。
-
----
-
 基于Python的**智能量化交易分析工具 v1.2.0**，完整支持Binance期货交易所，集成Kronos AI预测模型、技术分析和机器学习算法，专为加密货币市场设计的交易决策系统。
 
 ## 🆕 v1.2.0 更新内容
@@ -95,12 +81,6 @@ BINANCE_API_KEY=your_binance_api_key
 BINANCE_SECRET_KEY=your_binance_secret_key
 BINANCE_BASE_URL=https://fapi.binance.com
 EXCHANGE_PROVIDER=binance
-
-# 或者OKX交易所 (不推荐，仅保留兼容性)
-# OKX_API_KEY=your_okx_api_key
-# OKX_SECRET_KEY=your_okx_secret_key  
-# OKX_PASSPHRASE=your_okx_passphrase
-# EXCHANGE_PROVIDER=okx
 
 # 💾 数据库配置
 DATABASE_URL=mysql+pymysql://root:password@localhost:3306/trading_db

@@ -35,7 +35,7 @@ class UnifiedInstrument:
     state: str               # 状态 (live/suspend)
     listTime: str            # 上线时间
     expTime: str             # 到期时间
-    source: str              # 数据源 (binance/okx)
+    source: str              # 数据源 (binance)
     
     # 原始数据保留
     raw_data: Dict[str, Any] = field(default_factory=dict)

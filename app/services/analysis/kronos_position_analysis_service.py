@@ -352,7 +352,7 @@ class KronosPositionAnalysisService:
                 
                 # 只分析有持仓的币种
                 if pos_size != 0:
-                    # 获取持仓价值（已经在OKX服务中计算好了）
+                    # 获取持仓价值（已由交易所服务计算）
                     position_value = position.get('position_value_usd', 0)
                     mark_price = position.get('mark_price', 0)
                     
@@ -1912,7 +1912,7 @@ class KronosPositionAnalysisService:
                 pos_side = original_data.get('side', '')
                 
                 if pos_side:
-                    # 使用OKX API的posSide字段
+                    # 使用交易所返回的 posSide 字段
                     if pos_side == 'long':
                         direction = "多头"
                     elif pos_side == 'short':
@@ -1941,7 +1941,7 @@ class KronosPositionAnalysisService:
                 # 获取开仓价格 - 尝试多个可能的字段
                 original_data = result.current_position.get('original_data', {})
                 entry_price = (
-                    original_data.get('avgPx') or  # OKX API 字段
+                    original_data.get('avgPx') or
                     original_data.get('avg_px') or  # 可能的字段名
                     result.current_position.get('avgPx') or  # 直接从 current_position
                     result.current_position.get('avg_px') or  # 可能的字段名

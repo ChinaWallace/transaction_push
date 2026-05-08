@@ -14,7 +14,7 @@ import pandas as pd
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.services.ml.kronos_prediction_service import get_kronos_service, KronosPrediction
-from app.services.exchanges.okx.okx_service import OKXService
+from app.services.binance_service import BinanceService
 
 # 全局服务实例
 _kronos_market_opportunity_service = None
@@ -51,7 +51,7 @@ class KronosMarketOpportunityService:
     def __init__(self):
         self.settings = get_settings()
         self.logger = get_logger(__name__)
-        self.okx_service = OKXService()
+        self.binance_service = BinanceService()
         
         # 配置参数
         self.kronos_config = self.settings.kronos_config
@@ -112,7 +112,7 @@ class KronosMarketOpportunityService:
         """分析单个币种的机会"""
         try:
             # 获取历史数据
-            historical_data = await self.okx_service.get_kline_data(symbol, "1H", 200)
+            historical_data = await self.binance_service.get_kline_data(symbol, "1h", 200)
             if not historical_data:
                 return None
             
