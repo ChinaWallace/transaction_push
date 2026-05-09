@@ -15,7 +15,6 @@ from app.services.exchanges.binance.binance_service import BinanceService
 from app.services.exchanges.binance.binance_realtime_data_manager import BinanceRealtimeDataManager
 from app.services.exchanges.binance.binance_data_converter import BinanceDataConverter
 from app.services.exchanges.binance.binance_error_handler import get_binance_error_handler
-from app.services.exchanges.adapters.adapter_factory import get_adapter
 from app.utils.exceptions import TradingToolError, APIConnectionError
 
 logger = get_logger(__name__)
@@ -43,8 +42,6 @@ class BinanceHybridService(HybridServiceBase, ExchangeInterface):
         self.error_handler = get_binance_error_handler()
         
         # 数据适配器
-        self.data_adapter = get_adapter("binance")
-        
         # 主要交易对列表（用于预订阅）
         self.major_symbols = [
             'BTC-USDT-SWAP', 'ETH-USDT-SWAP', 'BNB-USDT-SWAP',
@@ -124,6 +121,9 @@ class BinanceHybridService(HybridServiceBase, ExchangeInterface):
             # 创建实时数据管理器
             self.realtime_manager = BinanceRealtimeDataManager()
             await self.realtime_manager.initialize()
+
+            if self.realtime_manager.ws_service and not self.realtime_manager.ws_service.is_connected:
+                await self.realtime_manager.ws_service.subscribe_symbol_ticker("BTCUSDT")
             
             # 检查WebSocket连接状态
             if self.realtime_manager.ws_service and self.realtime_manager.ws_service.is_connected:
@@ -258,6 +258,12 @@ class BinanceHybridService(HybridServiceBase, ExchangeInterface):
                     }
             
             # 回退到REST API，获取原始数据并使用适配器转换
+            return await self._fallback_to_rest(
+                self.rest_service.get_ticker_data,
+                f"get_ticker_data_{symbol}",
+                symbol
+            )
+
             raw_data = await self._fallback_to_rest(
                 self.rest_service.get_raw_ticker_data,
                 f"get_raw_ticker_data_{symbol}",
@@ -270,7 +276,7 @@ class BinanceHybridService(HybridServiceBase, ExchangeInterface):
             
             # 使用适配器转换为统一格式
             try:
-                unified_ticker = self.data_adapter.adapt_ticker(raw_data)
+                unified_ticker = None
                 result = unified_ticker.to_dict()
                 logger.debug(f"✅ 成功适配ticker数据: {symbol}")
                 return result
@@ -331,6 +337,12 @@ class BinanceHybridService(HybridServiceBase, ExchangeInterface):
                         }
             
             # 回退到REST API，获取原始数据并使用适配器转换
+            return await self._fallback_to_rest(
+                self.rest_service.get_funding_rate,
+                f"get_funding_rate_{symbol or 'all'}",
+                symbol
+            )
+
             raw_data = await self._fallback_to_rest(
                 self.rest_service.get_raw_funding_rate,
                 f"get_raw_funding_rate_{symbol or 'all'}",
@@ -345,13 +357,13 @@ class BinanceHybridService(HybridServiceBase, ExchangeInterface):
             try:
                 if isinstance(raw_data, list):
                     # 批量处理
-                    unified_rates = self.data_adapter.adapt_funding_rates(raw_data)
+                    unified_rates = []
                     result = [rate.to_dict() for rate in unified_rates]
                     logger.debug(f"✅ 成功适配资金费率数据: {len(result)} 个")
                     return result
                 else:
                     # 单个处理
-                    unified_rate = self.data_adapter.adapt_funding_rate(raw_data)
+                    unified_rate = None
                     result = unified_rate.to_dict()
                     logger.debug(f"✅ 成功适配资金费率数据: {symbol}")
                     return result
@@ -468,14 +480,9 @@ class BinanceHybridService(HybridServiceBase, ExchangeInterface):
                 logger.warning(f"⚠️ 获取币安原始交易对数据为空: {inst_type}")
                 return []
             
-            # 使用适配器转换为统一格式
-            unified_instruments = self.data_adapter.adapt_instruments(raw_data)
-            
-            # 转换为字典格式（保持向后兼容）
-            result = [instrument.to_dict() for instrument in unified_instruments]
-            
-            logger.info(f"✅ 获取{inst_type}交易对列表成功: {len(result)} 个")
-            return result
+            # Keep Binance exchangeInfo in its native shape.
+            logger.info(f"Returning raw Binance instruments without adapter conversion: {len(raw_data)}")
+            return raw_data
             
         except Exception as e:
             logger.error(f"❌ 获取{inst_type}交易对列表失败: {e}")
@@ -510,6 +517,11 @@ class BinanceHybridService(HybridServiceBase, ExchangeInterface):
         """获取持仓信息 - 返回统一格式"""
         try:
             # 获取原始持仓数据
+            return await self._fallback_to_rest(
+                self.rest_service.get_positions,
+                "get_positions"
+            )
+
             raw_data = await self._fallback_to_rest(
                 self.rest_service.get_raw_positions,
                 "get_raw_positions"
@@ -521,7 +533,7 @@ class BinanceHybridService(HybridServiceBase, ExchangeInterface):
             
             # 使用适配器转换为统一格式
             try:
-                unified_positions = self.data_adapter.adapt_positions(raw_data)
+                unified_positions = []
                 result = [position.to_dict() for position in unified_positions]
                 logger.info(f"✅ 成功适配持仓数据: {len(result)} 个")
                 return result

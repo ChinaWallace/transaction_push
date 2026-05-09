@@ -47,6 +47,75 @@ class TradingPairService:
         """确保交易所服务已初始化"""
         if self.exchange_service is None:
             self.exchange_service = await get_exchange_service()
+
+    def _canonical_symbol_key(self, symbol: str) -> str:
+        """Return a comparable symbol key for native Binance and legacy formats."""
+        if not symbol:
+            return ""
+        return (
+            symbol.upper()
+            .replace("-USDT-SWAP", "USDT")
+            .replace("-USD-SWAP", "USD")
+            .replace("-", "")
+        )
+
+    def _is_excluded_pair(self, symbol: str) -> bool:
+        excluded = {self._canonical_symbol_key(item) for item in self.excluded_major_coins}
+        return self._canonical_symbol_key(symbol) in excluded
+
+    @staticmethod
+    def _get_filter_value(instrument: Dict[str, Any], filter_type: str, field: str) -> Any:
+        for item in instrument.get("filters", []) or []:
+            if item.get("filterType") == filter_type:
+                return item.get(field)
+        return None
+
+    def _is_usdt_perpetual(self, instrument: Dict[str, Any]) -> bool:
+        symbol = instrument.get("symbol") or instrument.get("instId") or ""
+        quote = instrument.get("quoteAsset") or instrument.get("quoteCcy")
+        contract_type = instrument.get("contractType") or instrument.get("instType")
+        return (
+            quote == "USDT"
+            and symbol.endswith("USDT")
+            and contract_type in {"PERPETUAL", "SWAP"}
+        ) or symbol.endswith("-USDT-SWAP")
+
+    @staticmethod
+    def _is_trading(instrument: Dict[str, Any]) -> bool:
+        state = instrument.get("status") or instrument.get("state")
+        return state in {"TRADING", "live"}
+
+    def _instrument_to_db_values(self, instrument: Dict[str, Any]) -> Dict[str, Any]:
+        symbol = instrument.get("symbol") or instrument.get("instId")
+        list_time = instrument.get("onboardDate", instrument.get("listTime"))
+        exp_time = instrument.get("deliveryDate", instrument.get("expTime"))
+
+        def parse_int(value):
+            if value in ("", None):
+                return None
+            try:
+                return int(value)
+            except (ValueError, TypeError):
+                return None
+
+        return {
+            "inst_id": symbol,
+            "inst_type": "SWAP" if instrument.get("contractType") == "PERPETUAL" else instrument.get("instType", "SWAP"),
+            "base_ccy": instrument.get("baseAsset") or instrument.get("baseCcy"),
+            "quote_ccy": instrument.get("quoteAsset") or instrument.get("quoteCcy"),
+            "settle_ccy": instrument.get("marginAsset") or instrument.get("settleCcy"),
+            "ct_val": instrument.get("ctVal"),
+            "ct_mult": instrument.get("ctMult"),
+            "ct_val_ccy": instrument.get("ctValCcy"),
+            "min_sz": instrument.get("minSz") or self._get_filter_value(instrument, "LOT_SIZE", "minQty"),
+            "lot_sz": instrument.get("lotSz") or self._get_filter_value(instrument, "LOT_SIZE", "stepSize"),
+            "tick_sz": instrument.get("tickSz") or self._get_filter_value(instrument, "PRICE_FILTER", "tickSize"),
+            "state": instrument.get("status") or instrument.get("state"),
+            "list_time": parse_int(list_time),
+            "exp_time": parse_int(exp_time),
+            "is_active": "true",
+            "last_updated": datetime.utcnow(),
+        }
     
     async def fetch_and_update_trading_pairs(self) -> Dict[str, Any]:
         """从配置的交易所获取并更新交易对信息"""
@@ -68,10 +137,10 @@ class TradingPairService:
             # 筛选USDT永续合约
             usdt_pairs = []
             for instrument in instruments:
-                inst_id = instrument.get('instId', '')
-                if (inst_id.endswith('-USDT-SWAP') and 
-                    inst_id not in self.excluded_major_coins and
-                    instrument.get('state') == 'live'):  # 只要活跃的交易对
+                inst_id = instrument.get('symbol') or instrument.get('instId', '')
+                if (self._is_usdt_perpetual(instrument) and
+                    not self._is_excluded_pair(inst_id) and
+                    self._is_trading(instrument)):  # 只要活跃的交易对
                     usdt_pairs.append(instrument)
             
             logger.info(f"筛选出 {len(usdt_pairs)} 个USDT永续合约")
@@ -98,44 +167,10 @@ class TradingPairService:
                 updated_count = 0
                 
                 for instrument in instruments:
-                    # 处理时间字段，确保空值转换为None
-                    list_time = instrument.get('listTime')
-                    if list_time == '' or list_time is None:
-                        list_time = None
-                    else:
-                        try:
-                            list_time = int(list_time) if list_time else None
-                        except (ValueError, TypeError):
-                            list_time = None
-                    
-                    exp_time = instrument.get('expTime')
-                    if exp_time == '' or exp_time is None:
-                        exp_time = None
-                    else:
-                        try:
-                            exp_time = int(exp_time) if exp_time else None
-                        except (ValueError, TypeError):
-                            exp_time = None
-                    
+                    values = self._instrument_to_db_values(instrument)
+
                     # 使用MySQL的ON DUPLICATE KEY UPDATE语法
-                    stmt = insert(TradingPair).values(
-                        inst_id=instrument.get('instId'),
-                        inst_type=instrument.get('instType'),
-                        base_ccy=instrument.get('baseCcy'),
-                        quote_ccy=instrument.get('quoteCcy'),
-                        settle_ccy=instrument.get('settleCcy'),
-                        ct_val=instrument.get('ctVal'),
-                        ct_mult=instrument.get('ctMult'),
-                        ct_val_ccy=instrument.get('ctValCcy'),
-                        min_sz=instrument.get('minSz'),
-                        lot_sz=instrument.get('lotSz'),
-                        tick_sz=instrument.get('tickSz'),
-                        state=instrument.get('state'),
-                        list_time=list_time,
-                        exp_time=exp_time,
-                        is_active='true',
-                        last_updated=datetime.utcnow()
-                    )
+                    stmt = insert(TradingPair).values(**values)
                     
                     # ON DUPLICATE KEY UPDATE
                     stmt = stmt.on_duplicate_key_update(
@@ -174,12 +209,15 @@ class TradingPairService:
                 query = select(TradingPair.inst_id).where(
                     TradingPair.inst_type == 'SWAP',
                     TradingPair.quote_ccy == 'USDT',
-                    TradingPair.state == 'live',
+                    TradingPair.state.in_(["live", "TRADING"]),
                     TradingPair.is_active == 'true'
                 )
                 
                 result = session.execute(query)
                 pairs = [row[0] for row in result.fetchall()]
+                native_pairs = [pair for pair in pairs if "-" not in pair]
+                if native_pairs:
+                    pairs = native_pairs
                 
                 logger.info(f"从数据库获取到 {len(pairs)} 个活跃USDT永续合约")
                 return pairs
@@ -206,7 +244,7 @@ class TradingPairService:
                     pairs = self._get_fallback_pairs()
             
             # 过滤掉排除的币种
-            filtered_pairs = [pair for pair in pairs if pair not in self.excluded_major_coins]
+            filtered_pairs = [pair for pair in pairs if not self._is_excluded_pair(pair)]
             
             logger.info(f"获取到 {len(filtered_pairs)} 个用于监控的交易对")
             return filtered_pairs
