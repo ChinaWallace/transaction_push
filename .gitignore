@@ -176,6 +176,7 @@ htmlcov/
 
 # Database
 *.db
+mysql-data/
 *.sqlite
 *.sqlite3
 *.mysql

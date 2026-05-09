@@ -118,6 +118,17 @@ def get_engine():
     if engine is None:
         try:
             engine = create_database_engine()
+            if (
+                engine is not None
+                and "mysql" in settings.database_url.lower()
+                and not settings.database_fallback_to_sqlite
+                and engine.dialect.name != "mysql"
+            ):
+                engine.dispose()
+                raise RuntimeError(
+                    "MySQL is configured but the active database is not MySQL. "
+                    "SQLite fallback is disabled so data will not be written to the wrong database."
+                )
         except Exception as e:
             logger.error(f"❌ All database connections failed: {e}")
             logger.warning("⚠️ Application will run without database persistence")

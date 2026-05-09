@@ -168,6 +168,7 @@ class Settings(BaseSettings):
     # 数据库配置
     database_url: str = Field(default="mysql+pymysql://root:8964@localhost:3306/trading_db", description="数据库连接URL")
     database_echo: bool = Field(default=False, description="数据库SQL日志")
+    database_fallback_to_sqlite: bool = Field(default=False, description="Allow SQLite fallback when primary database is unavailable")
     
     # 数据库连接池配置
     db_pool_size: int = Field(default=20, description="数据库连接池大小")
@@ -636,6 +637,17 @@ class Settings(BaseSettings):
         extra="ignore"
     )
     
+    @validator("debug", pre=True)
+    def validate_debug(cls, v):
+        """Accept common deployment-mode strings from shell environments."""
+        if isinstance(v, str):
+            normalized = v.strip().lower()
+            if normalized in {"release", "prod", "production"}:
+                return False
+            if normalized in {"debug", "dev", "development"}:
+                return True
+        return v
+
     @validator("log_level")
     def validate_log_level(cls, v):
         """验证日志级别"""
