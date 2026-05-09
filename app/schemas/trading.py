@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 交易相关数据模式
 Trading related data schemas
@@ -25,7 +25,7 @@ class SignalStrength(Enum):
     MODERATE = "MODERATE"
     STRONG = "STRONG"
     VERY_STRONG = "VERY_STRONG"
-    
+
     @classmethod
     def from_confidence(cls, confidence: float) -> 'SignalStrength':
         """根据置信度返回信号强度"""
@@ -58,34 +58,43 @@ class TradingSignal(BaseModel):
     signal_strength: SignalStrength = Field(..., description="信号强度")
     reasoning: str = Field(..., description="决策推理")
     timestamp: datetime = Field(default_factory=datetime.now, description="信号生成时间")
-    
+
     # 详细操作建议 (新增)
     operation_advice: Optional[str] = Field(None, description="详细操作建议，包含具体价位")
-    
+
     # 各模块分析结果
     kronos_result: Optional[Union[Dict[str, Any], Any]] = Field(None, description="Kronos分析结果")
     technical_result: Optional[Union[Dict[str, Any], Any]] = Field(None, description="技术分析结果")
     ml_result: Optional[Union[Dict[str, Any], Any]] = Field(None, description="ML分析结果")
-    
+
     # 置信度分解 - 支持复杂结构以显示完整分析详情
     confidence_breakdown: Dict[str, Any] = Field(default_factory=dict, description="置信度分解详情，包含原始评分、应用权重、加权置信度等")
     key_factors: List[str] = Field(default_factory=list, description="关键因素")
-    
+
     # 技术指标和详细分析 (新增)
     technical_indicators: Dict[str, Any] = Field(default_factory=dict, description="技术指标")
     technical_details: Dict[str, Any] = Field(default_factory=dict, description="详细技术分析")
     volume_analysis: Dict[str, Any] = Field(default_factory=dict, description="量价分析结果")
-    
+
     # 价格信息 (扩展)
     entry_price: Optional[float] = Field(None, description="建议入场价格")
     current_price: Optional[float] = Field(None, description="当前价格")
     stop_loss: Optional[float] = Field(None, description="止损价格")
     take_profit: Optional[float] = Field(None, description="止盈价格")
-    
+    risk_reward_ratio: Optional[float] = Field(None, description="风险收益比")
+    position_size: Optional[float] = Field(None, description="建议仓位比例")
+
+    # 交易质量闸门 (新增)
+    buy_allowed: Optional[bool] = Field(None, description="当前是否允许买入")
+    trade_quality_score: Optional[float] = Field(None, description="交易质量评分 0-100")
+    trade_quality_grade: Optional[str] = Field(None, description="交易质量等级")
+    trade_quality_reasons: List[str] = Field(default_factory=list, description="交易质量依据")
+    risk_flags: List[str] = Field(default_factory=list, description="风险标记")
+
     # 支撑阻力位 (新增)
     support_level: Optional[float] = Field(None, description="支撑位")
     resistance_level: Optional[float] = Field(None, description="阻力位")
-    
+
     model_config = {"json_encoders": {datetime: lambda v: v.isoformat()}}
 
 
@@ -104,11 +113,11 @@ class TradingSignalResponse(BaseModel):
     signal_strength: str = Field(..., description="信号强度")
     reasoning: str = Field(..., description="决策推理")
     timestamp: datetime = Field(..., description="信号生成时间")
-    
+
     # 置信度分解
     confidence_breakdown: Optional[Dict[str, float]] = Field(None, description="置信度分解")
     key_factors: Optional[List[str]] = Field(None, description="关键因素")
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -137,7 +146,7 @@ class CoreSymbolsAnalysisResponse(BaseModel):
     analyzed_symbols: int = Field(..., description="已分析币种数")
     signals: List[TradingSignalResponse] = Field(..., description="交易信号列表")
     timestamp: datetime = Field(..., description="分析时间")
-    
+
     class Config:
         json_encoders = {
             datetime: lambda v: v.isoformat()
@@ -169,7 +178,7 @@ class MarketData(BaseModel):
     funding_rate: Optional[float] = Field(None, description="资金费率")
     open_interest: Optional[float] = Field(None, description="持仓量")
     timestamp: datetime = Field(default_factory=datetime.now, description="数据时间")
-    
+
     model_config = {"json_encoders": {datetime: lambda v: v.isoformat()}}
 
 
@@ -184,7 +193,7 @@ class PositionInfo(BaseModel):
     percentage: float = Field(..., description="盈亏百分比")
     margin: float = Field(..., description="保证金")
     timestamp: datetime = Field(default_factory=datetime.now, description="更新时间")
-    
+
     model_config = {"json_encoders": {datetime: lambda v: v.isoformat()}}
 
 
