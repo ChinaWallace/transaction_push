@@ -78,6 +78,21 @@ variants, then writes a report under `backtest_results/freqtrade_signal_filter_*
 Use the report's `losing_pairs` and negative variant totals to remove weak coin
 selection or threshold logic before dry-run trading.
 
+Run the selective 4h optimized portfolio:
+
+```powershell
+.\.venv\Scripts\python.exe -m freqtrade backtesting `
+  --config freqtrade\user_data\config.portfolio4h.optimized.example.json `
+  --userdir freqtrade\user_data `
+  --strategy CoreAltPortfolio4hOptimizedStrategy `
+  --timeframe 4h `
+  --timerange 20230101-20260501 `
+  --cache none `
+  --enable-protections `
+  --export trades `
+  --pairs BTC/USDT:USDT ZEC/USDT:USDT
+```
+
 Start dry-run bot:
 
 ```powershell
