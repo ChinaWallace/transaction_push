@@ -10,5 +10,4 @@ services:
     command: >
       trade
       --config /freqtrade/user_data/config.dryrun.example.json
-      --strategy TransactionPushBridgeStrategy
-
+      --strategy TransactionPushSignalStrategy

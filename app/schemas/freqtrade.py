@@ -29,6 +29,8 @@ class FreqtradeCommandResult(BaseModel):
 class FreqtradeStatusResponse(BaseModel):
     docker_available: bool
     compose_available: bool
+    native_available: bool
+    selected_backend: str
     compose_file_exists: bool
     user_data_exists: bool
     default_config: str
@@ -48,7 +50,7 @@ class FreqtradeDownloadDataRequest(BaseModel):
 
 
 class FreqtradeBacktestRequest(BaseModel):
-    strategy: str = "TransactionPushBridgeStrategy"
+    strategy: str = "TransactionPushSignalStrategy"
     timeframe: str = "5m"
     pairs: Optional[List[str]] = None
     timerange: Optional[str] = None
@@ -58,7 +60,6 @@ class FreqtradeBacktestRequest(BaseModel):
 
 class FreqtradeBotStartRequest(BaseModel):
     mode: FreqtradeRunMode = FreqtradeRunMode.DRY_RUN
-    strategy: str = "TransactionPushBridgeStrategy"
+    strategy: str = "TransactionPushSignalStrategy"
     config_file: Optional[str] = None
     confirm_live: bool = False
-

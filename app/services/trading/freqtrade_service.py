@@ -29,7 +29,7 @@ logger = get_logger(__name__)
 
 class FreqtradeService:
     DEFAULT_CONFIG = "config.dryrun.example.json"
-    DEFAULT_STRATEGY = "TransactionPushBridgeStrategy"
+    DEFAULT_STRATEGY = "TransactionPushSignalStrategy"
 
     def __init__(self) -> None:
         self.project_root = Path(__file__).resolve().parents[3]
@@ -38,16 +38,22 @@ class FreqtradeService:
         self.compose_file = self.integration_dir / "docker-compose.yml"
         self.default_config = os.getenv("FREQTRADE_CONFIG_FILE", self.DEFAULT_CONFIG)
         self.default_strategy = os.getenv("FREQTRADE_STRATEGY", self.DEFAULT_STRATEGY)
+        self.backend = os.getenv("FREQTRADE_BACKEND", "auto").lower()
+        self.freqtrade_bin = os.getenv("FREQTRADE_BIN") or self._default_freqtrade_bin()
         self.timeout_seconds = int(os.getenv("FREQTRADE_COMMAND_TIMEOUT", "1800"))
 
     async def status(self) -> FreqtradeStatusResponse:
         docker = await self._quick_command(["docker", "--version"])
         compose = await self._quick_command(["docker", "compose", "version"])
+        native = await self._quick_command([self.freqtrade_bin, "--version"])
+        backend = self._select_backend(docker and compose, native)
         details = []
         if not docker:
             details.append("Docker is not available on PATH.")
         if not compose:
             details.append("Docker Compose v2 is not available on PATH.")
+        if not native:
+            details.append(f"Native Freqtrade CLI is not available: {self.freqtrade_bin}")
         if not self.compose_file.exists():
             details.append(f"Compose file missing: {self.compose_file}")
         if not self.user_data_dir.exists():
@@ -55,6 +61,8 @@ class FreqtradeService:
         return FreqtradeStatusResponse(
             docker_available=docker,
             compose_available=compose,
+            native_available=native,
+            selected_backend=backend,
             compose_file_exists=self.compose_file.exists(),
             user_data_exists=self.user_data_dir.exists(),
             default_config=self.default_config,
@@ -63,10 +71,12 @@ class FreqtradeService:
         )
 
     async def download_data(self, request: FreqtradeDownloadDataRequest) -> FreqtradeCommandResult:
-        cmd = self._base_run_command() + [
+        cmd = self._base_command() + [
             "download-data",
             "--config",
-            self._container_config_path(request.config_file),
+            self._config_path(request.config_file),
+            "--userdir",
+            self._userdir_path(),
         ]
         for timeframe in request.timeframes:
             cmd.extend(["--timeframes", timeframe])
@@ -79,10 +89,12 @@ class FreqtradeService:
         return await self._run(cmd)
 
     async def backtest(self, request: FreqtradeBacktestRequest) -> FreqtradeCommandResult:
-        cmd = self._base_run_command() + [
+        cmd = self._base_command() + [
             "backtesting",
             "--config",
-            self._container_config_path(request.config_file),
+            self._config_path(request.config_file),
+            "--userdir",
+            self._userdir_path(),
             "--strategy",
             request.strategy or self.default_strategy,
             "--timeframe",
@@ -105,20 +117,47 @@ class FreqtradeService:
             if config_file == self.DEFAULT_CONFIG:
                 raise ValueError("Live trading cannot use the dry-run example config.")
             return await self._run(
-                self._base_run_command(detach=True)
+                self._base_command(detach=True)
                 + [
                     "trade",
                     "--config",
-                    self._container_config_path(config_file),
+                    self._config_path(config_file),
+                    "--userdir",
+                    self._userdir_path(),
                     "--strategy",
                     request.strategy or self.default_strategy,
                 ]
             )
 
+        if self._current_backend() == "native":
+            return await self._spawn_detached(
+                self._base_command()
+                + [
+                    "trade",
+                    "--config",
+                    self._config_path(request.config_file),
+                    "--userdir",
+                    self._userdir_path(),
+                    "--strategy",
+                    request.strategy or self.default_strategy,
+                ]
+            )
         return await self._run(["docker", "compose", "-f", str(self.compose_file), "up", "-d", "freqtrade"])
 
     async def stop_bot(self) -> FreqtradeCommandResult:
+        if self._current_backend() == "native":
+            raise ValueError("Native detached Freqtrade stop is not managed yet; stop it from the process manager or use Docker backend.")
         return await self._run(["docker", "compose", "-f", str(self.compose_file), "down"])
+
+    def _base_command(self, detach: bool = False) -> List[str]:
+        backend = self._current_backend()
+        if backend == "native":
+            if detach:
+                return [self.freqtrade_bin]
+            return [self.freqtrade_bin]
+        if backend == "unavailable":
+            raise ValueError("Neither Docker Compose nor native Freqtrade CLI is available.")
+        return self._base_run_command(detach=detach)
 
     def _base_run_command(self, detach: bool = False) -> List[str]:
         cmd = ["docker", "compose", "-f", str(self.compose_file), "run"]
@@ -129,14 +168,46 @@ class FreqtradeService:
         cmd.append("freqtrade")
         return cmd
 
-    def _container_config_path(self, config_file: Optional[str]) -> str:
+    def _config_path(self, config_file: Optional[str]) -> str:
         value = config_file or self.default_config
         if any(part in value for part in ("..", "/", "\\")):
             raise ValueError("config_file must be a file name inside freqtrade/user_data")
         host_path = self.user_data_dir / value
         if not host_path.exists():
             raise ValueError(f"Freqtrade config does not exist: {host_path}")
+        if self._current_backend() == "native":
+            return str(host_path)
         return f"/freqtrade/user_data/{value}"
+
+    def _userdir_path(self) -> str:
+        if self._current_backend() == "native":
+            return str(self.user_data_dir)
+        return "/freqtrade/user_data"
+
+    def _current_backend(self) -> str:
+        if self.backend == "native":
+            return "native"
+        if self.backend == "docker":
+            return "docker"
+        docker_ready = self._command_exists_sync(["docker", "--version"]) and self._command_exists_sync(["docker", "compose", "version"])
+        native_ready = self._command_exists_sync([self.freqtrade_bin, "--version"])
+        return self._select_backend(docker_ready, native_ready)
+
+    def _select_backend(self, docker_ready: bool, native_ready: bool) -> str:
+        if self.backend == "docker":
+            return "docker"
+        if self.backend == "native":
+            return "native"
+        if docker_ready:
+            return "docker"
+        if native_ready:
+            return "native"
+        return "unavailable"
+
+    def _default_freqtrade_bin(self) -> str:
+        suffix = "Scripts/freqtrade.exe" if os.name == "nt" else "bin/freqtrade"
+        candidate = self.project_root / ".venv" / Path(suffix)
+        return str(candidate) if candidate.exists() else "freqtrade"
 
     @staticmethod
     def _normalize_pairs(pairs: List[str]) -> List[str]:
@@ -172,6 +243,36 @@ class FreqtradeService:
             return proc.returncode == 0
         except Exception:
             return False
+
+    @staticmethod
+    def _command_exists_sync(cmd: List[str]) -> bool:
+        import subprocess
+
+        try:
+            proc = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+            return proc.returncode == 0
+        except Exception:
+            return False
+
+    async def _spawn_detached(self, cmd: List[str]) -> FreqtradeCommandResult:
+        started = datetime.now()
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=str(self.integration_dir),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        finished = datetime.now()
+        return FreqtradeCommandResult(
+            command=cmd,
+            return_code=0,
+            stdout=f"Started detached Freqtrade process with pid {proc.pid}.",
+            stderr="",
+            started_at=started,
+            finished_at=finished,
+            elapsed_seconds=(finished - started).total_seconds(),
+            success=True,
+        )
 
     async def _run(self, cmd: List[str]) -> FreqtradeCommandResult:
         started = datetime.now()
@@ -220,4 +321,3 @@ def get_freqtrade_service() -> FreqtradeService:
     if _freqtrade_service is None:
         _freqtrade_service = FreqtradeService()
     return _freqtrade_service
-

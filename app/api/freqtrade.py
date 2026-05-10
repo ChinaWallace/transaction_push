@@ -62,5 +62,7 @@ async def start_bot(
 
 @router.post("/bot/stop", response_model=FreqtradeCommandResult)
 async def stop_bot(service: FreqtradeService = Depends(get_service)) -> FreqtradeCommandResult:
-    return await service.stop_bot()
-
+    try:
+        return await service.stop_bot()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

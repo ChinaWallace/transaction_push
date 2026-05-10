@@ -20,11 +20,11 @@ einops>=0.7.0  # 张量操作库，用于Kronos模型
 
 # 交易所API
 python-binance==1.0.19
-ccxt==4.1.48
+ccxt>=4.5.52
 
 # HTTP请求
 requests==2.31.0
-aiohttp==3.9.1
+aiohttp>=3.13.5
 
 # 异步任务调度
 apscheduler==3.10.4
@@ -55,7 +55,10 @@ loguru==0.7.2
 # 测试
 pytest==7.4.3
 pytest-asyncio==0.21.1
-httpx==0.25.2
+httpx>=0.28.1
+
+# Freqtrade execution/backtesting engine integration
+freqtrade>=2026.4
 
 # 机器学习库（免费开源）
 # 使用兼容Python 3.13的版本
