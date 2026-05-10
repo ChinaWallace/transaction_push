@@ -9,8 +9,10 @@ Freqtrade handles data download, backtesting, dry-run, and optional live trading
 
 - `freqtrade/docker-compose.yml`: Docker service for Freqtrade.
 - `freqtrade/user_data/config.dryrun.example.json`: safe dry-run config.
+- `freqtrade/user_data/strategies/OpenSourceTrendStrategy.py`: default conservative
+  replacement strategy using common open-source Freqtrade building blocks.
 - `freqtrade/user_data/strategies/TransactionPushSignalStrategy.py`: Freqtrade-native
-  strategy input for the project signal stack.
+  strategy input for the project signal stack, kept for comparison backtests.
 - `freqtrade/user_data/strategies/TransactionPushBridgeStrategy.py`: conservative
   starter strategy kept for sanity checks.
 - `scripts/freqtrade_signal_backtest.py`: multi-pair long-range backtest runner
@@ -57,11 +59,11 @@ Run a backtest:
 ```powershell
 curl -X POST http://localhost:8000/api/freqtrade/backtest `
   -H "Content-Type: application/json" `
-  -d "{\"strategy\":\"TransactionPushSignalStrategy\",\"timeframe\":\"1h\",\"timerange\":\"20230101-20260501\"}"
+  -d "{\"strategy\":\"OpenSourceTrendStrategy\",\"timeframe\":\"1h\",\"timerange\":\"20230101-20260501\"}"
 ```
 
-Run the project signal strategy across a wider coin basket and filter losing
-logic:
+Run the old project signal strategy across a wider coin basket and filter
+losing logic:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\freqtrade_signal_backtest.py `

@@ -29,7 +29,7 @@ logger = get_logger(__name__)
 
 class FreqtradeService:
     DEFAULT_CONFIG = "config.dryrun.example.json"
-    DEFAULT_STRATEGY = "TransactionPushSignalStrategy"
+    DEFAULT_STRATEGY = "OpenSourceTrendStrategy"
 
     def __init__(self) -> None:
         self.project_root = Path(__file__).resolve().parents[3]

@@ -27,10 +27,10 @@ def test_auto_backend_prefers_docker_then_native():
     assert service._select_backend(False, False) == "unavailable"
 
 
-def test_default_strategy_uses_project_signal_projection():
+def test_default_strategy_uses_open_source_trend_replacement():
     service = FreqtradeService()
 
-    assert service.default_strategy == "TransactionPushSignalStrategy"
+    assert service.default_strategy == "OpenSourceTrendStrategy"
 
 
 def test_backtest_script_normalizes_project_symbol_inputs():

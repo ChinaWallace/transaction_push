@@ -10,7 +10,7 @@
   "cancel_open_orders_on_exit": true,
   "trading_mode": "futures",
   "margin_mode": "isolated",
-  "timeframe": "5m",
+  "timeframe": "1h",
   "unfilledtimeout": {
     "entry": 10,
     "exit": 10,
@@ -51,16 +51,8 @@
       }
     },
     "pair_whitelist": [
-      "BTC/USDT:USDT",
-      "ETH/USDT:USDT",
       "SOL/USDT:USDT",
-      "OP/USDT:USDT",
-      "ARB/USDT:USDT",
-      "LINK/USDT:USDT",
-      "AAVE/USDT:USDT",
-      "CRV/USDT:USDT",
-      "MKR/USDT:USDT",
-      "AVAX/USDT:USDT"
+      "LINK/USDT:USDT"
     ],
     "pair_blacklist": [
       "BNB/.*"
