@@ -96,6 +96,7 @@ from app.api.enhanced_trading import router as enhanced_trading_router
 from app.api.tradingview_scanner import router as tradingview_scanner_router
 from app.api.tradingview_scheduler import router as tradingview_scheduler_router
 from app.api.paper_trading import router as paper_trading_router
+from app.api.freqtrade import router as freqtrade_router
 from app.services.core.scheduler_service import SchedulerService
 from app.services.ml.ml_enhanced_service import MLEnhancedService
 from app.services.negative_funding_monitor_service import NegativeFundingMonitorService
@@ -1284,6 +1285,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(paper_trading_router, tags=["Paper Trading"])
+    app.include_router(freqtrade_router, tags=["Freqtrade"])
     
     # 注册路由 - 核心整合API优先
     app.include_router(core_trading_router, tags=["核心交易"])

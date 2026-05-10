@@ -213,6 +213,15 @@ Thumbs.db
 .dockerignore
 docker-compose.override.yml
 
+# Freqtrade local runtime data
+freqtrade/user_data/config.local.json
+freqtrade/user_data/data/
+freqtrade/user_data/logs/
+freqtrade/user_data/backtest_results/
+freqtrade/user_data/hyperopt_results/
+freqtrade/user_data/notebooks/
+freqtrade/user_data/user_data.db*
+
 # Backup files
 *.bak
 *.backup
