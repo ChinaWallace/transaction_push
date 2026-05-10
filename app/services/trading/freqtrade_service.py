@@ -105,6 +105,10 @@ class FreqtradeService:
             cmd.extend(self._normalize_pairs(request.pairs))
         if request.timerange:
             cmd.extend(["--timerange", request.timerange])
+        if request.enable_protections:
+            cmd.append("--enable-protections")
+        if request.cache:
+            cmd.extend(["--cache", request.cache])
         if request.export_trades:
             cmd.extend(["--export", "trades"])
         return await self._run(cmd)

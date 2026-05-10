@@ -56,6 +56,8 @@ class FreqtradeBacktestRequest(BaseModel):
     timerange: Optional[str] = None
     export_trades: bool = True
     config_file: Optional[str] = None
+    enable_protections: bool = False
+    cache: Optional[str] = None
 
 
 class FreqtradeBotStartRequest(BaseModel):

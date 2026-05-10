@@ -236,6 +236,19 @@
       border-radius: 8px;
       background: #fff;
     }
+    .mono {
+      font-family: Consolas, "SFMono-Regular", Menlo, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      overflow: auto;
+      max-height: 260px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fafbfc;
+      color: var(--ink);
+    }
     @media (max-width: 980px) {
       main { grid-template-columns: 1fr; }
       aside { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -285,6 +298,7 @@
           <button class="primary" id="runPortfolio">运行组合</button>
           <button id="runLeaderboard">策略排行</button>
         </div>
+        <button id="runFreqtradeOptimized" style="width:100%;margin-top:8px;">Freqtrade 4h优化版</button>
       </div>
       <div class="panel">
         <h2>历史记录</h2>
@@ -358,6 +372,10 @@
         <h2>策略排行</h2>
         <div id="leaderboardTable"></div>
       </div>
+      <div class="panel">
+        <h2>Freqtrade 4h优化版结果</h2>
+        <div id="freqtradeResult" class="empty">点击左侧 Freqtrade 4h优化版运行回测</div>
+      </div>
     </section>
   </main>
 
@@ -386,6 +404,7 @@
     function setBusy(isBusy) {
       $("runPortfolio").disabled = isBusy;
       $("runLeaderboard").disabled = isBusy;
+      $("runFreqtradeOptimized").disabled = isBusy;
       $("refreshHistory").disabled = isBusy;
       if (isBusy) {
         $("startForward").disabled = true;
@@ -672,6 +691,35 @@
       }
     }
 
+    async function runFreqtradeOptimized() {
+      setBusy(true);
+      $("freqtradeResult").className = "empty";
+      $("freqtradeResult").textContent = "Freqtrade 回测运行中...";
+      try {
+        const body = {
+          strategy: "CoreAltPortfolio4hOptimizedStrategy",
+          timeframe: "4h",
+          pairs: ["BTC/USDT:USDT", "ZEC/USDT:USDT"],
+          timerange: "20230101-20260501",
+          export_trades: true,
+          config_file: "config.portfolio4h.optimized.example.json",
+          enable_protections: true,
+          cache: "none"
+        };
+        const result = await api("/api/freqtrade/backtest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        renderFreqtradeResult(result);
+      } catch (err) {
+        $("freqtradeResult").className = "empty";
+        $("freqtradeResult").innerHTML = `Freqtrade 回测失败：${escapeHtml(err.message)}`;
+      } finally {
+        setBusy(false);
+      }
+    }
+
     async function loadHistory() {
       const type = $("typeFilter").value;
       const query = new URLSearchParams({ limit: "50" });
@@ -828,8 +876,95 @@
         </table>`;
     }
 
+    function escapeRegExp(value) {
+      return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function parseFreqtradeMetrics(stdout) {
+      const normalized = String(stdout || "")
+        .replace(/â/g, "|")
+        .replace(/[│┃║]/g, "|");
+      const metric = (name) => {
+        const re = new RegExp(`\\|\\s*${escapeRegExp(name)}\\s*\\|\\s*([^|]+)\\|`);
+        const match = normalized.match(re);
+        return match ? match[1].trim() : "-";
+      };
+      const pairRows = normalized.split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => /^\|\s*[A-Z0-9]+\/USDT:USDT\s*\|/.test(line))
+        .map(line => line.split("|").map(cell => cell.trim()).filter(Boolean))
+        .filter(cells => cells.length >= 7)
+        .map(cells => ({
+          pair: cells[0],
+          trades: cells[1],
+          avgProfit: cells[2],
+          profitUsdt: cells[3],
+          profitPct: cells[4],
+          duration: cells[5],
+          winLoss: cells[6]
+        }));
+      return {
+        totalProfit: metric("Total profit %"),
+        cagr: metric("CAGR %"),
+        profitFactor: metric("Profit factor"),
+        expectancy: metric("Expectancy (Ratio)"),
+        drawdown: metric("Absolute drawdown"),
+        trades: metric("Total/Daily Avg Trades"),
+        stake: metric("Avg. stake amount"),
+        marketChange: metric("Market change"),
+        pairRows
+      };
+    }
+
+    function renderFreqtradeResult(result) {
+      const metrics = parseFreqtradeMetrics(result.stdout || "");
+      $("freqtradeResult").className = "";
+      $("freqtradeResult").innerHTML = `
+        <div class="kpis" style="grid-template-columns:repeat(4,minmax(120px,1fr));">
+          <div class="kpi"><span>总收益</span><strong class="${metrics.totalProfit.startsWith("-") ? "negative" : "positive"}">${metrics.totalProfit}</strong></div>
+          <div class="kpi"><span>Profit Factor</span><strong>${metrics.profitFactor}</strong></div>
+          <div class="kpi"><span>交易频率</span><strong>${metrics.trades}</strong></div>
+          <div class="kpi"><span>最大回撤</span><strong>${metrics.drawdown}</strong></div>
+        </div>
+        <table>
+          <thead><tr><th>币种</th><th>交易</th><th>均利%</th><th>收益USDT</th><th>收益%</th><th>持仓</th><th>胜负</th></tr></thead>
+          <tbody>
+            ${metrics.pairRows.map(row => `
+              <tr>
+                <td>${row.pair}</td>
+                <td>${row.trades}</td>
+                <td>${row.avgProfit}</td>
+                <td class="${row.profitUsdt.startsWith("-") ? "negative" : "positive"}">${row.profitUsdt}</td>
+                <td class="${row.profitPct.startsWith("-") ? "negative" : "positive"}">${row.profitPct}%</td>
+                <td>${row.duration}</td>
+                <td>${row.winLoss}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+        <table style="margin-top:10px;">
+          <tbody>
+            <tr><th>CAGR</th><td>${metrics.cagr}</td><th>期望值</th><td>${metrics.expectancy}</td></tr>
+            <tr><th>平均仓位</th><td>${metrics.stake}</td><th>市场涨跌</th><td>${metrics.marketChange}</td></tr>
+            <tr><th>运行耗时</th><td>${fmtNum(result.elapsed_seconds)} 秒</td><th>状态</th><td>${result.success ? "成功" : "失败"}</td></tr>
+          </tbody>
+        </table>
+        ${result.success ? "" : `<div class="mono" style="margin-top:10px;">${escapeHtml(result.stderr)}</div>`}
+      `;
+    }
+
     $("runPortfolio").addEventListener("click", runPortfolio);
     $("runLeaderboard").addEventListener("click", runLeaderboard);
+    $("runFreqtradeOptimized").addEventListener("click", runFreqtradeOptimized);
     $("refreshHistory").addEventListener("click", loadHistory);
     $("typeFilter").addEventListener("change", () => { state.selectedRun = null; loadHistory(); });
     $("startForward").addEventListener("click", startForward);
