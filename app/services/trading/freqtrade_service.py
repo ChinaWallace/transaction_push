@@ -9,6 +9,7 @@ its official Docker image.
 
 import asyncio
 import os
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -41,12 +42,15 @@ class FreqtradeService:
         self.backend = os.getenv("FREQTRADE_BACKEND", "auto").lower()
         self.freqtrade_bin = os.getenv("FREQTRADE_BIN") or self._default_freqtrade_bin()
         self.timeout_seconds = int(os.getenv("FREQTRADE_COMMAND_TIMEOUT", "1800"))
+        self.native_pid_file = self.user_data_dir / "freqtrade_native.pid"
+        self.native_log_file = self.project_root / "logs" / "freqtrade_native.log"
 
     async def status(self) -> FreqtradeStatusResponse:
         docker = await self._quick_command(["docker", "--version"])
         compose = await self._quick_command(["docker", "compose", "version"])
         native = await self._quick_command([self.freqtrade_bin, "--version"])
         backend = self._select_backend(docker and compose, native)
+        bot_pid = self._read_native_pid() if backend == "native" else None
         details = []
         if not docker:
             details.append("Docker is not available on PATH.")
@@ -63,6 +67,8 @@ class FreqtradeService:
             compose_available=compose,
             native_available=native,
             selected_backend=backend,
+            bot_running=bot_pid is not None,
+            bot_pid=bot_pid,
             compose_file_exists=self.compose_file.exists(),
             user_data_exists=self.user_data_dir.exists(),
             default_config=self.default_config,
@@ -134,6 +140,29 @@ class FreqtradeService:
             )
 
         if self._current_backend() == "native":
+            existing_pid = self._read_native_pid()
+            if existing_pid is not None:
+                now = datetime.now()
+                cmd = [
+                    self.freqtrade_bin,
+                    "trade",
+                    "--config",
+                    self._config_path(request.config_file),
+                    "--userdir",
+                    self._userdir_path(),
+                    "--strategy",
+                    request.strategy or self.default_strategy,
+                ]
+                return FreqtradeCommandResult(
+                    command=cmd,
+                    return_code=0,
+                    stdout=f"Freqtrade dry-run is already running with pid {existing_pid}.",
+                    stderr="",
+                    started_at=now,
+                    finished_at=now,
+                    elapsed_seconds=0.0,
+                    success=True,
+                )
             return await self._spawn_detached(
                 self._base_command()
                 + [
@@ -150,7 +179,7 @@ class FreqtradeService:
 
     async def stop_bot(self) -> FreqtradeCommandResult:
         if self._current_backend() == "native":
-            raise ValueError("Native detached Freqtrade stop is not managed yet; stop it from the process manager or use Docker backend.")
+            return await self._stop_native_bot()
         return await self._run(["docker", "compose", "-f", str(self.compose_file), "down"])
 
     def _base_command(self, detach: bool = False) -> List[str]:
@@ -258,19 +287,90 @@ class FreqtradeService:
         except Exception:
             return False
 
-    async def _spawn_detached(self, cmd: List[str]) -> FreqtradeCommandResult:
+    def _read_native_pid(self) -> Optional[int]:
+        try:
+            if not self.native_pid_file.exists():
+                return None
+            pid = int(self.native_pid_file.read_text(encoding="utf-8").strip())
+            if self._is_process_running(pid):
+                return pid
+            self.native_pid_file.unlink(missing_ok=True)
+            return None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _is_process_running(pid: int) -> bool:
+        if pid <= 0:
+            return False
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    async def _stop_native_bot(self) -> FreqtradeCommandResult:
         started = datetime.now()
+        pid = self._read_native_pid()
+        if pid is None:
+            finished = datetime.now()
+            return FreqtradeCommandResult(
+                command=[],
+                return_code=0,
+                stdout="Freqtrade dry-run is not running.",
+                stderr="",
+                started_at=started,
+                finished_at=finished,
+                elapsed_seconds=(finished - started).total_seconds(),
+                success=True,
+            )
+
+        if os.name == "nt":
+            cmd = ["taskkill", "/PID", str(pid), "/T", "/F"]
+        else:
+            cmd = ["kill", str(pid)]
         proc = await asyncio.create_subprocess_exec(
             *cmd,
-            cwd=str(self.integration_dir),
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
+        stdout_raw, stderr_raw = await proc.communicate()
+        self.native_pid_file.unlink(missing_ok=True)
+        finished = datetime.now()
+        return FreqtradeCommandResult(
+            command=cmd,
+            return_code=proc.returncode or 0,
+            stdout=stdout_raw.decode("utf-8", errors="replace"),
+            stderr=stderr_raw.decode("utf-8", errors="replace"),
+            started_at=started,
+            finished_at=finished,
+            elapsed_seconds=(finished - started).total_seconds(),
+            success=(proc.returncode == 0),
+        )
+
+    async def _spawn_detached(self, cmd: List[str]) -> FreqtradeCommandResult:
+        started = datetime.now()
+        self.native_log_file.parent.mkdir(exist_ok=True)
+        log_handle = self.native_log_file.open("ab")
+        creationflags = 0
+        if os.name == "nt":
+            creationflags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(self.integration_dir),
+            stdin=subprocess.DEVNULL,
+            stdout=log_handle,
+            stderr=log_handle,
+            close_fds=True,
+            creationflags=creationflags,
+        )
+        log_handle.close()
+        self.native_pid_file.write_text(str(proc.pid), encoding="utf-8")
         finished = datetime.now()
         return FreqtradeCommandResult(
             command=cmd,
             return_code=0,
-            stdout=f"Started detached Freqtrade process with pid {proc.pid}.",
+            stdout=f"Started detached Freqtrade process with pid {proc.pid}. Log: {self.native_log_file}",
             stderr="",
             started_at=started,
             finished_at=finished,

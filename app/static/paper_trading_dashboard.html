@@ -314,27 +314,27 @@
         <div id="historyList" style="margin-top:10px;"></div>
       </div>
       <div class="panel">
-        <h2>模拟盘自动运行</h2>
+        <h2>Freqtrade模拟盘</h2>
         <div class="row">
           <div>
-            <label>扫描间隔 秒</label>
-            <input id="scanInterval" type="number" min="60" value="900">
+            <label>策略</label>
+            <input id="scanInterval" value="CoreAltPortfolio4hOptimizedStrategy" disabled>
           </div>
           <div>
-            <label>盯盘间隔 秒</label>
-            <input id="tickInterval" type="number" min="15" value="60">
+            <label>配置</label>
+            <input id="tickInterval" value="config.portfolio4h.optimized.example.json" disabled>
           </div>
         </div>
         <div class="actions">
-          <button class="primary" id="startForward">开始模拟</button>
-          <button id="stopForward">停止模拟</button>
+          <button class="primary" id="startForward">启动Freqtrade模拟</button>
+          <button id="stopForward">停止Freqtrade模拟</button>
         </div>
-        <button id="loadForwardSessions" style="width:100%;margin-top:8px;">模拟记录</button>
+        <button id="loadForwardSessions" style="width:100%;margin-top:8px;">说明</button>
         <div style="margin-top:10px;"><span class="run-state" id="forwardStatusText">未运行</span></div>
       </div>
       <div class="panel">
-        <h2>模拟记录</h2>
-        <div id="forwardSessionList" class="empty">暂无模拟记录</div>
+        <h2>Freqtrade说明</h2>
+        <div id="forwardSessionList" class="empty">旧 paper 模拟已停用，当前使用 Freqtrade dry-run。</div>
       </div>
     </aside>
     <section>
@@ -351,12 +351,12 @@
         <canvas id="equityCanvas" width="1200" height="360"></canvas>
       </div>
       <div class="panel">
-        <h2>模拟盘状态</h2>
-        <div id="forwardStatusPanel" class="empty">暂无模拟盘运行状态</div>
+        <h2>Freqtrade模拟盘状态</h2>
+        <div id="forwardStatusPanel" class="empty">暂无 Freqtrade 模拟盘状态</div>
       </div>
       <div class="panel">
-        <h2>模拟记录详情</h2>
-        <div id="forwardSessionDetail" class="empty">点击左侧模拟记录查看详情</div>
+        <h2>模拟说明</h2>
+        <div id="forwardSessionDetail" class="empty">Freqtrade dry-run 会在后台持续盯盘，停止按钮会结束该进程。</div>
       </div>
       <div class="split">
         <div class="panel">
@@ -433,27 +433,22 @@
 
     async function startForward() {
       setBusy(true);
-      $("forwardStatusText").textContent = "启动中";
+      $("forwardStatusText").textContent = "Freqtrade dry-run 启动中";
       $("forwardStatusText").className = "run-state stopping";
       try {
         const body = {
-          mode: "balanced",
-          analysis_type: "technical_only",
-          scan_interval_seconds: Number($("scanInterval").value),
-          tick_interval_seconds: Number($("tickInterval").value),
-          max_core_symbols: Math.min(20, Math.max(1, splitSymbols($("coreSymbols").value).length || 10)),
-          max_satellite_symbols: Number($("maxSatellite").value),
-          force_update: false,
-          momentum_probe_enabled: true
+          mode: "dry_run",
+          strategy: "CoreAltPortfolio4hOptimizedStrategy",
+          config_file: "config.portfolio4h.optimized.example.json"
         };
-        await api("/api/paper-trading/forward/start", {
+        await api("/api/freqtrade/bot/start", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         });
         await loadForwardStatus();
       } catch (err) {
-        alert(`模拟盘启动失败: ${err.message}`);
+        alert(`Freqtrade 模拟盘启动失败: ${err.message}`);
       } finally {
         setBusy(false);
         await loadForwardStatus();
@@ -462,14 +457,13 @@
 
     async function stopForward() {
       setBusy(true);
-      $("forwardStatusText").textContent = "停止中";
+      $("forwardStatusText").textContent = "Freqtrade dry-run 停止中";
       $("forwardStatusText").className = "run-state stopping";
       try {
-        await api("/api/paper-trading/forward/stop", { method: "POST" });
+        await api("/api/freqtrade/bot/stop", { method: "POST" });
         await loadForwardStatus();
-        await loadForwardSessions();
       } catch (err) {
-        alert(`模拟盘停止失败: ${err.message}`);
+        alert(`Freqtrade 模拟盘停止失败: ${err.message}`);
       } finally {
         setBusy(false);
         await loadForwardStatus();
@@ -477,73 +471,39 @@
     }
 
     async function loadForwardStatus() {
-      const [runner, account, snapshots] = await Promise.all([
-        api("/api/paper-trading/forward/status"),
-        api("/api/paper-trading/status"),
-        api("/api/paper-trading/forward/snapshots?limit=1")
-      ]);
-      renderForwardStatus(runner, account, snapshots.items?.[0]);
+      const status = await api("/api/freqtrade/status");
+      renderForwardStatus(status);
     }
 
-    function renderForwardStatus(runner, account, latestSnapshot) {
-      setForwardControls(runner);
-      $("forwardStatusText").textContent = `${runner.state} · 扫描 ${runner.scan_count} 次 · 开仓 ${runner.opened_count} 次`;
-      $("forwardStatusText").className = `run-state ${runner.state}`;
-      const nextScan = runner.next_scan_at ? new Date(runner.next_scan_at).toLocaleString() : "-";
-      const lastScan = runner.last_scan_at ? new Date(runner.last_scan_at).toLocaleString() : "-";
-      const latest = latestSnapshot ? new Date(latestSnapshot.created_at).toLocaleString() : "-";
-      const summary = runner.last_scan_summary || {};
-      const rejectedReasons = summary.rejected_reasons
-        ? Object.entries(summary.rejected_reasons).map(([k, v]) => `${k}: ${v}`).join(", ")
-        : "-";
-      const rejectedSamples = summary.rejected_samples
-        ? summary.rejected_samples.map(item => `${item.symbol} ${item.action || "-"} ${item.confidence ?? "-"} · ${item.reason}`).join("<br>")
-        : "-";
-      const openedSymbols = (summary.opened_symbols || []).join(", ") || "-";
+    function renderForwardStatus(status) {
+      setForwardControls(status);
+      const stateText = status.bot_running ? "running" : "stopped";
+      $("forwardStatusText").textContent = status.bot_running
+        ? `Freqtrade dry-run 运行中 · PID ${status.bot_pid || "-"}`
+        : "Freqtrade dry-run 未运行";
+      $("forwardStatusText").className = `run-state ${status.bot_running ? "running" : ""}`;
+      const details = (status.details || []).join("<br>") || "-";
       $("forwardStatusPanel").className = "";
       $("forwardStatusPanel").innerHTML = `
         <table>
           <tbody>
-            <tr><th>运行状态</th><td>${runner.state}</td><th>账户权益</th><td>${fmtNum(account.equity_usdt)} USDT</td></tr>
-            <tr><th>已实现盈亏</th><td class="${colorClass(account.realized_pnl_usdt)}">${fmtNum(account.realized_pnl_usdt)} USDT</td><th>未实现盈亏</th><td class="${colorClass(account.unrealized_pnl_usdt)}">${fmtNum(account.unrealized_pnl_usdt)} USDT</td></tr>
-            <tr><th>持仓数</th><td>${account.open_positions.length} / ${account.max_open_positions}</td><th>已平仓</th><td>${account.total_trades}</td></tr>
-            <tr><th>上次扫描</th><td>${lastScan}</td><th>下次扫描</th><td>${nextScan}</td></tr>
-            <tr><th>扫描币种</th><td colspan="3">${(runner.last_symbols || []).join(", ") || "-"}</td></tr>
-            <tr><th>最近扫描</th><td colspan="3">候选 ${summary.candidate_count ?? 0} · 开仓 ${summary.opened_count ?? 0} · 试探开仓 ${summary.probe_opened_count ?? 0} · 拒绝 ${summary.rejected_count ?? 0}</td></tr>
-            <tr><th>开仓币种</th><td colspan="3">${openedSymbols}</td></tr>
-            <tr><th>拒绝原因</th><td colspan="3">${rejectedReasons}</td></tr>
-            <tr><th>拒绝样本</th><td colspan="3">${rejectedSamples}</td></tr>
-            <tr><th>最新快照</th><td>${latest}</td><th>错误</th><td>${runner.last_error || "-"}</td></tr>
+            <tr><th>运行状态</th><td>${stateText}</td><th>PID</th><td>${status.bot_pid || "-"}</td></tr>
+            <tr><th>策略</th><td>CoreAltPortfolio4hOptimizedStrategy</td><th>配置</th><td>config.portfolio4h.optimized.example.json</td></tr>
+            <tr><th>交易对</th><td>BTC/USDT:USDT, ZEC/USDT:USDT</td><th>周期</th><td>4h</td></tr>
+            <tr><th>后端</th><td>${status.selected_backend}</td><th>Freqtrade API</th><td>已关闭，避免本地依赖冲突</td></tr>
+            <tr><th>说明</th><td colspan="3">这是 Freqtrade dry-run 实盘模拟，会按新策略持续盯盘和模拟下单，不再使用旧 paper forward runner。</td></tr>
+            <tr><th>诊断</th><td colspan="3">${details}</td></tr>
           </tbody>
         </table>
-        ${renderOpenPositions(account.open_positions || [])}
       `;
     }
 
     async function loadForwardSessions() {
-      const data = await api("/api/paper-trading/forward/sessions?limit=30");
-      const rows = data.items || [];
-      if (!rows.length) {
-        $("forwardSessionList").innerHTML = `<div class="empty">暂无模拟记录</div>`;
-        return;
-      }
       $("forwardSessionList").innerHTML = `
-        <table>
-          <thead><tr><th>停止时间</th><th>扫描</th><th>开仓</th><th>权益</th></tr></thead>
-          <tbody>
-            ${rows.map(row => `
-              <tr data-session="${row.session_id}">
-                <td>${row.stopped_at ? new Date(row.stopped_at).toLocaleString() : "-"}</td>
-                <td>${row.scan_count}</td>
-                <td>${row.opened_count}</td>
-                <td class="${colorClass(row.final_equity_usdt - Number($("balance").value))}">${fmtNum(row.final_equity_usdt)}</td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>`;
-      document.querySelectorAll("[data-session]").forEach(tr => {
-        tr.addEventListener("click", () => loadForwardSessionDetail(tr.dataset.session));
-      });
+        <div class="empty">
+          旧 paper 模拟记录入口已停用。当前模拟由 Freqtrade dry-run 托管，
+          交易和订单状态请看 Freqtrade 日志或本页状态。
+        </div>`;
     }
 
     async function loadForwardSessionDetail(sessionId) {
@@ -608,14 +568,13 @@
     }
 
     function setForwardControls(runner) {
-      const running = runner.running || runner.state === "running";
-      const stopping = runner.state === "stopping";
-      $("startForward").disabled = running || stopping;
-      $("stopForward").disabled = !running || stopping;
-      $("startForward").textContent = running ? "模拟运行中" : "开始模拟";
-      $("stopForward").textContent = stopping ? "停止中" : "停止模拟";
-      $("scanInterval").disabled = running || stopping;
-      $("tickInterval").disabled = running || stopping;
+      const running = Boolean(runner.bot_running);
+      $("startForward").disabled = running;
+      $("stopForward").disabled = !running;
+      $("startForward").textContent = running ? "Freqtrade运行中" : "启动Freqtrade模拟";
+      $("stopForward").textContent = "停止Freqtrade模拟";
+      $("scanInterval").disabled = true;
+      $("tickInterval").disabled = true;
     }
 
     function renderOpenPositions(positions) {

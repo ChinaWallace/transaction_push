@@ -31,6 +31,8 @@ class FreqtradeStatusResponse(BaseModel):
     compose_available: bool
     native_available: bool
     selected_backend: str
+    bot_running: bool = False
+    bot_pid: Optional[int] = None
     compose_file_exists: bool
     user_data_exists: bool
     default_config: str

@@ -64,7 +64,7 @@
     }
   ],
   "api_server": {
-    "enabled": true,
+    "enabled": false,
     "listen_ip_address": "0.0.0.0",
     "listen_port": 8080,
     "verbosity": "error",
@@ -76,7 +76,7 @@
     "password": "freqtrade"
   },
   "bot_name": "transaction_push_portfolio4h_optimized",
-  "initial_state": "stopped",
+  "initial_state": "running",
   "force_entry_enable": false,
   "internals": {
     "process_throttle_secs": 5
