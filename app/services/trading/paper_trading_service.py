@@ -11,7 +11,7 @@ import aiohttp
 import os
 import math
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import desc
@@ -83,6 +83,12 @@ class PaperTradingService:
         "BUSD", "FRAX", "LUSD", "PYUSD",
     }
     DEFAULT_PINNED_CORE = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "ZEC-USDT-SWAP"]
+    MIN_CORE_VOLUME_USDT = 300_000_000
+    MIN_SATELLITE_VOLUME_USDT = 50_000_000
+    MIN_UNRANKED_SATELLITE_VOLUME_USDT = 150_000_000
+    MAX_CORE_MARKET_CAP_RANK = 80
+    MAX_SATELLITE_MARKET_CAP_RANK = 300
+    MARKET_CAP_CACHE_TTL = timedelta(hours=6)
 
     MODE_CONFIG: Dict[PaperTradingMode, Dict[str, float]] = {
         PaperTradingMode.CONSERVATIVE: {
@@ -161,6 +167,7 @@ class PaperTradingService:
         self._runner_last_error: Optional[str] = None
         self._runner_last_symbols: List[str] = []
         self._runner_last_scan_summary: Dict[str, Any] = {}
+        self._market_cap_cache: Tuple[List[Dict[str, Any]], datetime] = ([], datetime.min)
 
     @staticmethod
     def _env_float(name: str, default: float) -> float:
@@ -890,6 +897,7 @@ class PaperTradingService:
         max_leverage = float(request.parameters.get("max_leverage", 1.0))
         use_atr_exits = bool(request.parameters.get("use_atr_exits", False))
         partial_take_profit = bool(request.parameters.get("partial_take_profit", False))
+        proactive_exit = bool(request.parameters.get("proactive_exit", True))
         balance = request.initial_balance_usdt
         position: Optional[Dict[str, Any]] = None
         trades: List[PaperBacktestTrade] = []
@@ -931,6 +939,16 @@ class PaperTradingService:
                             position["stop_loss"] = max(position["stop_loss"], position["entry_price"])
 
                 exit_price, close_reason = self._backtest_exit_price(position, candle)
+                if proactive_exit and not close_reason:
+                    exit_price, close_reason = self._backtest_proactive_exit_price(
+                        position,
+                        idx,
+                        candle,
+                        closes,
+                        ema_fast,
+                        ema_slow,
+                        rsi,
+                    )
                 if close_reason:
                     fee = position["position_size_usdt"] * request.fee_rate
                     fees_paid += fee
@@ -1098,6 +1116,11 @@ class PaperTradingService:
         stop_distance_pct = abs(entry_price - stop_loss) / entry_price
         reward_distance_pct = abs(take_profit - entry_price) / entry_price
         risk_reward_ratio = reward_distance_pct / stop_distance_pct if stop_distance_pct else 0.0
+        bucket = self._bucket_for_symbol(signal.symbol)
+
+        liquidity_reject = await self._liquidity_reject_reason(signal.symbol, bucket)
+        if liquidity_reject:
+            return None, self._reject(signal, liquidity_reject["reason"], liquidity_reject)
 
         if stop_distance_pct <= 0 or stop_distance_pct > cfg["max_stop_pct"]:
             return None, self._reject(
@@ -1120,7 +1143,6 @@ class PaperTradingService:
                 {"risk_reward_ratio": risk_reward_ratio, "min_rr": cfg["min_rr"]},
             )
 
-        bucket = self._bucket_for_symbol(signal.symbol)
         sizing_cfg = self._sizing_config_for_bucket(cfg, bucket)
         position_size_usdt = self._position_size_usdt(stop_distance_pct, sizing_cfg)
         leverage = self._max_leverage_for_symbol(signal.symbol, bucket)
@@ -1299,6 +1321,8 @@ class PaperTradingService:
 
             pnl_usdt, pnl_percent = self._pnl(trade, price)
             close_reason = self._exit_reason(trade, price)
+            if not close_reason:
+                close_reason = await self._dynamic_exit_reason(trade, price)
             if close_reason:
                 self._close_trade(trade, price, close_reason)
                 continue
@@ -1350,6 +1374,41 @@ class PaperTradingService:
                 return "stop_loss"
             if price <= plan.take_profit:
                 return "take_profit"
+        return None
+
+    async def _dynamic_exit_reason(self, trade: PaperTradeRecord, price: float) -> Optional[str]:
+        if os.getenv("PAPER_TRADING_DYNAMIC_EXIT_ENABLED", "true").lower() not in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            return None
+        plan = trade.plan
+        try:
+            trading_service = await get_core_trading_service()
+            signal = await trading_service.analyze_symbol(
+                symbol=plan.symbol,
+                analysis_type=AnalysisType.TECHNICAL_ONLY,
+                force_update=True,
+            )
+        except Exception as exc:
+            logger.debug("Dynamic exit analysis failed for %s: %s", plan.symbol, exc)
+            return None
+        if not signal:
+            return None
+
+        signal_side = self._action_to_side(signal.final_action)
+        confidence = float(signal.final_confidence or 0.0)
+        pnl_usdt, _ = self._pnl(trade, price)
+        risk_usdt = max(plan.max_loss_usdt, 1e-9)
+
+        if signal_side and signal_side != plan.side and confidence >= 0.55:
+            return "signal_reversal"
+        if plan.side == PaperTradeSide.LONG and signal_side != PaperTradeSide.LONG and pnl_usdt > risk_usdt * 0.35:
+            return "signal_fade_take_profit"
+        if plan.side == PaperTradeSide.SHORT and signal_side != PaperTradeSide.SHORT and pnl_usdt > risk_usdt * 0.35:
+            return "signal_fade_take_profit"
         return None
 
     async def _get_current_price(self, symbol: str) -> Optional[float]:
@@ -1608,6 +1667,44 @@ class PaperTradingService:
                 return position["take_profit"], "take_profit"
         return None, None
 
+    def _backtest_proactive_exit_price(
+        self,
+        position: Dict[str, Any],
+        idx: int,
+        candle: Dict[str, Any],
+        closes: List[float],
+        ema_fast: List[Optional[float]],
+        ema_slow: List[Optional[float]],
+        rsi: List[Optional[float]],
+    ) -> Tuple[Optional[float], Optional[str]]:
+        side = position["side"]
+        if side != PaperTradeSide.LONG:
+            return None, None
+
+        fast = ema_fast[idx]
+        slow = ema_slow[idx]
+        prev_fast = ema_fast[idx - 1] if idx > 0 else None
+        prev_slow = ema_slow[idx - 1] if idx > 0 else None
+        cur_rsi = rsi[idx]
+        prev_rsi = rsi[idx - 1] if idx > 0 else None
+        close = candle["close"]
+        pnl = self._backtest_pnl(position, close)
+        risk_usdt = max(position["risk_per_unit"] * position["quantity"], 1e-9)
+
+        if fast is not None and slow is not None:
+            if prev_fast is not None and prev_slow is not None and prev_fast >= prev_slow and fast < slow:
+                return close, "trend_reversal"
+            if close < slow and cur_rsi is not None and cur_rsi < 48:
+                return close, "trend_breakdown"
+
+        if pnl > risk_usdt * 0.35 and fast is not None and close < fast:
+            if prev_rsi is not None and cur_rsi is not None and prev_rsi >= 55 and cur_rsi < 55:
+                return close, "momentum_fade_take_profit"
+
+        if len(closes) > 1 and pnl > 0 and close < closes[idx - 1] and fast is not None and close < fast:
+            return close, "profit_protection"
+        return None, None
+
     @staticmethod
     def _backtest_pnl(position: Optional[Dict[str, Any]], price: float) -> float:
         if not position:
@@ -1666,6 +1763,70 @@ class PaperTradingService:
             raise ValueError("exchange service is not available")
         return exchange
 
+    async def _liquidity_reject_reason(
+        self, symbol: str, bucket: PaperPortfolioBucket
+    ) -> Optional[Dict[str, Any]]:
+        try:
+            exchange = await self._ensure_exchange()
+            tickers = await exchange.get_tickers("SWAP")
+            ticker = self._ticker_map(tickers).get(symbol.upper())
+        except Exception as exc:
+            logger.debug("Liquidity gate skipped for %s: %s", symbol, exc)
+            return None
+        if not ticker:
+            return {"reason": "symbol_not_tradeable", "symbol": symbol}
+
+        volume_usdt = self._ticker_volume_usdt(ticker)
+        ranked_assets, source = await self._get_market_cap_ranked_assets()
+        rank_by_base = {
+            str(item.get("symbol", "")).upper(): int(item.get("market_cap_rank") or 9999)
+            for item in ranked_assets
+            if item.get("symbol")
+        }
+        rank = rank_by_base.get(self._base_asset(symbol))
+
+        if bucket == PaperPortfolioBucket.CORE:
+            if volume_usdt < self.MIN_CORE_VOLUME_USDT:
+                return {
+                    "reason": "core_volume_too_low",
+                    "volume_24h_usdt": volume_usdt,
+                    "min_volume_24h_usdt": self.MIN_CORE_VOLUME_USDT,
+                    "market_cap_rank": rank,
+                    "market_cap_source": source,
+                }
+            if rank and rank > self.MAX_CORE_MARKET_CAP_RANK:
+                return {
+                    "reason": "core_market_cap_rank_too_low",
+                    "volume_24h_usdt": volume_usdt,
+                    "market_cap_rank": rank,
+                    "max_market_cap_rank": self.MAX_CORE_MARKET_CAP_RANK,
+                    "market_cap_source": source,
+                }
+            return None
+
+        min_volume = (
+            self.MIN_SATELLITE_VOLUME_USDT
+            if rank and rank <= self.MAX_SATELLITE_MARKET_CAP_RANK
+            else self.MIN_UNRANKED_SATELLITE_VOLUME_USDT
+        )
+        if volume_usdt < min_volume:
+            return {
+                "reason": "satellite_volume_too_low",
+                "volume_24h_usdt": volume_usdt,
+                "min_volume_24h_usdt": min_volume,
+                "market_cap_rank": rank,
+                "market_cap_source": source,
+            }
+        if rank and rank > self.MAX_SATELLITE_MARKET_CAP_RANK:
+            return {
+                "reason": "satellite_market_cap_rank_too_low",
+                "volume_24h_usdt": volume_usdt,
+                "market_cap_rank": rank,
+                "max_market_cap_rank": self.MAX_SATELLITE_MARKET_CAP_RANK,
+                "market_cap_source": source,
+            }
+        return None
+
     @staticmethod
     def _ticker_map(tickers: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
         result = {}
@@ -1676,11 +1837,15 @@ class PaperTradingService:
         return result
 
     async def _get_market_cap_ranked_assets(self) -> Tuple[List[Dict[str, Any]], str]:
+        cached_assets, cached_at = self._market_cap_cache
+        if cached_assets and datetime.now() - cached_at < self.MARKET_CAP_CACHE_TTL:
+            return cached_assets, "coingecko_market_cap_cache"
+
         url = "https://api.coingecko.com/api/v3/coins/markets"
         params = {
             "vs_currency": "usd",
             "order": "market_cap_desc",
-            "per_page": "25",
+            "per_page": "250",
             "page": "1",
             "sparkline": "false",
         }
@@ -1692,6 +1857,7 @@ class PaperTradingService:
                         return [], "coingecko_error"
                     data = await response.json()
                     if isinstance(data, list):
+                        self._market_cap_cache = (data, datetime.now())
                         return data, "coingecko_market_cap"
         except Exception as exc:
             logger.warning("CoinGecko market cap fetch failed: %s", exc)
@@ -1719,6 +1885,8 @@ class PaperTradingService:
             if symbol not in ticker_map or symbol in seen:
                 continue
             rank = int(item.get("market_cap_rank") or 999)
+            if rank > self.MAX_CORE_MARKET_CAP_RANK:
+                continue
             assets.append(
                 self._universe_asset(
                     symbol,
@@ -1769,6 +1937,11 @@ class PaperTradingService:
         max_symbols: int,
     ) -> List[PaperUniverseAsset]:
         candidates = []
+        rank_by_base = {
+            str(item.get("symbol", "")).upper(): int(item.get("market_cap_rank") or 9999)
+            for item in self._market_cap_cache[0]
+            if item.get("symbol")
+        }
         for symbol, ticker in ticker_map.items():
             base = self._base_asset(symbol)
             if symbol in excluded_symbols or base in self.STABLE_OR_WRAPPED_ASSETS:
@@ -1776,14 +1949,22 @@ class PaperTradingService:
             volume_usdt = self._ticker_volume_usdt(ticker)
             change_pct = self._ticker_change_percent(ticker)
             price = self._ticker_price(ticker)
-            if volume_usdt < 10_000_000 or price <= 0:
+            market_cap_rank = rank_by_base.get(base)
+            min_volume = (
+                self.MIN_SATELLITE_VOLUME_USDT
+                if market_cap_rank and market_cap_rank <= self.MAX_SATELLITE_MARKET_CAP_RANK
+                else self.MIN_UNRANKED_SATELLITE_VOLUME_USDT
+            )
+            if volume_usdt < min_volume or price <= 0:
+                continue
+            if market_cap_rank and market_cap_rank > self.MAX_SATELLITE_MARKET_CAP_RANK:
                 continue
             range_pct = self._ticker_range_percent(ticker)
             momentum = max(0.0, change_pct)
             score = momentum * 3 + min(volume_usdt / 10_000_000, 50) + range_pct
             if change_pct < 2.0 and range_pct < 5.0:
                 continue
-            candidates.append((score, symbol, ticker))
+            candidates.append((score, symbol, ticker, market_cap_rank))
 
         candidates.sort(reverse=True, key=lambda item: item[0])
         return [
@@ -1793,8 +1974,9 @@ class PaperTradingService:
                 ticker,
                 score,
                 "high liquidity plus positive momentum/range expansion",
+                market_cap_rank=market_cap_rank,
             )
-            for score, symbol, ticker in candidates[:max_symbols]
+            for score, symbol, ticker, market_cap_rank in candidates[:max_symbols]
         ]
 
     def _universe_asset(

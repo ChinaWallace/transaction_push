@@ -1,7 +1,8 @@
 import pytest
 
-from app.schemas.paper_trading import PaperPortfolioBucket, PaperTradingMode
+from app.schemas.paper_trading import PaperPortfolioBucket, PaperTradeSide, PaperTradingMode
 from app.schemas.trading import SignalStrength, TradingSignal
+from app.services.notification.core_notification_service import CoreNotificationService, NotificationPriority
 from app.services.trading.paper_trading_service import PaperTradingService
 
 
@@ -52,3 +53,32 @@ def test_partial_take_profit_only_for_long_1r_target():
 
     assert PaperTradingService._partial_take_profit_price(position, {"high": 104.9}) is None
     assert PaperTradingService._partial_take_profit_price(position, {"high": 105.0}) == 105.0
+
+
+def test_backtest_proactive_exit_on_trend_breakdown():
+    service = PaperTradingService()
+    position = {
+        "side": PaperTradeSide.LONG,
+        "entry_price": 100.0,
+        "quantity": 1.0,
+        "risk_per_unit": 5.0,
+    }
+
+    price, reason = service._backtest_proactive_exit_price(
+        position=position,
+        idx=2,
+        candle={"close": 96.0},
+        closes=[101.0, 99.0, 96.0],
+        ema_fast=[None, 100.0, 98.0],
+        ema_slow=[None, 99.0, 99.5],
+        rsi=[None, 52.0, 44.0],
+    )
+
+    assert price == 96.0
+    assert reason == "trend_reversal"
+
+
+def test_priority_strings_are_normalized_for_notifications():
+    assert CoreNotificationService._coerce_priority("high") == NotificationPriority.HIGH
+    assert CoreNotificationService._coerce_priority("4") == NotificationPriority.HIGH
+    assert CoreNotificationService._coerce_priority("bad-value") == NotificationPriority.NORMAL

@@ -146,23 +146,14 @@ class CoreNotificationService:
         # 处理不同类型的消息
         if isinstance(message, NotificationContent):
             actual_message = message.message
-            if isinstance(priority, NotificationPriority):
-                priority_value = priority
-            else:
-                priority_value = message.priority
+            priority_value = self._coerce_priority(message.priority)
         elif isinstance(message, dict):
             # 预构建的卡片数据，直接使用
             actual_message = "预构建卡片"
-            if isinstance(priority, int):
-                priority_value = NotificationPriority(priority)
-            else:
-                priority_value = priority
+            priority_value = self._coerce_priority(priority)
         else:
             actual_message = str(message)
-            if isinstance(priority, int):
-                priority_value = NotificationPriority(priority)
-            else:
-                priority_value = priority
+            priority_value = self._coerce_priority(priority)
         
         # 默认使用所有可用渠道
         if channels is None:
@@ -194,6 +185,32 @@ class CoreNotificationService:
                     results[channel_name] = result
         
         return results
+
+    @staticmethod
+    def _coerce_priority(priority: Union[NotificationPriority, int, str, None]) -> NotificationPriority:
+        if isinstance(priority, NotificationPriority):
+            return priority
+        if isinstance(priority, int):
+            try:
+                return NotificationPriority(priority)
+            except ValueError:
+                return NotificationPriority.NORMAL
+        if isinstance(priority, str):
+            normalized = priority.strip().lower()
+            name_map = {
+                "low": NotificationPriority.LOW,
+                "normal": NotificationPriority.NORMAL,
+                "medium": NotificationPriority.MEDIUM,
+                "high": NotificationPriority.HIGH,
+                "urgent": NotificationPriority.URGENT,
+            }
+            if normalized in name_map:
+                return name_map[normalized]
+            try:
+                return NotificationPriority(int(normalized))
+            except (TypeError, ValueError):
+                return NotificationPriority.NORMAL
+        return NotificationPriority.NORMAL
     
     async def _send_feishu(self, message: Union[str, NotificationContent, Dict[str, Any]], priority: NotificationPriority) -> bool:
         """发送飞书卡片消息 - 支持 NotificationContent 对象和预构建卡片"""
