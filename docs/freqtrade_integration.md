@@ -1,22 +1,19 @@
-# Freqtrade Integration
+# BTC/ETH Freqtrade Dry-run Baseline
 
-This project integrates Freqtrade as an external execution engine. It prefers
-Docker when available, and falls back to the native `freqtrade` CLI installed in
-the project venv. The local app remains the signal and notification layer;
-Freqtrade handles data download, backtesting, dry-run, and optional live trading.
+This project uses Freqtrade for BTC/ETH data download, backtesting, and dry-run
+forward validation. Live trading is deliberately disabled. The baseline is
+Binance USDT perpetual futures, 4h, long-only, isolated margin, and 1x leverage.
 
 ## Files
 
 - `freqtrade/docker-compose.yml`: Docker service for Freqtrade.
-- `freqtrade/user_data/config.dryrun.example.json`: safe dry-run config.
-- `freqtrade/user_data/strategies/OpenSourceTrendStrategy.py`: default conservative
-  replacement strategy using common open-source Freqtrade building blocks.
+- `freqtrade/user_data/config.btc_eth.dryrun.example.json`: enforced dry-run config.
+- `freqtrade/user_data/strategies/BtcEth4hStrategy.py`: default research strategy.
 - `freqtrade/user_data/strategies/TransactionPushSignalStrategy.py`: Freqtrade-native
   strategy input for the project signal stack, kept for comparison backtests.
 - `freqtrade/user_data/strategies/TransactionPushBridgeStrategy.py`: conservative
   starter strategy kept for sanity checks.
-- `scripts/freqtrade_signal_backtest.py`: multi-pair long-range backtest runner
-  and losing-logic filter report.
+- `scripts/freqtrade_signal_backtest.py`: BTC/ETH backtest runner and report.
 - `app/api/freqtrade.py`: API endpoints under `/api/freqtrade`.
 
 ## Backend Selection
@@ -34,10 +31,6 @@ $env:FREQTRADE_BACKEND="native"
 $env:FREQTRADE_BIN="D:\workProjects\transaction_push\.venv\Scripts\freqtrade.exe"
 ```
 
-The checked-in dry-run config includes `aiohttp_proxy` set to
-`http://127.0.0.1:7890`, matching this project's local proxy setup. Remove or
-change that value if your machine does not use that proxy.
-
 ## Typical Flow
 
 Check readiness:
@@ -51,7 +44,7 @@ Download futures data:
 ```powershell
 curl -X POST http://localhost:8000/api/freqtrade/download-data `
   -H "Content-Type: application/json" `
-  -d "{\"pairs\":[\"BTC-USDT-SWAP\",\"ETH-USDT-SWAP\"],\"timeframes\":[\"5m\",\"1h\"],\"timerange\":\"20240101-20240501\"}"
+  -d "{\"pairs\":[\"BTC-USDT-SWAP\",\"ETH-USDT-SWAP\"],\"timeframes\":[\"4h\"],\"timerange\":\"20240101-20240501\"}"
 ```
 
 Run a backtest:
@@ -59,39 +52,19 @@ Run a backtest:
 ```powershell
 curl -X POST http://localhost:8000/api/freqtrade/backtest `
   -H "Content-Type: application/json" `
-  -d "{\"strategy\":\"OpenSourceTrendStrategy\",\"timeframe\":\"1h\",\"timerange\":\"20230101-20260501\"}"
+  -d "{\"strategy\":\"BtcEth4hStrategy\",\"timeframe\":\"4h\",\"timerange\":\"20230101-20260501\"}"
 ```
 
-Run the old project signal strategy across a wider coin basket and filter
-losing logic:
+Run the same baseline directly:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\freqtrade_signal_backtest.py `
   --timerange 20230101-20260501 `
-  --timeframe 1h `
-  --enable-protections
+  --timeframe 4h
 ```
 
-The script downloads the requested futures data unless `--skip-download` is
-provided, runs the `baseline`, `strict_quality`, and `trend_follow` threshold
-variants, then writes a report under `backtest_results/freqtrade_signal_filter_*`.
-Use the report's `losing_pairs` and negative variant totals to remove weak coin
-selection or threshold logic before dry-run trading.
-
-Run the selective 4h optimized portfolio:
-
-```powershell
-.\.venv\Scripts\python.exe -m freqtrade backtesting `
-  --config freqtrade\user_data\config.portfolio4h.optimized.example.json `
-  --userdir freqtrade\user_data `
-  --strategy CoreAltPortfolio4hOptimizedStrategy `
-  --timeframe 4h `
-  --timerange 20230101-20260501 `
-  --cache none `
-  --enable-protections `
-  --export trades `
-  --pairs BTC/USDT:USDT ZEC/USDT:USDT
-```
+The script rejects every pair other than BTC and ETH, enables protections by
+default, and writes a report under `backtest_results/freqtrade_signal_filter_*`.
 
 Start dry-run bot:
 
@@ -101,8 +74,8 @@ curl -X POST http://localhost:8000/api/freqtrade/bot/start `
   -d "{\"mode\":\"dry_run\"}"
 ```
 
-Without Docker, this starts a native detached Freqtrade process. Native stop is
-not managed by this project yet; Docker backend supports `/bot/stop`.
+Without Docker, this starts a native detached Freqtrade process. Both backends
+support `/bot/stop`.
 
 Stop bot:
 
@@ -110,14 +83,14 @@ Stop bot:
 curl -X POST http://localhost:8000/api/freqtrade/bot/stop
 ```
 
-## Live Trading Guardrails
+## Safety Boundary
 
-Do not edit the checked-in dry-run config for real keys. Copy it locally:
+The application checks the config contents before every managed download,
+backtest, or bot start. It requires exactly BTC and ETH, `dry_run=true`, 4h,
+isolated futures, at most two positions, and a disabled Freqtrade API server.
+Requests for other strategies, pairs, timeframes, configs, or live mode fail
+closed. Do not put exchange keys into the checked-in example config.
 
-```powershell
-Copy-Item freqtrade\user_data\config.dryrun.example.json freqtrade\user_data\config.local.json
-```
-
-Then set real exchange keys in `config.local.json`, set `"dry_run": false`, and
-review risk settings. Live trading is blocked unless the API request includes
-`"confirm_live": true`, and it refuses to use `config.dryrun.example.json`.
+Before live trading can be introduced, add authenticated administration,
+testnet evidence, persistent order state, idempotency, stale-market-data checks,
+daily-loss and drawdown circuit breakers, and an audited manual kill switch.

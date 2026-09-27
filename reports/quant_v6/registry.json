@@ -1,0 +1,48 @@
+{
+  "updated_ms": 1790301907261,
+  "limit": 3,
+  "entries": [
+    {
+      "strategy": "M4Structure",
+      "family": "M4",
+      "eligible": true,
+      "score": 0.0023479393955271165,
+      "rejections": [],
+      "status": "historical_gates_passed",
+      "missing": [],
+      "failed": [],
+      "execution": "research_only",
+      "forward_status": "not_started",
+      "note": "This is a retained research candidate, not permission to replace the paper or live account"
+    },
+    {
+      "strategy": "A1Fixed",
+      "family": "A1",
+      "eligible": true,
+      "score": 0.0018246818469359193,
+      "rejections": [],
+      "status": "historical_gates_passed",
+      "missing": [],
+      "failed": [],
+      "execution": "research_only",
+      "forward_status": "not_started",
+      "note": "This is a retained research candidate, not permission to replace the paper or live account"
+    },
+    {
+      "strategy": "D55ClosedTrail",
+      "family": "D55",
+      "eligible": true,
+      "score": 0.001320851859129333,
+      "rejections": [],
+      "status": "historical_gates_passed",
+      "missing": [],
+      "failed": [],
+      "execution": "research_only",
+      "forward_status": "not_started",
+      "note": "This is a retained research candidate, not permission to replace the paper or live account"
+    }
+  ],
+  "live_enabled": false,
+  "paper_strategy_replaced": false,
+  "promotion_rule": "Selected candidates also need positive reused-holdout and challenge2025 returns under base and double cost, <=35% drawdown and >=10 trades in each independent period. These are historical research gates only; keep live disabled. New forward observations are still required."
+}

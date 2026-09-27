@@ -1,0 +1,187 @@
+{
+  "validated_at": "2026-09-24T14:51:51.761855+00:00",
+  "tests": {
+    "quant_and_existing_advisory": {
+      "passed": 64,
+      "command": "PYTHONDONTWRITEBYTECODE=1 .venv.quant/bin/python -W error::ResourceWarning -m unittest tests.test_market_advisory tests.test_market_advisory_api tests.test_advisory_portfolio tests.test_quant_futures tests.test_quant_service tests.test_quant_replay -q"
+    },
+    "freqtrade_bridge": {
+      "passed": 5,
+      "command": "PYTHONDONTWRITEBYTECODE=1 .venv.freqtrade-quant/bin/python -W error::ResourceWarning -m unittest tests.test_quant_freqtrade -q"
+    }
+  },
+  "http_smoke": {
+    "contracts": 200,
+    "replay": 200,
+    "paper": 200,
+    "dashboard": 200,
+    "report": 200
+  },
+  "freqtrade": {
+    "version": "2026.8",
+    "configuration_schema": "passed",
+    "strategy_discovery": "passed",
+    "dry_run": true,
+    "live_enabled": false,
+    "bot_started": false
+  },
+  "native_rest_paper_cycle": {
+    "command": ".venv.quant/bin/python scripts/quant_portfolio.py cycle",
+    "exit_code": 0,
+    "collection": {
+      "required_histories": 310,
+      "refreshed_histories": 0,
+      "history_errors": {},
+      "market_cap_error": null
+    },
+    "paper_cycle": {
+      "at": "2026-09-24T14:48:17.963000+00:00",
+      "status": "duplicate_signal",
+      "fresh_plan": true,
+      "missing_funding": [],
+      "observation_gap_seconds": 388.614,
+      "unobserved_stop_interval": true,
+      "missing_position_quotes": [],
+      "pending_funding_debts": [],
+      "equity": 10179.421771279181,
+      "wallet": 9994.747771781247,
+      "margin": 4822.197748768643,
+      "positions": {
+        "NEARUSDT": {
+          "quantity": 421.371157907511,
+          "entry": 4.2751364999999995,
+          "leverage": 2,
+          "margin": 900.7096086088319,
+          "stop": 3.3781800000000004,
+          "opened_at": 1790231844639,
+          "pnl": -1.0843380762246473,
+          "funding": 0.18362846761581547
+        },
+        "ZECUSDT": {
+          "quantity": 1.0667825890082927,
+          "entry": 1522.54089,
+          "leverage": 2,
+          "margin": 812.1100562525951,
+          "stop": 1168.44,
+          "opened_at": 1790231844639,
+          "pnl": -0.9748748069838321,
+          "funding": 0.16276475073123695
+        },
+        "UNIUSDT": {
+          "quantity": 180.15818123275295,
+          "entry": 9.302648999999999,
+          "leverage": 2,
+          "margin": 837.9741622433439,
+          "stop": 7.20564,
+          "opened_at": 1790231844639,
+          "pnl": -0.9257291825161602,
+          "funding": 0.0877550202728162
+        },
+        "AKEUSDT": {
+          "quantity": 14157.203660873678,
+          "entry": 0.0406993395,
+          "leverage": 1,
+          "margin": 576.1888381645407,
+          "stop": 0.03380598,
+          "opened_at": 1790231844639,
+          "pnl": -0.36491814440882536,
+          "funding": 0.07682372532655501
+        },
+        "AVAXUSDT": {
+          "quantity": 166.95028188417777,
+          "entry": 10.2661305,
+          "leverage": 2,
+          "margin": 856.9666904173773,
+          "stop": 8.00358,
+          "opened_at": 1790231844639,
+          "pnl": -0.8957259293552269,
+          "funding": 0.0387592389378495
+        },
+        "BCHUSDT": {
+          "quantity": 4.9355216538115645,
+          "entry": 339.679755,
+          "leverage": 2,
+          "margin": 838.2483930819535,
+          "stop": 263.1642,
+          "opened_at": 1790231844639,
+          "pnl": -1.0066420792642918,
+          "funding": 0.16839368618233835
+        }
+      },
+      "fills_total": 6,
+      "mode": "paper",
+      "live": false,
+      "valuation_complete": true
+    },
+    "earlier_http_451_resolved_at_this_check": true
+  },
+  "coverage": {
+    "contracts": 727,
+    "by_contract_type": {
+      "PERPETUAL": 527,
+      "TRADIFI_PERPETUAL": 200
+    },
+    "by_asset_class": {
+      "COIN": 525,
+      "INDEX": 2,
+      "COMMODITY": 8,
+      "EQUITY": 162,
+      "PREMARKET": 4,
+      "KR_EQUITY": 8,
+      "HK_EQUITY": 15,
+      "CN_EQUITY": 2,
+      "FX": 1
+    },
+    "histories": 361,
+    "market_caps_verified": 66,
+    "actions": {
+      "candidate": 122,
+      "stop_too_close_to_liquidation": 6,
+      "excluded": 468,
+      "wait_pullback": 4,
+      "wait_trend": 66,
+      "below_rank_threshold": 56,
+      "data_unavailable": 5
+    },
+    "missing_eligible_histories": []
+  },
+  "ui_checks": [
+    "SKHYUSDT and SKHYNIXUSDT searchable",
+    "seven replay cases match JSON summary",
+    "entry range, stop, target weight and leverage visible",
+    "paper positions and stale valuation/observation gap labels visible"
+  ],
+  "scope_limits": [
+    "Current-universe and current-turnover selection bias remains",
+    "Historical market caps unavailable",
+    "Daily OHLC and liquidation approximations",
+    "No continuous forward performance record; observation gaps recorded",
+    "No live orders, notifications, or sustained bot process",
+    "Original full database/ML application startup not validated"
+  ],
+  "sha256": {
+    "app/quant/__init__.py": "ec608cd15bb5611b7b39856da5f1decee763d651720971a01bb02b75c36fa899",
+    "app/quant/api.py": "a20c669967da99443b4aa56174ff9c0e88e2da990a6e73cb2eacb1d6af2b410e",
+    "app/quant/backtest.py": "bd65e3fb028fdfa4a618ff964ac2d31d5ad47bc3d52e4110754542276ac7970d",
+    "app/quant/data.py": "6534ebe6a24b30574f36e01a6b9ddb249a6350925e7eb6a3726589de6a970422",
+    "app/quant/futures_book.py": "563f0fc3da441595a0e32069bdd167afc4425862d8c29f5425f8c0b801beb935",
+    "app/quant/futures_replay.py": "45c7fdb00a2706f0e44047bb5ac654ef7c995e932000e22fd32de3e5d3408909",
+    "app/quant/market.py": "0988abe450ae73ef064173d96f3c428cf0c10a9ce8c810b13ecfecafbb9bc1e1",
+    "app/quant/portfolio.py": "3c5a9e50ecbf866b06a89a3d6ed13dd095235a10793db357205e2d823a9cabb0",
+    "app/quant/service.py": "820f1ef58cb2b552d67530b1c070287ecca4d8eca4a8a1ee2a4e9339a8d5521e",
+    "app/quant/strategy.py": "8c4ffe178eb158e1139dfe60aa4da1602f8905922b53135bbee33d368163fae3",
+    "app/quant/universe.py": "a3240f2bc40b1e84591129e2be4b537a20558b7e5e1ef678e3aaddf8e0361b60",
+    "tests/test_quant_freqtrade.py": "1694d019c52576effd38530b6fa05b748ae705ee343f4e65fcf371e916a9deb5",
+    "tests/test_quant_futures.py": "45c1053c7734394ed7e8e8334eba7198bdc69eda80fd24cc2f770be15f6e7a33",
+    "tests/test_quant_replay.py": "7c4bc5b9e4a2a688952e91d779e050606c20516d1b7b4f163725afc241df2a8c",
+    "tests/test_quant_service.py": "9b05cf52b83418d710a4615fc59abcbc75d7edfbdd8b0f03c3f9ba1806542483",
+    "scripts/quant_portfolio.py": "404945a889965942e08bded3f4c7ce826f75a9c732422a7aa1126b6e2fef3be1",
+    "scripts/backtest_quant_contracts.py": "6064df9b256aeeb1b79f72e3bcec4e04818af92bc0f2de7f756545674d7991dd",
+    "docs/quant_dashboard.html": "9ce995e3f9383ce47b0e63ce95afd9486369defa6349d61790e82035ab62180c",
+    "freqtrade/user_data/strategies/QuantFuturesPortfolioStrategy.py": "ed0b66032e27081c8cbd3d8ddffe21dd5b649afea717a609a64a9a19985ca78e",
+    "config/requirements.quant-api.lock.txt": "9665ea6680b045e1b7dcee55a9efd3ebdc50342dd758bada04298cd7fb848a0b",
+    "freqtrade/requirements.quant-v3.lock.txt": "10dc743e29b96f2d3f275ceab1d76c14f281875df1e55d1fa7277d4a4bab18d0",
+    "/Users/admin/Documents/workSpaces/transaction_push/reports/quant_v3/contracts/replay.json": "2e3f035e85567f681e8734f6369e3e5fcd8863fe3c35eedd087987cee5cf3533",
+    "/Users/admin/Documents/workSpaces/transaction_push/reports/quant_v3/contracts/replay_summary.json": "411f825ee2c81c3320fad6f657f02431c8876820e526848f5667933a92a68626"
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "frozen_ms": 1790300805251,
+  "sources": {
+    "research/strategies/ComparisonStrategies.py": "4cdb10ff384326ecf249393b15036b37cf718576b7db123c416cec9aafa10141",
+    "research/strategies/StopComparisonStrategies.py": "3b27cbfbf37cc450a33fd56cd60a90abc375596883e2887bac28e01d9319f6c0",
+    "app/quant/stop_profiles.py": "2d13e6eb007a0a3f93190a7c1a528cc57302ee01966c53ef64211d8464eb1e9a"
+  },
+  "strategies": [
+    "D55Legacy",
+    "D55Wide",
+    "D55Fixed",
+    "D55ClosedTrail",
+    "D55Structure",
+    "E4Legacy",
+    "E4Wide",
+    "E4Fixed",
+    "E4ClosedTrail",
+    "E4Structure",
+    "A1Legacy",
+    "A1Wide",
+    "A1Fixed",
+    "A1ClosedTrail",
+    "A1Structure",
+    "M4Legacy",
+    "M4Wide",
+    "M4Fixed",
+    "M4ClosedTrail",
+    "M4Structure"
+  ],
+  "families": {
+    "D55": "Donchian55",
+    "E4": "EMA4h",
+    "A1": "ADXBreakout1h",
+    "M4": "MTFFourHourExit"
+  },
+  "windows": {
+    "development": "20260101-20260501",
+    "validation": "20260501-20260701",
+    "reused_holdout": "20260701-20260924",
+    "full": "20260101-20260924",
+    "challenge2025": "20250101-20260101"
+  },
+  "fees": [
+    0.001,
+    0.002
+  ],
+  "leverage": 1,
+  "capital": 10000,
+  "wallet_budget": 0.7,
+  "max_retained": 3,
+  "stop_profiles": {
+    "Legacy": "Unchanged v5 intrabar high, initial2.5/trail3 ATR",
+    "Wide": "Only ATR distances changed to initial4/trail5; same intrabar-high assumption",
+    "Fixed": "Entry-time 3.5 strategy-frame ATR, no stop ratchet, same signal exits",
+    "ClosedTrail": "Entry3.5ATR; activate after2 entryATR profit in completed strategy candles; closed-high minus4 currentATR",
+    "Structure": "Previous10 completed strategy lows minus0.5ATR; monotone updates after completed strategy bars"
+  },
+  "selection_rule": "For each family choose at most one policy with positive net returns in development and validation, positive double-cost validation, <=35% sampled mark DD in each, >=12 combined development+validation trades, reconciled cash flows. Rank by minimum of per-day log return divided by (0.05+drawdown) across these 3 cases, then retain top3 families. If none qualify, retain watchlist without promoting.",
+  "promotion_rule": "Selected candidates also need positive reused-holdout and challenge2025 returns under base and double cost, <=35% drawdown and >=10 trades in each independent period. These are historical research gates only; keep live disabled. New forward observations are still required.",
+  "limitations": [
+    "All 2026 data was inspected in v5: July-Sep is reused historical validation, NOT a new untouched holdout",
+    "2025 is a newly inspected historical challenge, not true live forward performance",
+    "20 fixed stop variants, no search or retuning after seeing results",
+    "Same family entry and non-stop exits preserved; ClosedTrail/Structure differ in ratchet timing as disclosed",
+    "OHLC fills retain Freqtrade gap and within-bar assumptions; no exchange tick reconstruction",
+    "Three user-picked coins do not establish performance for the full Binance contract universe"
+  ]
+}

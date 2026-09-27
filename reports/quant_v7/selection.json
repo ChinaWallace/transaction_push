@@ -1,0 +1,93 @@
+{
+  "created_ms": 1790307072157,
+  "kind": "post_hoc_research_shortlist_not_preregistered_selection",
+  "benchmark": "HoldEqual",
+  "candidates": [
+    "A1SlowHold",
+    "D55SlowHold"
+  ],
+  "assessment": "Positive net return, <=50% 5m MTM drawdown, and outperform equal-three holding in full2026 and full2025 under base and doubled trading costs. The July rally remains a reported weakness, not a new OOS gate.",
+  "details": {
+    "M4SlowHold": {
+      "passed": false,
+      "windows": {
+        "full": {
+          "return_pct": 66.11088066703763,
+          "drawdown_pct": 20.019620267071456,
+          "excess_vs_hold_pp": 24.394840700719
+        },
+        "challenge2025": {
+          "return_pct": 211.146123853806,
+          "drawdown_pct": 35.944978438791466,
+          "excess_vs_hold_pp": 11.683937539312524
+        },
+        "full_double_cost": {
+          "return_pct": 58.60890869568096,
+          "drawdown_pct": 21.673782135975966,
+          "excess_vs_hold_pp": 17.074026448162336
+        },
+        "challenge2025_double_cost": {
+          "return_pct": 186.00721045555076,
+          "drawdown_pct": 37.23287448985475,
+          "excess_vs_hold_pp": -13.129548996542667
+        }
+      }
+    },
+    "A1SlowHold": {
+      "passed": true,
+      "windows": {
+        "full": {
+          "return_pct": 66.20853088722099,
+          "drawdown_pct": 16.953306132572337,
+          "excess_vs_hold_pp": 24.492490920902355
+        },
+        "challenge2025": {
+          "return_pct": 232.45528477640968,
+          "drawdown_pct": 33.70768338127416,
+          "excess_vs_hold_pp": 32.99309846191622
+        },
+        "full_double_cost": {
+          "return_pct": 60.91810151349022,
+          "drawdown_pct": 17.958263685372312,
+          "excess_vs_hold_pp": 19.383219265971597
+        },
+        "challenge2025_double_cost": {
+          "return_pct": 214.35685981988843,
+          "drawdown_pct": 33.7873761348324,
+          "excess_vs_hold_pp": 15.220100367794998
+        }
+      }
+    },
+    "D55SlowHold": {
+      "passed": true,
+      "windows": {
+        "full": {
+          "return_pct": 59.40348673455227,
+          "drawdown_pct": 16.778898669504038,
+          "excess_vs_hold_pp": 17.687446768233634
+        },
+        "challenge2025": {
+          "return_pct": 247.9998996113862,
+          "drawdown_pct": 33.21606276611255,
+          "excess_vs_hold_pp": 48.53771329689275
+        },
+        "full_double_cost": {
+          "return_pct": 57.65859119960943,
+          "drawdown_pct": 17.15549626176664,
+          "excess_vs_hold_pp": 16.12370895209081
+        },
+        "challenge2025_double_cost": {
+          "return_pct": 243.62345274064836,
+          "drawdown_pct": 33.23758490293059,
+          "excess_vs_hold_pp": 44.48669328855493
+        }
+      }
+    }
+  },
+  "execution_changed": false,
+  "limitations": [
+    "Retrospective findings need new forward comparison",
+    "These coins and periods already observed",
+    "2x and profit-add results have distinct investment/risk assumptions and are assessed separately"
+  ]
+}

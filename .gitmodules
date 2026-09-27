@@ -1,0 +1,3 @@
+[submodule "research/vendor/NostalgiaForInfinity"]
+	path = research/vendor/NostalgiaForInfinity
+	url = https://github.com/iterativv/NostalgiaForInfinity.git

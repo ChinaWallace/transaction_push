@@ -1,0 +1,487 @@
+{
+  "schema_version": 1,
+  "checked_date": "2026-09-26",
+  "timezone": "Asia/Shanghai",
+  "scope": "公开官方资料的定性候选研究；不包含交易授权、不构成买入建议；不修改策略或已有研究",
+  "candidate_count": 13,
+  "base_symbols_not_reassessed": [
+    "BTC",
+    "ETH",
+    "ZEC"
+  ],
+  "suggested_new_symbols": [
+    "UNI",
+    "SOL",
+    "BNB",
+    "XRP",
+    "LINK",
+    "AAVE",
+    "AVAX",
+    "SUI",
+    "NEAR",
+    "DOT",
+    "ADA",
+    "LTC",
+    "BCH"
+  ],
+  "selection_bias": "名单依据2026-09-26仍知名/存活项目和当前资料作事后筛选，不能作为2025/2026历史时点已知基本面。历史回测扩大到这批币有幸存者、可交易性及选择偏差；应冻结名单与证据日期并另做向前验证。",
+  "classification_note": "first_pass/conditional/comparison是研究优先级判断，不代表均已验证强基本面。官方文档证明机制或部署；采用规模、净利润、估值及投资回报另需验证。",
+  "liquidity_note": "本文件不取得凭证、不查询账户。主线程报告13个新增币当前TRADING及24h名义成交>7600万USDT；市场原始证据由主线程独立留存。TRX当前约4540万USDT，低于事先5000万门槛而不入选；TON SETTLING而排除。24h成交不是跨期流动性/滑点保证。",
+  "perpetual_note": "持有永续合约不获得现货质押、治理、费用分配权益，仍支付或收取资金费。代币价值捕获研究仅为底层资产定性信息。",
+  "excluded": [
+    {
+      "symbol": "TON",
+      "reason": "主线程Binance连接器核实TONUSDT为SETTLING且没有24h ticker，不可纳入可交易池；本次官方TON网站搜索结果出现Gram命名且直接open失败，身份改名/迁移未充分确认，不按ticker猜映射。",
+      "sources": [
+        {
+          "title": "TON ecosystem page",
+          "url": "https://www.ton.org/en",
+          "kind": "official_project_page",
+          "checked_date": "2026-09-26",
+          "notes": "搜索抓取出现Toncoin→Gram；直接打开HTTP530失败，仅作身份待复核标记。"
+        }
+      ]
+    }
+  ],
+  "next_checks": [
+    "以冻结的交易所exchangeInfo证明当前16币(3底仓+13新增)均TRADING USDT永续并保存身份；TRX仅观察，TON排除。",
+    "多日成交/价差/深度、上市历史与资金费成本；避免单日高成交即永久高流动性。",
+    "核对流通及未来解锁、用户真实付费和烧毁/发行净额；按币记录未知，不把未知赋高分。",
+    "评估BTC/ETH/ZEC与新增L1/DeFi共因子风险，扩币数量不保证风险分散。"
+  ],
+  "candidates": [
+    {
+      "symbol": "UNI",
+      "name": "Uniswap",
+      "research_group": "first_pass",
+      "status": "candidate_for_quantitative_screen_not_a_buy_recommendation",
+      "use_case": "多链去中心化现货交易基础设施；UNI治理协议。",
+      "adoption_evidence": "生产中的v2/v3/v4与Unichain；当前官方代币文档说明协议费已在v2/v3启用。",
+      "token_value_capture": "官方当前文档写2025-12开始用协议费烧UNI；无个体或按比例协议收入索取权。当前无活跃通胀，治理有每年最多2%增发权限。",
+      "risks_and_reasons_to_exclude": [
+        "治理可修改费率及价值流；交易量不等于净收入。",
+        "LP竞争/迁移、合约风险；治理增发权限及金库支出仍会造成供给风险。"
+      ],
+      "sources": [
+        {
+          "title": "UNI Token",
+          "url": "https://developers.uniswap.org/docs/ecosystem/governance/uni",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "Protocol Fees",
+          "url": "https://developers.uniswap.org/docs/protocols/protocol-fee/overview",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        }
+      ],
+      "unresolved_flags": []
+    },
+    {
+      "symbol": "SOL",
+      "name": "Solana",
+      "research_group": "first_pass",
+      "status": "candidate_for_quantitative_screen_not_a_buy_recommendation",
+      "use_case": "智能合约、公链结算；SOL支付费用并质押保护网络。",
+      "adoption_evidence": "Visa官方2025-12公告Cross River/Lead Bank已用Solana上的USDC结算，属于真实产品使用而非只列合作Logo。",
+      "token_value_capture": "SOL为原生手续费/质押资产；需求与链活动有关，但低费率、稳定币结算额不自动成为SOL持有人现金流。",
+      "risks_and_reasons_to_exclude": [
+        "质押奖励包含新发行，永续合约不获得现货质押收益。",
+        "网络/验证者及应用集中风险；高频机器人活动不能等同付费真实需求。"
+      ],
+      "sources": [
+        {
+          "title": "Staking and Inflation FAQ",
+          "url": "https://solana.com/staking",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "Visa USDC settlement",
+          "url": "https://corporate.visa.com/en/sites/visa-perspectives/newsroom/visa-launches-stablecoin-settlement-in-the-united-states.html",
+          "kind": "official_customer_announcement",
+          "checked_date": "2026-09-26"
+        }
+      ],
+      "unresolved_flags": []
+    },
+    {
+      "symbol": "BNB",
+      "name": "BNB Chain",
+      "research_group": "first_pass",
+      "status": "candidate_for_quantitative_screen_not_a_buy_recommendation",
+      "use_case": "BSC/opBNB/Greenfield原生手续费、治理与生态资产。",
+      "adoption_evidence": "官方2026-04燃烧报告确认持续运行的Auto-Burn及BSC手续费实时燃烧；未用营销交易量作为采用证明。",
+      "token_value_capture": "Auto-Burn目标供应1亿；BEP95燃烧部分gas费。减少供应不等于交易所利润分红。",
+      "risks_and_reasons_to_exclude": [
+        "生态/验证者及交易所品牌关联集中风险。",
+        "Auto-Burn不等于用户真实付费收入；链费用下降可能削弱使用量到代币的传导。"
+      ],
+      "sources": [
+        {
+          "title": "35th BNB Burn",
+          "url": "https://www.bnbchain.org/en/blog/35th-bnb-burn",
+          "kind": "official_report",
+          "checked_date": "2026-09-26",
+          "notes": "报告日期2026-04-15；不将该日供应数标为今日数据。"
+        }
+      ],
+      "unresolved_flags": []
+    },
+    {
+      "symbol": "XRP",
+      "name": "XRP Ledger",
+      "research_group": "conditional",
+      "status": "candidate_for_quantitative_screen_not_a_buy_recommendation",
+      "use_case": "支付、DEX及资产发行账本；XRP用于费用与账户/对象储备。",
+      "adoption_evidence": "生产账本支持支付、代币与托管功能；Ripple Custody产品文档明确MPT托管需要XRP费用和储备。",
+      "token_value_capture": "交易销毁少量XRP、账户储备锁定XRP；代币化/稳定币使用可能只需要很少XRP，不是Ripple公司现金流索取权。",
+      "risks_and_reasons_to_exclude": [
+        "发行方持仓与托管释放构成流通供给风险；2017托管说明仅用于解释机制，不作当前余额。",
+        "支付/稳定币增长不保证大量XRP长期库存需求。"
+      ],
+      "sources": [
+        {
+          "title": "Transaction Cost",
+          "url": "https://xrpl.org/docs/concepts/transactions/transaction-cost",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "Reserves",
+          "url": "https://xrpl.org/docs/concepts/accounts/reserves",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "MPT escrow in Ripple Custody",
+          "url": "https://docs.ripple.com/products/custody/v1.40/accounts-and-assets/tokenization/xrpl-mpts/issuer/escrow",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "Ripple XRP Escrow",
+          "url": "https://ripple.com/insights/explanation-ripples-xrp-escrow/",
+          "kind": "official_historical_explanation",
+          "checked_date": "2026-09-26"
+        }
+      ],
+      "unresolved_flags": []
+    },
+    {
+      "symbol": "LINK",
+      "name": "Chainlink",
+      "research_group": "first_pass",
+      "status": "candidate_for_quantitative_screen_not_a_buy_recommendation",
+      "use_case": "预言机、跨链CCIP及机构链上链下数据/流程连接。",
+      "adoption_evidence": "Swift官方说明与UBS/Chainlink进行过代币化资产连接试验；不可把试验或Logo都称为规模化生产收入。",
+      "token_value_capture": "Payment Abstraction把服务费兑换LINK；Chainlink Reserve存储由收入支撑的LINK储备。这不是股息或自动销毁。",
+      "risks_and_reasons_to_exclude": [
+        "储备可按规则提取；费用流与币价关系取决于服务收入、节点支付和流通供给。",
+        "必须核对未流通供应释放及实际用户付费，不能用连接资产总价值替代收入。"
+      ],
+      "sources": [
+        {
+          "title": "Chainlink Reserve",
+          "url": "https://chain.link/blog/chainlink-reserve-strategic-link-reserve",
+          "kind": "official_project_announcement",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "Swift digital finance work",
+          "url": "https://www.swift.com/news-events/news/swift-takes-bold-steps-unlock-benefits-digital-finance-global-scale",
+          "kind": "official_customer_announcement",
+          "checked_date": "2026-09-26"
+        }
+      ],
+      "unresolved_flags": []
+    },
+    {
+      "symbol": "AAVE",
+      "name": "Aave",
+      "research_group": "first_pass",
+      "status": "candidate_for_quantitative_screen_not_a_buy_recommendation",
+      "use_case": "链上借贷与GHO；AAVE为治理资产。",
+      "adoption_evidence": "部署多链的借贷协议，官方提供生产市场/合约文档与Umbrella坏账保障。",
+      "token_value_capture": "存在协议收入回购AAVE机制，但买入送DAO储备、可再用于激励/支出，并非销毁或持有人分红。",
+      "risks_and_reasons_to_exclude": [
+        "借贷坏账、抵押资产/桥接及合约风险。",
+        "官方代币文档描述回购，但2026-04治理公告暂停；不能标为截至今日持续执行。",
+        "永续合约无治理/质押收入权益。"
+      ],
+      "sources": [
+        {
+          "title": "AAVE Token",
+          "url": "https://www.aave.com/docs/ecosystem/aave",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "Pause AAVE Buybacks",
+          "url": "https://governance.aave.com/t/arfc-pause-aave-buybacks/24686",
+          "kind": "official_governance_proposal",
+          "checked_date": "2026-09-26",
+          "notes": "2026-04-22公告称自4月19暂停；本次未找到足以证明当前恢复的官方状态。"
+        },
+        {
+          "title": "Umbrella",
+          "url": "https://aave.com/help/umbrella/umbrella",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        }
+      ],
+      "unresolved_flags": [
+        "buyback_current_execution_unverified"
+      ]
+    },
+    {
+      "symbol": "AVAX",
+      "name": "Avalanche",
+      "research_group": "conditional",
+      "status": "candidate_for_quantitative_screen_not_a_buy_recommendation",
+      "use_case": "智能合约及定制L1基础设施；AVAX用于主网gas和质押。",
+      "adoption_evidence": "Securitize官方2025-03说明BUIDL可在Avalanche使用；只是部署/可用性，未推断该链资产规模。",
+      "token_value_capture": "主网及使用AVAX作gas的L1费用烧毁；验证奖励新发行，720M上限并不意味着目前净通缩。",
+      "risks_and_reasons_to_exclude": [
+        "部分定制L1可使用自有gas币，生态增长不全传到AVAX。",
+        "官方文档明确接近上限前通常仍通胀；竞争、L1碎片化及估值风险。"
+      ],
+      "sources": [
+        {
+          "title": "AVAX Token",
+          "url": "https://build.avax.network/docs/primary-network/avax-token",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "Tokenomics FAQ",
+          "url": "https://support.avax.network/en/articles/6912428-tokenomics-faq",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "BUIDL chain availability",
+          "url": "https://investors.securitize.io/news/news-details/2025/BlackRock-and-Securitize-Debut-New-BUIDL-Share-Class-on-Solana-Network-03-25-2025/default.aspx",
+          "kind": "official_customer_announcement",
+          "checked_date": "2026-09-26"
+        }
+      ],
+      "unresolved_flags": []
+    },
+    {
+      "symbol": "SUI",
+      "name": "Sui",
+      "research_group": "conditional",
+      "status": "candidate_for_quantitative_screen_not_a_buy_recommendation",
+      "use_case": "Move对象模型公链、支付/游戏/DeFi；SUI用于gas、质押和链上流动性。",
+      "adoption_evidence": "Circle确认原生USDC已在Sui主网发行并提供官方迁移及DeFi入口。",
+      "token_value_capture": "SUI原生gas/质押角色；存储经济与网络活动相关，不是应用盈利索取权。",
+      "risks_and_reasons_to_exclude": [
+        "总量10B但大量供应按计划逐步释放；当前名单应评估未来解锁而非只看流通市值。",
+        "官方计划为估计且基金会分配影响节奏；年轻生态及智能合约风险。"
+      ],
+      "sources": [
+        {
+          "title": "SUI supply and schedule",
+          "url": "https://www.sui.io/token-schedule",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "Native USDC on Sui",
+          "url": "https://www.circle.com/blog/sui-migration-guide",
+          "kind": "official_customer_announcement",
+          "checked_date": "2026-09-26"
+        }
+      ],
+      "unresolved_flags": []
+    },
+    {
+      "symbol": "NEAR",
+      "name": "NEAR Protocol",
+      "research_group": "conditional",
+      "status": "candidate_for_quantitative_screen_not_a_buy_recommendation",
+      "use_case": "分片智能合约、Intents跨链交易与链抽象基础设施。",
+      "adoption_evidence": "官方Intents集成文档提供实际存入/兑换/提出流程；生态页列Ledger、Trust Wallet等集成，但其自报金额未作为独立验证指标。",
+      "token_value_capture": "原生gas/安全需求，部分合约gas回给开发者；跨链成交额/solver收费不等于NEAR持有人收入。",
+      "risks_and_reasons_to_exclude": [
+        "持续发行、低gas费使使用量到净代币需求的传导不确定。",
+        "跨链桥/solver对手方风险；最新发行比例未独立核对链上参数，不采用旧5%或提案2.5%作今日事实。"
+      ],
+      "sources": [
+        {
+          "title": "NEAR blockchain",
+          "url": "https://www.near.org/blockchain",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "Intents integration",
+          "url": "https://docs.near.org/tutorials/intents/introduction",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "Intents bridge risks",
+          "url": "https://docs.near.org/chain-abstraction/intents/intents-bridge",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "Intents integrations",
+          "url": "https://intents.near.org/overview",
+          "kind": "official_ecosystem_page",
+          "checked_date": "2026-09-26"
+        }
+      ],
+      "unresolved_flags": [
+        "current_issuance_rate_unverified"
+      ]
+    },
+    {
+      "symbol": "DOT",
+      "name": "Polkadot",
+      "research_group": "comparison",
+      "status": "candidate_for_quantitative_screen_not_a_buy_recommendation",
+      "use_case": "共享安全、跨链及Coretime计算资源；DOT用于质押、治理、Coretime。",
+      "adoption_evidence": "官方平台/工具支持生产Coretime和跨链资产；Circle当前原生USDC支持名单包含Polkadot，仅证明部署可用。",
+      "token_value_capture": "Coretime购买/相关销毁与DOT需求有联系；官方Wiki当前写2.1B上限、2026起阶梯发行，不能沿用旧无限固定发行模型。",
+      "risks_and_reasons_to_exclude": [
+        "新上限不消除发行与解锁风险；Coretime需求必须用实际付费数据验证。",
+        "旧官方页面部分仍保留先前120M年发行说明，不能拼接两代模型。"
+      ],
+      "sources": [
+        {
+          "title": "DOT Token",
+          "url": "https://wiki.polkadot.com/learn/learn-dot/",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "Polkadot Platform",
+          "url": "https://polkadot.com/platform",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "USDC supported chains",
+          "url": "https://www.circle.com/usdc",
+          "kind": "official_customer_documentation",
+          "checked_date": "2026-09-26"
+        }
+      ],
+      "unresolved_flags": []
+    },
+    {
+      "symbol": "ADA",
+      "name": "Cardano",
+      "research_group": "comparison",
+      "status": "candidate_for_quantitative_screen_not_a_buy_recommendation",
+      "use_case": "UTXO智能合约、多资产账本及链上治理；ADA支付费用/储备并质押。",
+      "adoption_evidence": "官方文档确认已运行的原生多资产、Plutus及CIP1694治理；本次未核实付费用户/净手续费规模。",
+      "token_value_capture": "手续费和剩余储备共同提供质押/金库奖励；原生多资产输出需要ADA，使用形成一定锁定需求。",
+      "risks_and_reasons_to_exclude": [
+        "储备逐步释放与金库支出增加流通供应；质押收益不全是用户支付收入。",
+        "能力完善不代表付费采用或币价优势，暂不以宣传路线图赋高基本面分。"
+      ],
+      "sources": [
+        {
+          "title": "Native tokens",
+          "url": "https://docs.cardano.org/developer-resources/native-tokens",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "Monetary policy",
+          "url": "https://docs.cardano.org/about-cardano/explore-more/monetary-policy",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "Governance overview",
+          "url": "https://docs.cardano.org/about-cardano/governance-overview",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        }
+      ],
+      "unresolved_flags": []
+    },
+    {
+      "symbol": "LTC",
+      "name": "Litecoin",
+      "research_group": "comparison",
+      "status": "candidate_for_quantitative_screen_not_a_buy_recommendation",
+      "use_case": "PoW支付和价值转移网络。",
+      "adoption_evidence": "官方介绍确认自2011运行的支付网络；本次没有独立商户成交额或付费采用增长验证。",
+      "token_value_capture": "LTC为转账资产/矿工手续费单位，84M供应上限和减半机制；不含协议现金流索取权。",
+      "risks_and_reasons_to_exclude": [
+        "仍有矿工发行；上限稀缺性不能证明新增需求。",
+        "支付需求面临BTC、稳定币竞争；勿从旧官网文中旧区块补贴取当前发行率。"
+      ],
+      "sources": [
+        {
+          "title": "Learn about Litecoin",
+          "url": "https://litecoin.com/what-is-litecoin",
+          "kind": "official_project_page",
+          "checked_date": "2026-09-26",
+          "notes": "页面区块奖励描述陈旧；仅引用84M上限及用途。"
+        }
+      ],
+      "unresolved_flags": []
+    },
+    {
+      "symbol": "BCH",
+      "name": "Bitcoin Cash",
+      "research_group": "comparison",
+      "status": "candidate_for_quantitative_screen_not_a_buy_recommendation",
+      "use_case": "PoW点对点支付、多资产/token生态。",
+      "adoption_evidence": "项目官网描述已运行支付和token功能；未独立核实商户采用或交易收入增长。",
+      "token_value_capture": "BCH作为支付资产和费用单位，21M协议供应上限；持有人无公司或协议利润权益。",
+      "risks_and_reasons_to_exclude": [
+        "矿工发行/安全预算、支付竞争与需求风险。",
+        "官网采用描述属项目自述，不足以认定强增长基本面。"
+      ],
+      "sources": [
+        {
+          "title": "Bitcoin Cash overview",
+          "url": "https://bitcoincash.org/es/",
+          "kind": "official_project_page",
+          "checked_date": "2026-09-26"
+        }
+      ],
+      "unresolved_flags": []
+    }
+  ],
+  "watchlist": [
+    {
+      "symbol": "TRX",
+      "name": "TRON",
+      "research_group": "conditional",
+      "status": "watchlist_not_selected",
+      "use_case": "稳定币转账、智能合约和资源市场；TRX用于Bandwidth/Energy、质押投票。",
+      "adoption_evidence": "官方开发文档描述TRC20 USDT、JustLend、SunSwap的生产用途；未使用其自报转账量作为独立采用证明。",
+      "token_value_capture": "资源不足时烧TRX，质押获得资源和投票权；供应同时受区块奖励新发行与费用烧毁影响。",
+      "risks_and_reasons_to_exclude": [
+        "并非固定上限；资源补贴/质押可减少每次交易烧毁，使用量不等同收入。",
+        "27名出块SR集中、参数治理与生态集中风险。"
+      ],
+      "sources": [
+        {
+          "title": "TRON Tokenomics",
+          "url": "https://developers.tron.network/docs/tron-economic-model",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        },
+        {
+          "title": "TRX",
+          "url": "https://developers.tron.network/docs/token-standards-trx",
+          "kind": "official_documentation",
+          "checked_date": "2026-09-26"
+        }
+      ],
+      "unresolved_flags": [],
+      "not_selected_reason": "主线程Binance连接器核实TRXUSDT为TRADING，但当前24h名义成交约4540万USDT，低于事先5000万USDT门槛；不为凑数降低门槛。"
+    }
+  ]
+}

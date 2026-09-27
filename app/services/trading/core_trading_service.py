@@ -308,8 +308,60 @@ class CoreTradingService:
         self.logger.info(f"✅ 核心币种分析完成，成功分析 {len(valid_results)}/{len(self.core_symbols)} 个")
         return valid_results
 
+    async def run_quant_contracts_push(self) -> Dict[str, Any]:
+        """Use the complete futures snapshot in the existing notification workflow."""
+        import time
+        from app.quant.service import OUTPUT, read, report_markdown
+        try:
+            report = await asyncio.to_thread(read, OUTPUT / "latest.json")
+            age = time.time() * 1000 - report["snapshot_time"]
+            if not 0 <= age <= 180000 or not report["plan"]["complete"]:
+                return {"success": False, "summary_report_sent": False,
+                        "source": "quant_contracts", "error": "Futures snapshot stale or incomplete; run quant_portfolio.py cycle"}
+            if not self.notification_service:
+                return {"success": False, "summary_report_sent": False, "error": "Notification service not initialized"}
+            content = report_markdown(report).encode("utf-8")[:3900].decode("utf-8", errors="ignore")
+            delivery = await self.notification_service.send_notification(content)
+            sent = any(delivery.get(channel) is True for channel in ("feishu", "wechat"))
+            return {"success": sent, "summary_report_sent": sent, "source": "quant_contracts",
+                    "total_analyzed": report["coverage"]["contracts"], "as_of": report["as_of"], "delivery": delivery}
+        except Exception as exc:
+            return {"success": False, "summary_report_sent": False, "source": "quant_contracts", "error": str(exc)}
+
+    async def run_market_advisory_push(self) -> Dict[str, Any]:
+        """Use one public-data snapshot for the existing core summary job."""
+        if getattr(self.settings, "quant_contracts_enabled", False):
+            return await self.run_quant_contracts_push()
+        from app.advisory.service import advisory_service
+        from app.advisory.market import notification_summary
+        try:
+            report = await asyncio.to_thread(
+                advisory_service.report,
+                self.settings.advisory_watchlist,
+                self.settings.advisory_max_candidates,
+                getattr(self.settings, "advisory_profile", "active"),
+            )
+            if not report["ranking"]:
+                return {"success": False, "summary_report_sent": False,
+                        "error": "No valid market data", "data_errors": report["data_errors"]}
+            if not self.notification_service:
+                return {"success": False, "summary_report_sent": False,
+                        "error": "Notification service not initialized"}
+            delivery = await self.notification_service.send_notification(notification_summary(report))
+            sent = any(delivery.get(channel) is True for channel in ("feishu", "wechat"))
+            return {"success": sent, "total_analyzed": report["analyzed_count"],
+                    "summary_report_sent": sent, "individual_signals_sent": 0,
+                    "source": "market_advisory", "data_status": report["status"],
+                    "as_of": report["as_of"], "delivery": delivery}
+        except Exception as exc:
+            self.logger.error(f"Market advisory summary failed: {exc}")
+            return {"success": False, "summary_report_sent": False, "error": str(exc)}
+
     async def send_core_symbols_report(self, notification_type: str = "定时推送") -> bool:
         """发送核心币种报告"""
+        if getattr(self.settings, "quant_contracts_enabled", False) or self.settings.advisory_enabled:
+            result = await self.run_market_advisory_push()
+            return result["summary_report_sent"]
         try:
             # 获取分析结果
             analysis_results = await self.get_core_symbols_analysis()
@@ -1979,6 +2031,8 @@ class CoreTradingService:
 
     async def run_core_symbols_push(self) -> Dict[str, Any]:
         """运行核心币种推送任务 - 供调度器调用 (只推送总体报告，不推送单独信号)"""
+        if getattr(self.settings, "quant_contracts_enabled", False) or self.settings.advisory_enabled:
+            return await self.run_market_advisory_push()
         try:
             self.logger.info("🎯 开始执行核心币种推送任务...")
 

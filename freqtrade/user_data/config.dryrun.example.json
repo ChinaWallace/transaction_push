@@ -10,7 +10,7 @@
   "cancel_open_orders_on_exit": true,
   "trading_mode": "futures",
   "margin_mode": "isolated",
-  "timeframe": "1h",
+  "timeframe": "4h",
   "unfilledtimeout": {
     "entry": 10,
     "exit": 10,
@@ -51,8 +51,8 @@
       }
     },
     "pair_whitelist": [
-      "SOL/USDT:USDT",
-      "LINK/USDT:USDT"
+      "BTC/USDT:USDT",
+      "ETH/USDT:USDT"
     ],
     "pair_blacklist": [
       "BNB/.*"

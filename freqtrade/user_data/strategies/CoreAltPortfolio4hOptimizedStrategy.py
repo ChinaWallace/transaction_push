@@ -7,10 +7,9 @@ class CoreAltPortfolio4hOptimizedStrategy(IStrategy):
     """
     Selective 4h portfolio strategy.
 
-    This keeps the profitable 4h pullback engine from CoreAltPortfolio4hStrategy
-    but narrows the default tradable role to BTC and ZEC. Local long-range
-    backtests showed that broadening the 4h basket to ETH/SOL/alt heat diluted
-    the edge, while BTC/ZEC carried the positive expectancy.
+    Legacy 4h pullback variant retained for comparison.  The execution universe
+    is now restricted to BTC and ETH; prior BTC/ZEC results do not validate this
+    revised pair set and must not be treated as production evidence.
     """
 
     timeframe = "4h"
@@ -36,7 +35,7 @@ class CoreAltPortfolio4hOptimizedStrategy(IStrategy):
 
     core_pairs = {
         "BTC/USDT:USDT",
-        "ZEC/USDT:USDT",
+        "ETH/USDT:USDT",
     }
 
     @property
@@ -164,7 +163,7 @@ class CoreAltPortfolio4hOptimizedStrategy(IStrategy):
         side: str,
         **kwargs,
     ) -> float:
-        stake = proposed_stake * 3.0
+        stake = proposed_stake
 
         if min_stake is not None:
             stake = max(stake, min_stake)

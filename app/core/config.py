@@ -9,23 +9,24 @@ import os
 from typing import Any, Dict, List, Optional
 
 from pydantic import Field, validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
+from app.core.runtime_config import RuntimeSettings, PROJECT_ROOT
 
 
-class Settings(BaseSettings):
+class Settings(RuntimeSettings):
     """应用配置类"""
     
     def _build_kronos_config(self) -> Dict[str, Any]:
         """从环境变量构建Kronos配置 - 优化版，支持短线和中线预测"""
         # 解析target_symbols字符串为列表
-        target_symbols_str = os.getenv('KRONOS_CONFIG__TARGET_SYMBOLS', '["BTC-USDT-SWAP","ETH-USDT-SWAP","SOL-USDT-SWAP","ADA-USDT-SWAP","DOGE-USDT-SWAP"]')
+        target_symbols_str = os.getenv('KRONOS_CONFIG__TARGET_SYMBOLS', '["BTC-USDT-SWAP","ETH-USDT-SWAP"]')
         try:
             target_symbols = json.loads(target_symbols_str)
         except json.JSONDecodeError:
             target_symbols = ['BTC-USDT-SWAP', 'ETH-USDT-SWAP', 'SOL-USDT-SWAP', 'ADA-USDT-SWAP', 'DOGE-USDT-SWAP']
         
         return {
-            'enable_kronos_prediction': os.getenv('KRONOS_CONFIG__ENABLE_KRONOS_PREDICTION', 'true').lower() == 'true',
+            'enable_kronos_prediction': os.getenv('KRONOS_CONFIG__ENABLE_KRONOS_PREDICTION', 'false').lower() == 'true',
             'model_name': os.getenv('KRONOS_CONFIG__MODEL_NAME', 'NeoQuasar/Kronos-Tokenizer-base'),
             'tokenizer_name': os.getenv('KRONOS_CONFIG__TOKENIZER_NAME', 'NeoQuasar/Kronos-Tokenizer-base'),
             'max_context': int(os.getenv('KRONOS_CONFIG__MAX_CONTEXT', '256')),
@@ -181,19 +182,11 @@ class Settings(BaseSettings):
     db_write_timeout: int = Field(default=30, description="数据库写入超时(秒)")
     
     # 币安API配置
-    binance_api_key: str = Field(default="", description="币安API Key")
-    binance_secret_key: str = Field(default="", description="币安Secret Key")
-    binance_testnet: bool = Field(default=False, description="是否使用测试网")
-    binance_base_url: str = Field(default="https://fapi.binance.com", description="币安API基础URL")
-    binance_websocket_url: str = Field(default="wss://fstream.binance.com/ws/", description="币安WebSocket URL")
-    binance_enable_websocket: bool = Field(default=True, description="是否启用币安WebSocket")
     
     # Redis配置
     redis_url: Optional[str] = Field(default=None, description="Redis连接URL")
     
     # 代理配置
-    proxy_url: Optional[str] = Field(default=None, description="HTTP代理URL (如: http://127.0.0.1:7890)")
-    proxy_enabled: bool = Field(default=False, description="是否启用代理")
     
     # HTTP连接池配置
     http_pool_limit: int = Field(default=200, description="HTTP连接池总大小")
@@ -324,17 +317,18 @@ class Settings(BaseSettings):
         }
     }, description="机器学习增强配置 - 与Kronos协同工作，专注异常检测和信号验证，避免功能重复")
     
-    # 主要监控币种配置 - 增加主要币种，使用Kronos进行深度分析
+    # Dynamic spot research is independent of the execution allowlist.
+    quant_contracts_enabled: bool = Field(default=True, description="Use full USDT futures research for core summaries")
+    advisory_enabled: bool = Field(default=True, description="Use evidence-based spot research for core summaries")
+    advisory_watchlist: List[str] = Field(default=["ZECUSDT"], description="Research watchlist; does not override quality gates")
+    advisory_max_candidates: int = Field(default=60, ge=1, le=150)
+    advisory_profile: str = Field(default="active", description="active / balanced / legacy")
+
+    # BTC/ETH-only baseline monitoring universe
     monitored_symbols: List[str] = Field(default=[
         'BTC-USDT-SWAP',   # 比特币
         'ETH-USDT-SWAP',   # 以太坊
-        'SOL-USDT-SWAP',   # Solana
-        'BNB-USDT-SWAP',   # 币安币
-        'ADA-USDT-SWAP',   # Cardano
-        'DOGE-USDT-SWAP',  # 狗狗币
-        'AVAX-USDT-SWAP',  # Avalanche
-        'DOT-USDT-SWAP'    # Polkadot
-    ], description="主要监控的交易对列表 - 包含主流币种，使用Kronos进行深度分析和交易决策")
+    ], description="BTC/ETH-only baseline monitoring universe")
     
     # 费率监控币种配置 - 扩展到更多币种，增加收益机会
     funding_rate_only_symbols: List[str] = Field(default=[
@@ -630,7 +624,7 @@ class Settings(BaseSettings):
     }, description="API增强错误处理配置 - 重试、熔断、限流和监控")
     
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=PROJECT_ROOT / ".env",
         env_ignore_empty=True,  # 忽略空的env文件
         env_file_encoding="utf-8",
         case_sensitive=False,

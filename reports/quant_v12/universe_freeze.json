@@ -1,0 +1,394 @@
+{
+  "captured_at": "2026-09-26T03:33:25.065Z",
+  "source": "Binance connector public USD-M exchangeInfo and ticker/24hr",
+  "exchange_server_time": 1790324972640,
+  "selection": "Fixed current research candidate universe before v12 return analysis; current fundamentals and liquidity are NOT historical point-in-time selection evidence.",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "ZECUSDT",
+    "UNIUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "LINKUSDT",
+    "AAVEUSDT",
+    "AVAXUSDT",
+    "SUIUSDT",
+    "NEARUSDT",
+    "DOTUSDT",
+    "ADAUSDT",
+    "LTCUSDT",
+    "BCHUSDT"
+  ],
+  "anchor_symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "ZECUSDT"
+  ],
+  "added_symbols": [
+    "UNIUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "LINKUSDT",
+    "AAVEUSDT",
+    "AVAXUSDT",
+    "SUIUSDT",
+    "NEARUSDT",
+    "DOTUSDT",
+    "ADAUSDT",
+    "LTCUSDT",
+    "BCHUSDT"
+  ],
+  "minimum_current_24h_quote_volume": 50000000,
+  "rows": [
+    {
+      "symbol": "BTCUSDT",
+      "contractType": "PERPETUAL",
+      "status": "TRADING",
+      "onboardDate": 1567965300000,
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "quote_volume_24h": 10438036926.72,
+      "last_price": 84008.4,
+      "ticker_close_time": 1790393469958,
+      "lot_size": {
+        "minQty": "0.001",
+        "maxQty": "1000",
+        "stepSize": "0.001",
+        "filterType": "LOT_SIZE"
+      },
+      "min_notional": {
+        "notional": "50",
+        "filterType": "MIN_NOTIONAL"
+      }
+    },
+    {
+      "symbol": "ETHUSDT",
+      "contractType": "PERPETUAL",
+      "status": "TRADING",
+      "onboardDate": 1574840700000,
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "quote_volume_24h": 8090685399.02,
+      "last_price": 2689.9,
+      "ticker_close_time": 1790393469759,
+      "lot_size": {
+        "minQty": "0.001",
+        "filterType": "LOT_SIZE",
+        "maxQty": "10000",
+        "stepSize": "0.001"
+      },
+      "min_notional": {
+        "filterType": "MIN_NOTIONAL",
+        "notional": "20"
+      }
+    },
+    {
+      "symbol": "ZECUSDT",
+      "contractType": "PERPETUAL",
+      "status": "TRADING",
+      "onboardDate": 1580889600000,
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "quote_volume_24h": 2159512258.17,
+      "last_price": 1536.65,
+      "ticker_close_time": 1790393469627,
+      "lot_size": {
+        "stepSize": "0.001",
+        "maxQty": "15000",
+        "minQty": "0.001",
+        "filterType": "LOT_SIZE"
+      },
+      "min_notional": {
+        "notional": "5",
+        "filterType": "MIN_NOTIONAL"
+      }
+    },
+    {
+      "symbol": "UNIUSDT",
+      "contractType": "PERPETUAL",
+      "status": "TRADING",
+      "onboardDate": 1600412400000,
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "quote_volume_24h": 586047305.359,
+      "last_price": 9.575,
+      "ticker_close_time": 1790393468874,
+      "lot_size": {
+        "filterType": "LOT_SIZE",
+        "stepSize": "1",
+        "minQty": "1",
+        "maxQty": "2000000"
+      },
+      "min_notional": {
+        "notional": "5",
+        "filterType": "MIN_NOTIONAL"
+      }
+    },
+    {
+      "symbol": "SOLUSDT",
+      "contractType": "PERPETUAL",
+      "status": "TRADING",
+      "onboardDate": 1600066800000,
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "quote_volume_24h": 3334912458.5718,
+      "last_price": 120.89,
+      "ticker_close_time": 1790393470635,
+      "lot_size": {
+        "maxQty": "1000000",
+        "stepSize": "0.01",
+        "filterType": "LOT_SIZE",
+        "minQty": "0.01"
+      },
+      "min_notional": {
+        "notional": "5",
+        "filterType": "MIN_NOTIONAL"
+      }
+    },
+    {
+      "symbol": "BNBUSDT",
+      "contractType": "PERPETUAL",
+      "status": "TRADING",
+      "onboardDate": 1581321600000,
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "quote_volume_24h": 315022994.358,
+      "last_price": 776.15,
+      "ticker_close_time": 1790393470237,
+      "lot_size": {
+        "stepSize": "0.01",
+        "maxQty": "100000",
+        "filterType": "LOT_SIZE",
+        "minQty": "0.01"
+      },
+      "min_notional": {
+        "filterType": "MIN_NOTIONAL",
+        "notional": "5"
+      }
+    },
+    {
+      "symbol": "XRPUSDT",
+      "contractType": "PERPETUAL",
+      "status": "TRADING",
+      "onboardDate": 1578298800000,
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "quote_volume_24h": 1809183751.1073,
+      "last_price": 1.5617,
+      "ticker_close_time": 1790393468795,
+      "lot_size": {
+        "stepSize": "0.1",
+        "filterType": "LOT_SIZE",
+        "minQty": "0.1",
+        "maxQty": "10000000"
+      },
+      "min_notional": {
+        "filterType": "MIN_NOTIONAL",
+        "notional": "5"
+      }
+    },
+    {
+      "symbol": "LINKUSDT",
+      "contractType": "PERPETUAL",
+      "status": "TRADING",
+      "onboardDate": 1579248000000,
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "quote_volume_24h": 373549468.145,
+      "last_price": 14.029,
+      "ticker_close_time": 1790393468537,
+      "lot_size": {
+        "maxQty": "700000",
+        "filterType": "LOT_SIZE",
+        "minQty": "0.01",
+        "stepSize": "0.01"
+      },
+      "min_notional": {
+        "filterType": "MIN_NOTIONAL",
+        "notional": "20"
+      }
+    },
+    {
+      "symbol": "AAVEUSDT",
+      "contractType": "PERPETUAL",
+      "status": "TRADING",
+      "onboardDate": 1602831600000,
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "quote_volume_24h": 190784607.628,
+      "last_price": 154.17,
+      "ticker_close_time": 1790393469602,
+      "lot_size": {
+        "stepSize": "0.1",
+        "minQty": "0.1",
+        "filterType": "LOT_SIZE",
+        "maxQty": "78000"
+      },
+      "min_notional": {
+        "notional": "5",
+        "filterType": "MIN_NOTIONAL"
+      }
+    },
+    {
+      "symbol": "AVAXUSDT",
+      "contractType": "PERPETUAL",
+      "status": "TRADING",
+      "onboardDate": 1600844400000,
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "quote_volume_24h": 234397623.664,
+      "last_price": 10.707,
+      "ticker_close_time": 1790393469821,
+      "lot_size": {
+        "minQty": "1",
+        "maxQty": "500000",
+        "filterType": "LOT_SIZE",
+        "stepSize": "1"
+      },
+      "min_notional": {
+        "filterType": "MIN_NOTIONAL",
+        "notional": "5"
+      }
+    },
+    {
+      "symbol": "SUIUSDT",
+      "contractType": "PERPETUAL",
+      "status": "TRADING",
+      "onboardDate": 1683072000000,
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "quote_volume_24h": 851961268.41981,
+      "last_price": 1.1688,
+      "ticker_close_time": 1790393470268,
+      "lot_size": {
+        "minQty": "0.1",
+        "stepSize": "0.1",
+        "maxQty": "10000000",
+        "filterType": "LOT_SIZE"
+      },
+      "min_notional": {
+        "filterType": "MIN_NOTIONAL",
+        "notional": "5"
+      }
+    },
+    {
+      "symbol": "NEARUSDT",
+      "contractType": "PERPETUAL",
+      "status": "TRADING",
+      "onboardDate": 1602748800000,
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "quote_volume_24h": 1032817960.656,
+      "last_price": 4.91,
+      "ticker_close_time": 1790393468954,
+      "lot_size": {
+        "stepSize": "1",
+        "minQty": "1",
+        "filterType": "LOT_SIZE",
+        "maxQty": "5000000"
+      },
+      "min_notional": {
+        "filterType": "MIN_NOTIONAL",
+        "notional": "5"
+      }
+    },
+    {
+      "symbol": "DOTUSDT",
+      "contractType": "PERPETUAL",
+      "status": "TRADING",
+      "onboardDate": 1598079600000,
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "quote_volume_24h": 76536042.55444,
+      "last_price": 1.2138,
+      "ticker_close_time": 1790393469477,
+      "lot_size": {
+        "filterType": "LOT_SIZE",
+        "minQty": "0.1",
+        "maxQty": "3000000",
+        "stepSize": "0.1"
+      },
+      "min_notional": {
+        "notional": "5",
+        "filterType": "MIN_NOTIONAL"
+      }
+    },
+    {
+      "symbol": "ADAUSDT",
+      "contractType": "PERPETUAL",
+      "status": "TRADING",
+      "onboardDate": 1580457600000,
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "quote_volume_24h": 290582020.5585,
+      "last_price": 0.2576,
+      "ticker_close_time": 1790393470171,
+      "lot_size": {
+        "maxQty": "30000000",
+        "stepSize": "1",
+        "filterType": "LOT_SIZE",
+        "minQty": "1"
+      },
+      "min_notional": {
+        "filterType": "MIN_NOTIONAL",
+        "notional": "5"
+      }
+    },
+    {
+      "symbol": "LTCUSDT",
+      "contractType": "PERPETUAL",
+      "status": "TRADING",
+      "onboardDate": 1578557100000,
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "quote_volume_24h": 313912957.27,
+      "last_price": 72.33,
+      "ticker_close_time": 1790393469652,
+      "lot_size": {
+        "minQty": "0.001",
+        "stepSize": "0.001",
+        "filterType": "LOT_SIZE",
+        "maxQty": "170000"
+      },
+      "min_notional": {
+        "notional": "20",
+        "filterType": "MIN_NOTIONAL"
+      }
+    },
+    {
+      "symbol": "BCHUSDT",
+      "contractType": "PERPETUAL",
+      "status": "TRADING",
+      "onboardDate": 1576745700000,
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "quote_volume_24h": 216689122.11,
+      "last_price": 339.1,
+      "ticker_close_time": 1790393469272,
+      "lot_size": {
+        "filterType": "LOT_SIZE",
+        "minQty": "0.001",
+        "maxQty": "20000",
+        "stepSize": "0.001"
+      },
+      "min_notional": {
+        "filterType": "MIN_NOTIONAL",
+        "notional": "20"
+      }
+    }
+  ],
+  "excluded": [
+    {
+      "symbol": "TONUSDT",
+      "reason": "SETTLING status and absent 24h ticker; no new entries"
+    },
+    {
+      "symbol": "TRXUSDT",
+      "reason": "current 24h quote volume below 50 million; watch only",
+      "quote_volume_24h": 45401799.36348
+    }
+  ]
+}

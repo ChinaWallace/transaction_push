@@ -1,0 +1,2257 @@
+{
+  "rows": [
+    {
+      "strategy": "DriftHold",
+      "name": "不减仓、不加仓（同入场基准）",
+      "window": "development",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -15.78089999037795,
+        "final_equity": 8421.910000962205,
+        "sampled_mark_drawdown_pct": 34.80451076878794,
+        "average_marked_exposure_pct": 62.513610202396244,
+        "max_marked_exposure_pct": 70.83950349229632,
+        "fee_cost_usdt": 12.305115840000001,
+        "funding_net_income_usdt": 26.948256802191644,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -307.89358617627227,
+          "ETH/USDT:USDT": -571.0254494969663,
+          "ZEC/USDT:USDT": -699.170963364568
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3044.126585509999,
+        "add_fills": 0,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 1.1823431123048067e-11,
+        "freqtrade_baseline_difference_usdt": 2.2050699044484645e-09,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/development/DriftHold/events.json": "0972829930e1d5e251de5f0a07fe9da24ee1dbfffb61868de2f25319a930346f",
+        "reports/quant_v8/runs/development/DriftHold/orders.json": "430f1d71cb565704e52005db00d96826783aae71944d53f7b6e65be6478a6e4a",
+        "reports/quant_v8/runs/development/DriftHold/equity_preview.json": "21f5a197ced50e5a49491e0e43457099d87a9d908d3a5e78ca7f5e02e4d4ee81",
+        "reports/quant_v8/runs/development/DriftHold/equity_5m.feather": "465c65480bfebc10cdc63844d58ba792c1a2d02459fd6aeaf269c0559a66e89a",
+        "reports/quant_v8/runs/development/DriftHold/mark_metrics.json": "f3ab26d4697ba4f6c1fd0224226562dbf21884dd4c318af52b7b80a51630bebe"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.0,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": false,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70",
+      "name": "持续压回70%总权重",
+      "window": "development",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -15.544583796809441,
+        "final_equity": 8445.541620319056,
+        "sampled_mark_drawdown_pct": 34.38056479785011,
+        "average_marked_exposure_pct": 61.5719270118544,
+        "max_marked_exposure_pct": 70.15454590805786,
+        "fee_cost_usdt": 12.328965547478143,
+        "funding_net_income_usdt": 26.754018388375055,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -302.3815392686363,
+          "ETH/USDT:USDT": -561.6586320853291,
+          "ZEC/USDT:USDT": -690.4182083269916
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3044.126585509999,
+        "add_fills": 0,
+        "cap_reductions": 26,
+        "reconciled": true,
+        "cashflow_error_usdt": 1.318767317570746e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/development/CapTotal70/events.json": "03e83266896d50f0c4c60b4cecb067541c822e326fcbe89bad972f1f9e08e3a2",
+        "reports/quant_v8/runs/development/CapTotal70/orders.json": "09efea4f01e3c2c7489a6d9242c774f5b96a7e9d5971464330bd7ff7a3c150a1",
+        "reports/quant_v8/runs/development/CapTotal70/equity_preview.json": "671569f8b132730d34cfa7b15a9e2d9cb8e642a7250a0da1a27f934e36e72f8e",
+        "reports/quant_v8/runs/development/CapTotal70/equity_5m.feather": "024ccc0ff045fab227337622ae116c58f3261b3c3131111b914cb2553c9df2dc",
+        "reports/quant_v8/runs/development/CapTotal70/mark_metrics.json": "a920132f874377ee39a2db44339dcc5d4ee4e4fab3bc62942be0dd3ed8f50228"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.2363161935685092,
+        "drawdown_gap_pp": -0.4239459709378295,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70Single25",
+      "name": "持续压回70%总 / 25%单币",
+      "window": "development",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -15.211363089662445,
+        "final_equity": 8478.863691033755,
+        "sampled_mark_drawdown_pct": 33.898237560142555,
+        "average_marked_exposure_pct": 60.52643796019831,
+        "max_marked_exposure_pct": 70.15454590805786,
+        "fee_cost_usdt": 12.362512355087208,
+        "funding_net_income_usdt": 26.56282830164589,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -302.3815392686363,
+          "ETH/USDT:USDT": -528.3365613706019,
+          "ZEC/USDT:USDT": -690.4182083269916
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3044.126585509999,
+        "add_fills": 0,
+        "cap_reductions": 47,
+        "reconciled": true,
+        "cashflow_error_usdt": -1.4779288903810084e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/development/CapTotal70Single25/events.json": "db315dee8912a5c38b233e6f03a0c3ecca5950487a121f830786331646320ec4",
+        "reports/quant_v8/runs/development/CapTotal70Single25/orders.json": "6b0f53994228e6aacfd32057d0ae3dc03772c27e82bcdcb8e3edac075622f5fb",
+        "reports/quant_v8/runs/development/CapTotal70Single25/equity_preview.json": "e199f1c30ae8639fda13eaa7b5d792baec790055d2217bc8038e6178f7c7bb65",
+        "reports/quant_v8/runs/development/CapTotal70Single25/equity_5m.feather": "0450956f347e072db9eb991d5ac8d740252371aa4be890b7360f962b5e1a5c95",
+        "reports/quant_v8/runs/development/CapTotal70Single25/mark_metrics.json": "d846a0ec58703c10a177ec853f46226fbba54342a388a0ea4b3d8c3e04c028eb"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.5695369007155051,
+        "drawdown_gap_pp": -0.9062732086453877,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd50",
+      "name": "浮盈额度50%顺势加仓",
+      "window": "development",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -15.78089999037795,
+        "final_equity": 8421.910000962205,
+        "sampled_mark_drawdown_pct": 34.80451076878794,
+        "average_marked_exposure_pct": 62.513610202396244,
+        "max_marked_exposure_pct": 70.83950349229632,
+        "fee_cost_usdt": 12.305115840000001,
+        "funding_net_income_usdt": 26.948256802191644,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -307.89358617627227,
+          "ETH/USDT:USDT": -571.0254494969663,
+          "ZEC/USDT:USDT": -699.170963364568
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3044.126585509999,
+        "add_fills": 0,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 1.1823431123048067e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/development/ProfitAdd50/events.json": "0972829930e1d5e251de5f0a07fe9da24ee1dbfffb61868de2f25319a930346f",
+        "reports/quant_v8/runs/development/ProfitAdd50/orders.json": "430f1d71cb565704e52005db00d96826783aae71944d53f7b6e65be6478a6e4a",
+        "reports/quant_v8/runs/development/ProfitAdd50/equity_preview.json": "21f5a197ced50e5a49491e0e43457099d87a9d908d3a5e78ca7f5e02e4d4ee81",
+        "reports/quant_v8/runs/development/ProfitAdd50/equity_5m.feather": "465c65480bfebc10cdc63844d58ba792c1a2d02459fd6aeaf269c0559a66e89a",
+        "reports/quant_v8/runs/development/ProfitAdd50/mark_metrics.json": "35804147e62ccab19dd6fab1e15077403626e275d908656fcccf353bf6fb56d4"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.0,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd100",
+      "name": "浮盈额度100%顺势加仓",
+      "window": "development",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -15.78089999037795,
+        "final_equity": 8421.910000962205,
+        "sampled_mark_drawdown_pct": 34.80451076878794,
+        "average_marked_exposure_pct": 62.513610202396244,
+        "max_marked_exposure_pct": 70.83950349229632,
+        "fee_cost_usdt": 12.305115840000001,
+        "funding_net_income_usdt": 26.948256802191644,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -307.89358617627227,
+          "ETH/USDT:USDT": -571.0254494969663,
+          "ZEC/USDT:USDT": -699.170963364568
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3044.126585509999,
+        "add_fills": 0,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 1.1823431123048067e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/development/ProfitAdd100/events.json": "0972829930e1d5e251de5f0a07fe9da24ee1dbfffb61868de2f25319a930346f",
+        "reports/quant_v8/runs/development/ProfitAdd100/orders.json": "430f1d71cb565704e52005db00d96826783aae71944d53f7b6e65be6478a6e4a",
+        "reports/quant_v8/runs/development/ProfitAdd100/equity_preview.json": "21f5a197ced50e5a49491e0e43457099d87a9d908d3a5e78ca7f5e02e4d4ee81",
+        "reports/quant_v8/runs/development/ProfitAdd100/equity_5m.feather": "465c65480bfebc10cdc63844d58ba792c1a2d02459fd6aeaf269c0559a66e89a",
+        "reports/quant_v8/runs/development/ProfitAdd100/mark_metrics.json": "35804147e62ccab19dd6fab1e15077403626e275d908656fcccf353bf6fb56d4"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.0,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "DriftHold",
+      "name": "不减仓、不加仓（同入场基准）",
+      "window": "development_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -15.903951148777962,
+        "final_equity": 8409.604885122204,
+        "sampled_mark_drawdown_pct": 34.82760683142839,
+        "average_marked_exposure_pct": 62.5664279120679,
+        "max_marked_exposure_pct": 70.88651215795304,
+        "fee_cost_usdt": 24.610231680000002,
+        "funding_net_income_usdt": 26.948256802191644,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -312.1609661762727,
+          "ETH/USDT:USDT": -575.1248538269658,
+          "ZEC/USDT:USDT": -703.1092948745681
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3037.1776610199995,
+        "add_fills": 0,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 1.0686562745831907e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/development_double_cost/DriftHold/events.json": "3fe525a9ebcc4363cab29d73f28d759864be10b3bf066c7b0b14bfd3454808d1",
+        "reports/quant_v8/runs/development_double_cost/DriftHold/orders.json": "2385d5ad0fd683aaa4d52f07ab57b189cc51b46c592b7e6249b846f0fa547a01",
+        "reports/quant_v8/runs/development_double_cost/DriftHold/equity_preview.json": "064d4803bc024e819154453d37a17f18f4953751fbff25e65d9c5ec3bd9c5112",
+        "reports/quant_v8/runs/development_double_cost/DriftHold/equity_5m.feather": "f3cd829f5039a72c04f9699351540df443c030de522bacee2b74d5d9a09a4d64",
+        "reports/quant_v8/runs/development_double_cost/DriftHold/mark_metrics.json": "a1521e0506920ceb70cc0aca5a2da9fc7258124537e02e4bb70f7ecf9584265a"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.0,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": false,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70",
+      "name": "持续压回70%总权重",
+      "window": "development_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -15.656190445339657,
+        "final_equity": 8434.380955466035,
+        "sampled_mark_drawdown_pct": 34.380688665728364,
+        "average_marked_exposure_pct": 61.572116117832145,
+        "max_marked_exposure_pct": 70.15461203503527,
+        "fee_cost_usdt": 24.660305009083984,
+        "funding_net_income_usdt": 26.737735933113285,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -306.43314935640205,
+          "ETH/USDT:USDT": -565.3794680468277,
+          "ZEC/USDT:USDT": -693.8064271307474
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3037.1776610199995,
+        "add_fills": 0,
+        "cap_reductions": 29,
+        "reconciled": true,
+        "cashflow_error_usdt": 1.1823431123048067e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/development_double_cost/CapTotal70/events.json": "1415fae86581753c10c02c96934ecb9d0c50ffe556e17e2dc980b6bd7e0704c0",
+        "reports/quant_v8/runs/development_double_cost/CapTotal70/orders.json": "4dbbec68e63ddce4eb9697036e7e74ae435af461bd2d16cd42e829981a459339",
+        "reports/quant_v8/runs/development_double_cost/CapTotal70/equity_preview.json": "c02a8c2e416829844fd8686a6f49b889341584bcb20c5e6c7d0971ee3923ceed",
+        "reports/quant_v8/runs/development_double_cost/CapTotal70/equity_5m.feather": "9655936cff509df10416b5ab5f3b62600507e3ce604b25f47a78a65694b2e31c",
+        "reports/quant_v8/runs/development_double_cost/CapTotal70/mark_metrics.json": "037b5fedf6116e42e7772adfdfd885bb73d847e835d1df4bf50e4cb9e6072a3a"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.24776070343830447,
+        "drawdown_gap_pp": -0.4469181657000263,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70Single25",
+      "name": "持续压回70%总 / 25%单币",
+      "window": "development_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -15.323455304953937,
+        "final_equity": 8467.654469504607,
+        "sampled_mark_drawdown_pct": 33.89928385845071,
+        "average_marked_exposure_pct": 60.527081622734826,
+        "max_marked_exposure_pct": 70.15461203503527,
+        "fee_cost_usdt": 24.72736837065882,
+        "funding_net_income_usdt": 26.546632545849537,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -306.43314935640205,
+          "ETH/USDT:USDT": -532.1059540082495,
+          "ZEC/USDT:USDT": -693.8064271307474
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3037.1776610199995,
+        "add_fills": 0,
+        "cap_reductions": 50,
+        "reconciled": true,
+        "cashflow_error_usdt": 5.6843418860808015e-12,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/development_double_cost/CapTotal70Single25/events.json": "6763f0bccade588e62b46d16036a8aca719f7846e1d99f5f0d9c70e508bf9196",
+        "reports/quant_v8/runs/development_double_cost/CapTotal70Single25/orders.json": "047d853e14b34578a9147e4f57b50d5161a1aae62ec6df66912d4cb5fe8f2186",
+        "reports/quant_v8/runs/development_double_cost/CapTotal70Single25/equity_preview.json": "c317070e158be513fd3986624f3b60b8685786dd709368ef102db41b1fcdc28d",
+        "reports/quant_v8/runs/development_double_cost/CapTotal70Single25/equity_5m.feather": "6e992f938443ddff5bd71b57424a3db44bcde23c820b59aa49e91d63baf77b3a",
+        "reports/quant_v8/runs/development_double_cost/CapTotal70Single25/mark_metrics.json": "167af4e58d65679e8d4a6f513ef24b35b3911f5e3c25e89c00bf19001d30b1c9"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.5804958438240249,
+        "drawdown_gap_pp": -0.9283229729776821,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd50",
+      "name": "浮盈额度50%顺势加仓",
+      "window": "development_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -15.903951148777962,
+        "final_equity": 8409.604885122204,
+        "sampled_mark_drawdown_pct": 34.82760683142839,
+        "average_marked_exposure_pct": 62.5664279120679,
+        "max_marked_exposure_pct": 70.88651215795304,
+        "fee_cost_usdt": 24.610231680000002,
+        "funding_net_income_usdt": 26.948256802191644,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -312.1609661762727,
+          "ETH/USDT:USDT": -575.1248538269658,
+          "ZEC/USDT:USDT": -703.1092948745681
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3037.1776610199995,
+        "add_fills": 0,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 1.0686562745831907e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/development_double_cost/ProfitAdd50/events.json": "3fe525a9ebcc4363cab29d73f28d759864be10b3bf066c7b0b14bfd3454808d1",
+        "reports/quant_v8/runs/development_double_cost/ProfitAdd50/orders.json": "2385d5ad0fd683aaa4d52f07ab57b189cc51b46c592b7e6249b846f0fa547a01",
+        "reports/quant_v8/runs/development_double_cost/ProfitAdd50/equity_preview.json": "064d4803bc024e819154453d37a17f18f4953751fbff25e65d9c5ec3bd9c5112",
+        "reports/quant_v8/runs/development_double_cost/ProfitAdd50/equity_5m.feather": "f3cd829f5039a72c04f9699351540df443c030de522bacee2b74d5d9a09a4d64",
+        "reports/quant_v8/runs/development_double_cost/ProfitAdd50/mark_metrics.json": "a1521e0506920ceb70cc0aca5a2da9fc7258124537e02e4bb70f7ecf9584265a"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.0,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd100",
+      "name": "浮盈额度100%顺势加仓",
+      "window": "development_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -15.903951148777962,
+        "final_equity": 8409.604885122204,
+        "sampled_mark_drawdown_pct": 34.82760683142839,
+        "average_marked_exposure_pct": 62.5664279120679,
+        "max_marked_exposure_pct": 70.88651215795304,
+        "fee_cost_usdt": 24.610231680000002,
+        "funding_net_income_usdt": 26.948256802191644,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -312.1609661762727,
+          "ETH/USDT:USDT": -575.1248538269658,
+          "ZEC/USDT:USDT": -703.1092948745681
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3037.1776610199995,
+        "add_fills": 0,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 1.0686562745831907e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/development_double_cost/ProfitAdd100/events.json": "3fe525a9ebcc4363cab29d73f28d759864be10b3bf066c7b0b14bfd3454808d1",
+        "reports/quant_v8/runs/development_double_cost/ProfitAdd100/orders.json": "2385d5ad0fd683aaa4d52f07ab57b189cc51b46c592b7e6249b846f0fa547a01",
+        "reports/quant_v8/runs/development_double_cost/ProfitAdd100/equity_preview.json": "064d4803bc024e819154453d37a17f18f4953751fbff25e65d9c5ec3bd9c5112",
+        "reports/quant_v8/runs/development_double_cost/ProfitAdd100/equity_5m.feather": "f3cd829f5039a72c04f9699351540df443c030de522bacee2b74d5d9a09a4d64",
+        "reports/quant_v8/runs/development_double_cost/ProfitAdd100/mark_metrics.json": "a1521e0506920ceb70cc0aca5a2da9fc7258124537e02e4bb70f7ecf9584265a"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.0,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "DriftHold",
+      "name": "不减仓、不加仓（同入场基准）",
+      "window": "validation",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -8.993813423562624,
+        "final_equity": 9100.618657643738,
+        "sampled_mark_drawdown_pct": 32.1395048721154,
+        "average_marked_exposure_pct": 70.68862626778316,
+        "max_marked_exposure_pct": 75.20252585922943,
+        "fee_cost_usdt": 13.025465880000002,
+        "funding_net_income_usdt": 42.77720352375281,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -567.7113291155499,
+          "ETH/USDT:USDT": -737.2740606035718,
+          "ZEC/USDT:USDT": 405.60404736287046
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3007.695406521414,
+        "add_fills": 0,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": -1.1141310096718371e-11,
+        "freqtrade_baseline_difference_usdt": 3.73768216377357e-09,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/validation/DriftHold/events.json": "84a24b1a4884b80c0c0ceeb0231ca3556d7cf23214b4c098ec15baeff8e6cd52",
+        "reports/quant_v8/runs/validation/DriftHold/orders.json": "f13c757eadac6b7d51a1da15c4c705f6cc2197eb8dad88cd4779f71a68e99152",
+        "reports/quant_v8/runs/validation/DriftHold/equity_preview.json": "6877e23ff6f6eda2fd4b488b0de90afbf1d57ee17cdc42e63ba66eb001c6d62e",
+        "reports/quant_v8/runs/validation/DriftHold/equity_5m.feather": "a11cb512bcb00e42ca4ab946aede88cdd13325b55b74435395e998252475416f",
+        "reports/quant_v8/runs/validation/DriftHold/mark_metrics.json": "7bc050f5a1cd9082179f6250d25e4eb0fea805e312acb0635d8ed8979c696830"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.0,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": false,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70",
+      "name": "持续压回70%总权重",
+      "window": "validation",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -7.501619917664415,
+        "final_equity": 9249.838008233559,
+        "sampled_mark_drawdown_pct": 29.911573154960376,
+        "average_marked_exposure_pct": 65.46569389603674,
+        "max_marked_exposure_pct": 70.48854712595639,
+        "fee_cost_usdt": 13.177956479193181,
+        "funding_net_income_usdt": 39.65844551958336,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -517.5775755587733,
+          "ETH/USDT:USDT": -676.6110655046227,
+          "ZEC/USDT:USDT": 444.02664929696925
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3015.7232205200016,
+        "add_fills": 0,
+        "cap_reductions": 140,
+        "reconciled": true,
+        "cashflow_error_usdt": -1.432454155292362e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/validation/CapTotal70/events.json": "36ef2f3ea9888ad6386d0212cb79d284d188c48712bdd5f657f68c3634b5deab",
+        "reports/quant_v8/runs/validation/CapTotal70/orders.json": "67b23ab2fa0364f1ec81d5db663267d2a5aab8511089d8941b5202cbfac98253",
+        "reports/quant_v8/runs/validation/CapTotal70/equity_preview.json": "0cf924bd8dfda8b5b82f8f96e7e94ce36f5b34fdd72bfee1b566d3e71fa719c2",
+        "reports/quant_v8/runs/validation/CapTotal70/equity_5m.feather": "88d1a01b086006d2f6162f907556de88d5206587c0e1f901a50bfe1fd0374158",
+        "reports/quant_v8/runs/validation/CapTotal70/mark_metrics.json": "2ca116c2775016904929ffb04c18080c3694da681fd00c7d33fae00fa2036ba5"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 1.492193505898209,
+        "drawdown_gap_pp": -2.227931717155027,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70Single25",
+      "name": "持续压回70%总 / 25%单币",
+      "window": "validation",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -5.976577972901365,
+        "final_equity": 9402.342202709864,
+        "sampled_mark_drawdown_pct": 24.43992806731818,
+        "average_marked_exposure_pct": 59.52421366493391,
+        "max_marked_exposure_pct": 70.1160152600054,
+        "fee_cost_usdt": 13.348880371713408,
+        "funding_net_income_usdt": 21.409671368150494,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -559.0744863374221,
+          "ETH/USDT:USDT": -726.3841275755824,
+          "ZEC/USDT:USDT": 687.8008166228523
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3015.7232205200016,
+        "add_fills": 0,
+        "cap_reductions": 111,
+        "reconciled": true,
+        "cashflow_error_usdt": 1.6257217794191092e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/validation/CapTotal70Single25/events.json": "0d032834ad63ff1da4016e55ed1bed89ffe5aa48b536075ccb98e79b2ae638df",
+        "reports/quant_v8/runs/validation/CapTotal70Single25/orders.json": "80a3d10c1591519fb433ddb6f4a933b6af43a0806b36b8b6ac1779f20a351216",
+        "reports/quant_v8/runs/validation/CapTotal70Single25/equity_preview.json": "3abaf3a00565b3ea4577cb733f8e71532e824eba2ab18a17c5a06f3d6c5baa63",
+        "reports/quant_v8/runs/validation/CapTotal70Single25/equity_5m.feather": "8833dba5dec51cdd1e593e8f247643130f582c84523e81bc7b48c2cc97bb84df",
+        "reports/quant_v8/runs/validation/CapTotal70Single25/mark_metrics.json": "6411e64442f9645b515588a1a53bc0ca7f09b6a6479b7e351fcf24781690dba1"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 3.0172354506612598,
+        "drawdown_gap_pp": -7.699576804797221,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd50",
+      "name": "浮盈额度50%顺势加仓",
+      "window": "validation",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -11.140005641057304,
+        "final_equity": 8885.99943589427,
+        "sampled_mark_drawdown_pct": 37.68582741606905,
+        "average_marked_exposure_pct": 78.24747572350118,
+        "max_marked_exposure_pct": 83.48568072737554,
+        "fee_cost_usdt": 14.707497280000002,
+        "funding_net_income_usdt": 58.929013174271155,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -567.7113291155499,
+          "ETH/USDT:USDT": -737.2740606035718,
+          "ZEC/USDT:USDT": 190.98482561338915
+        },
+        "added_notional_including_fees_usdt": 956.5157601999998,
+        "min_free_collateral_usdt": 2052.231731530679,
+        "add_fills": 3,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 2.0463630789890885e-12,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/validation/ProfitAdd50/events.json": "46176fcfdafb4135bf9357422be7647ddaf56704863069717aefdba760f63610",
+        "reports/quant_v8/runs/validation/ProfitAdd50/orders.json": "f32ec69a7fd590a42bc533141903525305450bce50de0583ac19240286ad4af3",
+        "reports/quant_v8/runs/validation/ProfitAdd50/equity_preview.json": "4c4cea7b5f41ca6dea6894a0a585263ee221b0b7446fd73786bd8a0266264685",
+        "reports/quant_v8/runs/validation/ProfitAdd50/equity_5m.feather": "4dafb13c18db07c7fa5141d3fadcc6d4babc3dc9df7d9b86c1c3c25d6515bd69",
+        "reports/quant_v8/runs/validation/ProfitAdd50/mark_metrics.json": "714d5893511881821457fd1bbb99f76980637b746856ab9266ac327b19f11e51"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": -2.1461922174946793,
+        "drawdown_gap_pp": 5.54632254395365,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd100",
+      "name": "浮盈额度100%顺势加仓",
+      "window": "validation",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -12.52460577950334,
+        "final_equity": 8747.539422049666,
+        "sampled_mark_drawdown_pct": 41.740364075548975,
+        "average_marked_exposure_pct": 84.17323758487126,
+        "max_marked_exposure_pct": 89.47874737772959,
+        "fee_cost_usdt": 15.990818480000002,
+        "funding_net_income_usdt": 71.45912052968306,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -567.7113291155499,
+          "ETH/USDT:USDT": -737.2740606035718,
+          "ZEC/USDT:USDT": 52.52481176880201
+        },
+        "added_notional_including_fees_usdt": 1673.7462741999998,
+        "min_free_collateral_usdt": 1334.41645830997,
+        "add_fills": 3,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": -1.4779288903810084e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/validation/ProfitAdd100/events.json": "097cab746f6a1ca7d68c066b58009acc77f58dc9aee3ca56db0ef95871f1b6c2",
+        "reports/quant_v8/runs/validation/ProfitAdd100/orders.json": "3de258657bef4e5ece71783a4232375fe901eb9cb98872027e02a036bd2c97ec",
+        "reports/quant_v8/runs/validation/ProfitAdd100/equity_preview.json": "5b235690fd0dfb0e011f7f8f7d006f4f75c3eb9d0c1a3ebfa835087d3c94983d",
+        "reports/quant_v8/runs/validation/ProfitAdd100/equity_5m.feather": "9c0df56c251c157da4fc7966dad3faacb0a2540c1226d223523672bb26e7f1cd",
+        "reports/quant_v8/runs/validation/ProfitAdd100/mark_metrics.json": "385a0dde82813b416b688e35a96719ee99b1e761e7a1733e8ce0a7de94e7f3cb"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": -3.530792355940715,
+        "drawdown_gap_pp": 9.600859203433572,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "DriftHold",
+      "name": "不减仓、不加仓（同入场基准）",
+      "window": "validation_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -9.124068082362646,
+        "final_equity": 9087.593191763735,
+        "sampled_mark_drawdown_pct": 32.15799343402814,
+        "average_marked_exposure_pct": 70.73587416894847,
+        "max_marked_exposure_pct": 75.24578684165199,
+        "fee_cost_usdt": 26.050931760000005,
+        "funding_net_income_usdt": 42.77720352375281,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -571.78196911555,
+          "ETH/USDT:USDT": -741.2119083635714,
+          "ZEC/USDT:USDT": 400.5870692428707
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3000.7181070414135,
+        "add_fills": 0,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": -1.3869794202037156e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/validation_double_cost/DriftHold/events.json": "fa517c3ba8583e5f5db1f11d9e86a35e47ac87227e60a5489f36b561f7df0824",
+        "reports/quant_v8/runs/validation_double_cost/DriftHold/orders.json": "dab953a3f856212afdc104b4e7a70bcbca260502b5cf51709294466e7e7de8d6",
+        "reports/quant_v8/runs/validation_double_cost/DriftHold/equity_preview.json": "7f1784281dd4448f4afa6e9bdfb2ef34fc3f538cbec5abbcae5815ee08f434da",
+        "reports/quant_v8/runs/validation_double_cost/DriftHold/equity_5m.feather": "325d97dbcea9eb3d2313bba2de69e124cc69344880efff83e727e4aa879eeb11",
+        "reports/quant_v8/runs/validation_double_cost/DriftHold/mark_metrics.json": "4c9dec7effa1fb81c20871edd5d123a2548538392583d657da0a444967972ec0"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.0,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": false,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70",
+      "name": "持续压回70%总权重",
+      "window": "validation_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -7.62681743847703,
+        "final_equity": 9237.318256152297,
+        "sampled_mark_drawdown_pct": 29.911592248112324,
+        "average_marked_exposure_pct": 65.46603135937389,
+        "max_marked_exposure_pct": 70.48859950168935,
+        "fee_cost_usdt": 26.357291364341506,
+        "funding_net_income_usdt": 39.62882534588781,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -521.2922719713681,
+          "ETH/USDT:USDT": -680.0897486007023,
+          "ZEC/USDT:USDT": 438.70027672436504
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3008.745921040001,
+        "add_fills": 0,
+        "cap_reductions": 140,
+        "reconciled": true,
+        "cashflow_error_usdt": 2.5011104298755527e-12,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/validation_double_cost/CapTotal70/events.json": "dded420676a10e16e1b5849eb6faa0411e3f6a302d93b52e6d7bac2a31acb842",
+        "reports/quant_v8/runs/validation_double_cost/CapTotal70/orders.json": "d70b7dfad11723dd0f900ec003bee899da2eb0054d6bde6806704d7117985111",
+        "reports/quant_v8/runs/validation_double_cost/CapTotal70/equity_preview.json": "9f897402ce64b50c4213ba7af692f2a6c604542fc63b4b461767e8fa72d2bef8",
+        "reports/quant_v8/runs/validation_double_cost/CapTotal70/equity_5m.feather": "7c87970a4334b75406eb11acc02b30ff2513b23a59817d24eb0eeb1ace899e3b",
+        "reports/quant_v8/runs/validation_double_cost/CapTotal70/mark_metrics.json": "d2e89c7cd7b1b5699e4e0939a53a45dde4d0b0a624a49a7029cbf361d217b1f3"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 1.4972506438856161,
+        "drawdown_gap_pp": -2.2464011859158184,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70Single25",
+      "name": "持续压回70%总 / 25%单币",
+      "window": "validation_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -6.104911496846544,
+        "final_equity": 9389.508850315346,
+        "sampled_mark_drawdown_pct": 24.442748552345186,
+        "average_marked_exposure_pct": 59.52851701943993,
+        "max_marked_exposure_pct": 70.11604924745333,
+        "fee_cost_usdt": 26.698832578643266,
+        "funding_net_income_usdt": 21.390353572335233,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -562.7463804989575,
+          "ETH/USDT:USDT": -729.8112850596456,
+          "ZEC/USDT:USDT": 682.0665158739379
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3008.745921040001,
+        "add_fills": 0,
+        "cap_reductions": 111,
+        "reconciled": true,
+        "cashflow_error_usdt": 1.0800249583553523e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/validation_double_cost/CapTotal70Single25/events.json": "645a8befa87f0ad7f179f8b5feade35509d3a965b274c20bedb985ab93d2fb9d",
+        "reports/quant_v8/runs/validation_double_cost/CapTotal70Single25/orders.json": "b248d23e83e2fd0d5c4d578cc2c6e2c9e4d134419558ff123b32e0be6be0f668",
+        "reports/quant_v8/runs/validation_double_cost/CapTotal70Single25/equity_preview.json": "f397c3626e5ad150fa68c8c333d1b0ffb6249f5d4e4c81bd49ae39b535f7704e",
+        "reports/quant_v8/runs/validation_double_cost/CapTotal70Single25/equity_5m.feather": "8a1b0f99652102f5d98804c3d9e26953028bd4ad9cd7d70f81199f01277bf7b0",
+        "reports/quant_v8/runs/validation_double_cost/CapTotal70Single25/mark_metrics.json": "e8dc15927f235369d4995a9ad88cc43d5125252de621e90e89b07e564bcb4470"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 3.019156585516102,
+        "drawdown_gap_pp": -7.715244881682956,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd50",
+      "name": "浮盈额度50%顺势加仓",
+      "window": "validation_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -11.287080613857349,
+        "final_equity": 8871.291938614266,
+        "sampled_mark_drawdown_pct": 37.70989981817279,
+        "average_marked_exposure_pct": 78.3061822870735,
+        "max_marked_exposure_pct": 83.53900849046762,
+        "fee_cost_usdt": 29.414994560000004,
+        "funding_net_income_usdt": 58.929013174271155,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -571.78196911555,
+          "ETH/USDT:USDT": -741.2119083635714,
+          "ZEC/USDT:USDT": 184.2858160933888
+        },
+        "added_notional_including_fees_usdt": 957.4713204,
+        "min_free_collateral_usdt": 2044.2988718506767,
+        "add_fills": 3,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": -1.5916157281026244e-12,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/validation_double_cost/ProfitAdd50/events.json": "2d9b05657c40675300bf0d265e64dba1d6bfffac1b85d4796228e9eb0cc9db4a",
+        "reports/quant_v8/runs/validation_double_cost/ProfitAdd50/orders.json": "6d1b002cb207908b0c42571651c334c5fc5f0e1e837a7b30c8e60c5a0b06ab71",
+        "reports/quant_v8/runs/validation_double_cost/ProfitAdd50/equity_preview.json": "162fd2a7810f654889e50d76d965592e092c42a13f606490e2e5d93dc46f7909",
+        "reports/quant_v8/runs/validation_double_cost/ProfitAdd50/equity_5m.feather": "2a548381a9230a2abf325584e49835d634c4cb88a0d5aaf96234fa89ffc46506",
+        "reports/quant_v8/runs/validation_double_cost/ProfitAdd50/mark_metrics.json": "04485a01e2329117e6ff3dfdbff2b19e40d06d1f22fa32b634948325e5cfab30"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": -2.1630125314947026,
+        "drawdown_gap_pp": 5.551906384144644,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd100",
+      "name": "浮盈额度100%顺势加仓",
+      "window": "validation_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": -12.68451396430339,
+        "final_equity": 8731.548603569661,
+        "sampled_mark_drawdown_pct": 41.76884887890065,
+        "average_marked_exposure_pct": 84.24171461748054,
+        "max_marked_exposure_pct": 89.53981020216004,
+        "fee_cost_usdt": 31.981636960000003,
+        "funding_net_income_usdt": 71.45912052968306,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -571.78196911555,
+          "ETH/USDT:USDT": -741.2119083635714,
+          "ZEC/USDT:USDT": 44.542481048802074
+        },
+        "added_notional_including_fees_usdt": 1675.4183484,
+        "min_free_collateral_usdt": 1325.767084629968,
+        "add_fills": 3,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": -1.9326762412674725e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/validation_double_cost/ProfitAdd100/events.json": "ea39fa7f299cb79380bcf89fae47a5b1122e3389c94891fa09843b6e1e9abe8a",
+        "reports/quant_v8/runs/validation_double_cost/ProfitAdd100/orders.json": "14252f866fede0efd137f28acefeac00353c75863c5c7e01cf42e9db050a9a64",
+        "reports/quant_v8/runs/validation_double_cost/ProfitAdd100/equity_preview.json": "f3efc0b8bf45ed906f8dbc5d19c014c62e76bc4c893bc4edb5772166aac766ba",
+        "reports/quant_v8/runs/validation_double_cost/ProfitAdd100/equity_5m.feather": "da7a75f52dc2a8c5cc4d50bc4c0508c63d76517d20ec95069485c59dc3f03dfe",
+        "reports/quant_v8/runs/validation_double_cost/ProfitAdd100/mark_metrics.json": "981ee1c94c5fdd0fd2e7b4954771b02e185848639dccd1a82a04dc9b874166c2"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": -3.560445881940744,
+        "drawdown_gap_pp": 9.610855444872506,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "DriftHold",
+      "name": "不减仓、不加仓（同入场基准）",
+      "window": "reused_holdout",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 88.14774982799678,
+        "final_equity": 18814.774982799678,
+        "sampled_mark_drawdown_pct": 9.20103521523936,
+        "average_marked_exposure_pct": 76.2616237229231,
+        "max_marked_exposure_pct": 85.38856097095012,
+        "fee_cost_usdt": 22.90561134,
+        "funding_net_income_usdt": -121.9402658603284,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": 934.3274239340776,
+          "ETH/USDT:USDT": 1553.6813401037703,
+          "ZEC/USDT:USDT": 6326.7662187618225
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 2898.0914988996774,
+        "add_fills": 0,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 7.275957614183426e-12,
+        "freqtrade_baseline_difference_usdt": 9.677023626863956e-09,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/reused_holdout/DriftHold/events.json": "1a3763333a9fc4792f4813fd588c9d55fb6caddaf064d3c2f62d652ea768bd71",
+        "reports/quant_v8/runs/reused_holdout/DriftHold/orders.json": "9b10aa5ed94c3dd79903baf962649d60fdb1a2566ad0715644154e5ef95610a9",
+        "reports/quant_v8/runs/reused_holdout/DriftHold/equity_preview.json": "fd0f258bde80105d6a03d617b8d9b4dc12d328f6301b3f82fee260d2a96e7f24",
+        "reports/quant_v8/runs/reused_holdout/DriftHold/equity_5m.feather": "8ea5b53db25488a04b5e6e7093a1b569a723bab9af4d300e86c9d5b770abfa1e",
+        "reports/quant_v8/runs/reused_holdout/DriftHold/mark_metrics.json": "a19b1e9139d714262bf08bd672161cd843623ab1d171fcd62683e9e143719895"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.0,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": false,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70",
+      "name": "持续压回70%总权重",
+      "window": "reused_holdout",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 76.7390860311649,
+        "final_equity": 17673.90860311649,
+        "sampled_mark_drawdown_pct": 8.261625987063628,
+        "average_marked_exposure_pct": 68.87928727139523,
+        "max_marked_exposure_pct": 70.4926794999924,
+        "fee_cost_usdt": 21.750082188958192,
+        "funding_net_income_usdt": -108.43302365273551,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": 838.3408765455836,
+          "ETH/USDT:USDT": 1411.8914251029773,
+          "ZEC/USDT:USDT": 5423.676301467942
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3019.6347739413814,
+        "add_fills": 0,
+        "cap_reductions": 516,
+        "reconciled": true,
+        "cashflow_error_usdt": -1.0913936421275139e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/reused_holdout/CapTotal70/events.json": "4ec7e6ea8d9081777ee683e9918cdc1b04f6ba759cbbe64ffa4d0f238652f2fb",
+        "reports/quant_v8/runs/reused_holdout/CapTotal70/orders.json": "aee9317289d0afdf78b62efaa750097b5d0631690b4374477cd7b02b730cd7bb",
+        "reports/quant_v8/runs/reused_holdout/CapTotal70/equity_preview.json": "640b824f8eccdcaca02573714bbf959a5c35546f276d30820da0ca6baddd3a7d",
+        "reports/quant_v8/runs/reused_holdout/CapTotal70/equity_5m.feather": "0dee94c206c612ff67952ca070a1eea0b940a2efb820b954fc7b9562defe00ac",
+        "reports/quant_v8/runs/reused_holdout/CapTotal70/mark_metrics.json": "774a80876f4ddfc46c33b50b0e16d84b5f2e17486eea978b69acd9ec79c7f557"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": -11.408663796831874,
+        "drawdown_gap_pp": -0.939409228175732,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70Single25",
+      "name": "持续压回70%总 / 25%单币",
+      "window": "reused_holdout",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 67.21198262760085,
+        "final_equity": 16721.198262760085,
+        "sampled_mark_drawdown_pct": 7.880942546855358,
+        "average_marked_exposure_pct": 66.79485882087623,
+        "max_marked_exposure_pct": 70.2226917114884,
+        "fee_cost_usdt": 20.79678358169953,
+        "funding_net_income_usdt": -108.79805535774982,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": 894.3591223662024,
+          "ETH/USDT:USDT": 1456.716216866282,
+          "ZEC/USDT:USDT": 4370.1229235276105
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3019.6347739413814,
+        "add_fills": 0,
+        "cap_reductions": 298,
+        "reconciled": true,
+        "cashflow_error_usdt": -1.000444171950221e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/reused_holdout/CapTotal70Single25/events.json": "a0f74dd42849bc2fafe5d8963c011831c1cfaa2af30b032ec00b279f135a6e1a",
+        "reports/quant_v8/runs/reused_holdout/CapTotal70Single25/orders.json": "c12539e61485d2dee6fb3b4244eccc607e1bbd9c70d0bdd320d5694f46be0330",
+        "reports/quant_v8/runs/reused_holdout/CapTotal70Single25/equity_preview.json": "86fe8d40f97c8098c345e088a0adf922bbfa676f410df44ed74bc6400f14c765",
+        "reports/quant_v8/runs/reused_holdout/CapTotal70Single25/equity_5m.feather": "cd6cc2200b47fb4a5e9254bc16a0d75cfc10b4d13f413983468dd21b467688a7",
+        "reports/quant_v8/runs/reused_holdout/CapTotal70Single25/mark_metrics.json": "e3fe6747f412d77bfcb0b4b1355f20ce1bd255757ad6b47bc59a6ee83ce46256"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": -20.93576720039593,
+        "drawdown_gap_pp": -1.3200926683840013,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd50",
+      "name": "浮盈额度50%顺势加仓",
+      "window": "reused_holdout",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 103.5369699024332,
+        "final_equity": 20353.69699024332,
+        "sampled_mark_drawdown_pct": 10.766494888117581,
+        "average_marked_exposure_pct": 83.43176450307395,
+        "max_marked_exposure_pct": 95.62749321034467,
+        "fee_cost_usdt": 28.338894630000006,
+        "funding_net_income_usdt": -134.8178851266896,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": 969.6798634158577,
+          "ETH/USDT:USDT": 1671.9270847137946,
+          "ZEC/USDT:USDT": 7712.090042113663
+        },
+        "added_notional_including_fees_usdt": 1939.96321519,
+        "min_free_collateral_usdt": 945.2506644433142,
+        "add_fills": 6,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 3.637978807091713e-12,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/reused_holdout/ProfitAdd50/events.json": "f43705abc14fac8b296da9d225cf6d895442cc1c9514320079df6b904b6fa680",
+        "reports/quant_v8/runs/reused_holdout/ProfitAdd50/orders.json": "48a18d18e378de8973bb0c426da4f5383402833e7285b0dc97861822d2165de5",
+        "reports/quant_v8/runs/reused_holdout/ProfitAdd50/equity_preview.json": "c9bede13b306ebfe28f09ead40ae318fd343f6051b3ec302745432e1f29134e2",
+        "reports/quant_v8/runs/reused_holdout/ProfitAdd50/equity_5m.feather": "32bb3f2a90fbbd29ef0f1fec546f8ec394e30d181a551d456d79da78c6dcbeb2",
+        "reports/quant_v8/runs/reused_holdout/ProfitAdd50/mark_metrics.json": "e613f0d026eb99a1d5255aa3dde24ddf6752a6291241940ba03e646afc12e7e7"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 15.389220074436423,
+        "drawdown_gap_pp": 1.5654596728782213,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd100",
+      "name": "浮盈额度100%顺势加仓",
+      "window": "reused_holdout",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 107.98658560733978,
+        "final_equity": 20798.658560733977,
+        "sampled_mark_drawdown_pct": 10.843921841387647,
+        "average_marked_exposure_pct": 85.76866650857905,
+        "max_marked_exposure_pct": 95.75491188972912,
+        "fee_cost_usdt": 28.793830120000003,
+        "funding_net_income_usdt": -139.83448914602707,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": 1005.0323028976304,
+          "ETH/USDT:USDT": 1738.6997985259804,
+          "ZEC/USDT:USDT": 8054.926459310366
+        },
+        "added_notional_including_fees_usdt": 1942.2166563799997,
+        "min_free_collateral_usdt": 937.9806192339747,
+        "add_fills": 4,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 0.0,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/reused_holdout/ProfitAdd100/events.json": "23a0e6d5d2735acb43801a7d66c042a5472173a917589b5d2b903ed7eb446890",
+        "reports/quant_v8/runs/reused_holdout/ProfitAdd100/orders.json": "8780c223d38b7c0f2e6ca2069cecbcc9370dea8ccbf470d8a2ed8728d4774fff",
+        "reports/quant_v8/runs/reused_holdout/ProfitAdd100/equity_preview.json": "0a9bb53c6044290556a9401f5f71084f09faea0c66cbb135a8e2e8c6b6a71667",
+        "reports/quant_v8/runs/reused_holdout/ProfitAdd100/equity_5m.feather": "0594dd8f2680a5bf8f0930cf6cf4e6bbd3bf5c14d65cb54a47a5d931a747ab23",
+        "reports/quant_v8/runs/reused_holdout/ProfitAdd100/mark_metrics.json": "89c82fdbb3b3f27ab9b2b10e39cee1d34350cd4080c21109f808901beeee3522"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 19.838835779343,
+        "drawdown_gap_pp": 1.6428866261482877,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "DriftHold",
+      "name": "不减仓、不加仓（同入场基准）",
+      "window": "reused_holdout_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 87.91869371459677,
+        "final_equity": 18791.869371459677,
+        "sampled_mark_drawdown_pct": 9.204771886592827,
+        "average_marked_exposure_pct": 76.30350589216015,
+        "max_marked_exposure_pct": 85.41857919019535,
+        "fee_cost_usdt": 45.81122268,
+        "funding_net_income_usdt": -121.9402658603284,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": 928.7289739340777,
+          "ETH/USDT:USDT": 1547.4217775637703,
+          "ZEC/USDT:USDT": 6315.718619961821
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 2891.118503659676,
+        "add_fills": 0,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 9.094947017729282e-12,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/reused_holdout_double_cost/DriftHold/events.json": "72d86a7b4b58b3ca84add50c11c29abf96b63a1471c459be4f08ff121dbb5b95",
+        "reports/quant_v8/runs/reused_holdout_double_cost/DriftHold/orders.json": "50ca4f37a48f17cde9f4939115f21c7c17fa4d897811246c81667b52042c42bb",
+        "reports/quant_v8/runs/reused_holdout_double_cost/DriftHold/equity_preview.json": "5f517e52dd3f74036211f8d5aad5e556376c7658b06198d5a13e1d5dc755c27f",
+        "reports/quant_v8/runs/reused_holdout_double_cost/DriftHold/equity_5m.feather": "012d7890f4a108b30739d1a5d0404ab0cfccff3e192940710170debbdda6b8e6",
+        "reports/quant_v8/runs/reused_holdout_double_cost/DriftHold/mark_metrics.json": "7dd2356e518b3fd85527216f09f6db483b8888fe95a4799e662b9f3a0b19164d"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.0,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": false,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70",
+      "name": "持续压回70%总权重",
+      "window": "reused_holdout_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 76.46213780902784,
+        "final_equity": 17646.213780902784,
+        "sampled_mark_drawdown_pct": 8.261618874400517,
+        "average_marked_exposure_pct": 68.87958376324352,
+        "max_marked_exposure_pct": 70.49269520922907,
+        "fee_cost_usdt": 43.48808442763341,
+        "funding_net_income_usdt": -108.3498684862863,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": 832.2251099410691,
+          "ETH/USDT:USDT": 1404.7290614104227,
+          "ZEC/USDT:USDT": 5409.259609551296
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3012.66177870138,
+        "add_fills": 0,
+        "cap_reductions": 516,
+        "reconciled": true,
+        "cashflow_error_usdt": -3.637978807091713e-12,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/reused_holdout_double_cost/CapTotal70/events.json": "91ed2df1ee811a2d9f2fa18ade7bfb6459d3ffc62a56f5dff3086484d7400a53",
+        "reports/quant_v8/runs/reused_holdout_double_cost/CapTotal70/orders.json": "272e856fd5c10b7d7660ccce4bf74684b7f0764388fba57f103a4795a2ddcb05",
+        "reports/quant_v8/runs/reused_holdout_double_cost/CapTotal70/equity_preview.json": "37abffbcf4d7112f789a32bdd32f83c51e9b354b83197678c01507e7f41f5e78",
+        "reports/quant_v8/runs/reused_holdout_double_cost/CapTotal70/equity_5m.feather": "75b47e6f4226e5924e53974d9b38f219559e13d184c8a452606896377f58858d",
+        "reports/quant_v8/runs/reused_holdout_double_cost/CapTotal70/mark_metrics.json": "8fad7838ecc8f7cf191cdc16c6b62163ee8f4113e146caf580b1f2d36581e4c6"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": -11.456555905568933,
+        "drawdown_gap_pp": -0.94315301219231,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70Single25",
+      "name": "持续压回70%总 / 25%单币",
+      "window": "reused_holdout_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 66.95200345374039,
+        "final_equity": 16695.20034537404,
+        "sampled_mark_drawdown_pct": 7.881021202403371,
+        "average_marked_exposure_pct": 66.79722408564422,
+        "max_marked_exposure_pct": 70.2234164884481,
+        "fee_cost_usdt": 41.58298100800358,
+        "funding_net_income_usdt": -108.71669761975414,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": 888.1682706104993,
+          "ETH/USDT:USDT": 1449.4911460572998,
+          "ZEC/USDT:USDT": 4357.5409287062275
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3012.66177870138,
+        "add_fills": 0,
+        "cap_reductions": 298,
+        "reconciled": true,
+        "cashflow_error_usdt": 1.2732925824820995e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/reused_holdout_double_cost/CapTotal70Single25/events.json": "f87fa16bac2d31260921c140dd9af2d1b3822bd8355d36ce96ea3b63eca045cd",
+        "reports/quant_v8/runs/reused_holdout_double_cost/CapTotal70Single25/orders.json": "6d80c197d1773fff94fd0f7b4ec6f5204b261a1dd0fdf5767e8423a37e63c84e",
+        "reports/quant_v8/runs/reused_holdout_double_cost/CapTotal70Single25/equity_preview.json": "5ea1841e7f19528e09100b84fb0e8504b715a1c0e73f2364e667a50d2c61fa09",
+        "reports/quant_v8/runs/reused_holdout_double_cost/CapTotal70Single25/equity_5m.feather": "c999c60acb0c77ac6819c55545af71ecd3e56b8b0acd65fa368040c22378eeec",
+        "reports/quant_v8/runs/reused_holdout_double_cost/CapTotal70Single25/mark_metrics.json": "67325da78ea7da29c4365ed71c4f1da2d310032e4f35909cbe89a04a4fff621a"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": -20.96669026085638,
+        "drawdown_gap_pp": -1.3237506841894557,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd50",
+      "name": "浮盈额度50%顺势加仓",
+      "window": "reused_holdout_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 103.18796492599573,
+        "final_equity": 20318.796492599573,
+        "sampled_mark_drawdown_pct": 10.76133060808109,
+        "average_marked_exposure_pct": 83.46271928962562,
+        "max_marked_exposure_pct": 95.62639078684863,
+        "fee_cost_usdt": 56.63106286000001,
+        "funding_net_income_usdt": -134.79161454042918,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": 963.6125839158576,
+          "ETH/USDT:USDT": 1664.1972758837942,
+          "ZEC/USDT:USDT": 7690.986632799921
+        },
+        "added_notional_including_fees_usdt": 1933.52021178,
+        "min_free_collateral_usdt": 944.7469431995723,
+        "add_fills": 6,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 0.0,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/reused_holdout_double_cost/ProfitAdd50/events.json": "46e9b751c1a0275b9f02de5f4ac64b0b030b823317fa160fb99e8691a1a0e2e9",
+        "reports/quant_v8/runs/reused_holdout_double_cost/ProfitAdd50/orders.json": "356b503ad32dc2615c5ea096644b421ed63294d100b6728d376c3ef405ad0ce8",
+        "reports/quant_v8/runs/reused_holdout_double_cost/ProfitAdd50/equity_preview.json": "544a256a48f96a80ba5c13e33cca8e298fb7f6862540e165f6a3cfb1eaec021f",
+        "reports/quant_v8/runs/reused_holdout_double_cost/ProfitAdd50/equity_5m.feather": "bca79da09e42e35a9a8e563f5dc8fe4da800b4dd1cce6678f10e05266d88d8ad",
+        "reports/quant_v8/runs/reused_holdout_double_cost/ProfitAdd50/mark_metrics.json": "85ac327e81d4a922ec72c6731a2058e34738d3203e0112853484fab6c5556a29"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 15.269271211398959,
+        "drawdown_gap_pp": 1.5565587214882637,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd100",
+      "name": "浮盈额度100%顺势加仓",
+      "window": "reused_holdout_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 107.61311838829788,
+        "final_equity": 20761.311838829788,
+        "sampled_mark_drawdown_pct": 10.840078014023986,
+        "average_marked_exposure_pct": 85.80688297791096,
+        "max_marked_exposure_pct": 95.76256475096352,
+        "fee_cost_usdt": 57.544911240000005,
+        "funding_net_income_usdt": -139.80682993021304,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": 998.4961938976298,
+          "ETH/USDT:USDT": 1731.267906605981,
+          "ZEC/USDT:USDT": 8031.5477383261805
+        },
+        "added_notional_including_fees_usdt": 1937.7685815599998,
+        "min_free_collateral_usdt": 935.4833580297873,
+        "add_fills": 4,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": -3.637978807091713e-12,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/reused_holdout_double_cost/ProfitAdd100/events.json": "de0fadaca3e8685c657dcf52534d0048f12517942831557af2567127da5140c3",
+        "reports/quant_v8/runs/reused_holdout_double_cost/ProfitAdd100/orders.json": "da4873a9cb4f9b750f692b18487010e5c54bf78e5c86e44b2d15159f66364c70",
+        "reports/quant_v8/runs/reused_holdout_double_cost/ProfitAdd100/equity_preview.json": "ad7e04de98dbd772d0e6661aadd7a03b99e6720d2e43f3cb79ad34893e16631a",
+        "reports/quant_v8/runs/reused_holdout_double_cost/ProfitAdd100/equity_5m.feather": "c0925125ad88ffeb347f197a40f21761f39de530b554fdcbe80a6674319cedf1",
+        "reports/quant_v8/runs/reused_holdout_double_cost/ProfitAdd100/mark_metrics.json": "4634fe37261d2739a47edfc109231c9f4c1e23a8866f2ff1c80d213fa752ea9d"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 19.694424673701107,
+        "drawdown_gap_pp": 1.6353061274311589,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "DriftHold",
+      "name": "不减仓、不加仓（同入场基准）",
+      "window": "full",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 41.716039966318604,
+        "final_equity": 14171.60399663186,
+        "sampled_mark_drawdown_pct": 34.80451076878794,
+        "average_marked_exposure_pct": 64.70458394028925,
+        "max_marked_exposure_pct": 79.82583104012065,
+        "fee_cost_usdt": 18.115771880000004,
+        "funding_net_income_usdt": -28.203131488143892,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -135.09588152036667,
+          "ETH/USDT:USDT": -260.9702798283947,
+          "ZEC/USDT:USDT": 4567.6701579806195
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3015.9234540218586,
+        "add_fills": 0,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 1.8189894035458565e-12,
+        "freqtrade_baseline_difference_usdt": 1.8599166651256382e-09,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/full/DriftHold/events.json": "40cf99e7a1d48126a00dac06e4ca45dcd66d37a197496aae8dbde30765f50dac",
+        "reports/quant_v8/runs/full/DriftHold/orders.json": "47dabe431653ee54b4d55cd45a7c905a09075e7f622929996aa5f8caea760075",
+        "reports/quant_v8/runs/full/DriftHold/equity_preview.json": "4d5b7db1cb3e704bf8f2b4c9507aa6eccb2303b81bee6538158fef0e91b1508e",
+        "reports/quant_v8/runs/full/DriftHold/equity_5m.feather": "d914405fc9802093057e04585a27e757505fd05de3c5a9dd189826e295c7c740",
+        "reports/quant_v8/runs/full/DriftHold/mark_metrics.json": "3d745086ac56a49fe5b32f75d71f65bfbc170d43578fa861b7888f7f2f8e4c9e"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.0,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": false,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70",
+      "name": "持续压回70%总权重",
+      "window": "full",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 39.09523546570279,
+        "final_equity": 13909.523546570279,
+        "sampled_mark_drawdown_pct": 34.38056479785011,
+        "average_marked_exposure_pct": 63.1991029194931,
+        "max_marked_exposure_pct": 70.54057648945115,
+        "fee_cost_usdt": 17.850976932323917,
+        "funding_net_income_usdt": -25.75342882133499,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -147.17498164046606,
+          "ETH/USDT:USDT": -271.71770291837447,
+          "ZEC/USDT:USDT": 4328.4162311291075
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3044.126585509999,
+        "add_fills": 0,
+        "cap_reductions": 236,
+        "reconciled": true,
+        "cashflow_error_usdt": 1.1823431123048067e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/full/CapTotal70/events.json": "eb986bee89e6bb7aa7b5cb28c21f2b1c3114e0385b785cfa717c3bfee8e4f20f",
+        "reports/quant_v8/runs/full/CapTotal70/orders.json": "a337726d5ca33de46da6862eada38112f111ea7e2ef9acae6b43d6072d1106e2",
+        "reports/quant_v8/runs/full/CapTotal70/equity_preview.json": "14ea76f9235c88557abf0a5e033f67538bc5c646eeb160c12ecd067bd20690a2",
+        "reports/quant_v8/runs/full/CapTotal70/equity_5m.feather": "fe7990e20f59b2c84a130b7748716ac2e71c5cd60e05f100a58e9c42eda1d93a",
+        "reports/quant_v8/runs/full/CapTotal70/mark_metrics.json": "f736a75105a5d40266660e20d940a7bd16e6fc91b27c1ae203edd772a08cac8f"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": -2.6208045006158116,
+        "drawdown_gap_pp": -0.4239459709378295,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70Single25",
+      "name": "持续压回70%总 / 25%单币",
+      "window": "full",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 25.939032576305188,
+        "final_equity": 12593.90325763052,
+        "sampled_mark_drawdown_pct": 33.898237560142555,
+        "average_marked_exposure_pct": 58.58908167457301,
+        "max_marked_exposure_pct": 70.15454590805786,
+        "fee_cost_usdt": 16.53487497362654,
+        "funding_net_income_usdt": -26.587861022392982,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -131.78101075444056,
+          "ETH/USDT:USDT": -235.40985833136097,
+          "ZEC/USDT:USDT": 2961.09412671633
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3044.126585509999,
+        "add_fills": 0,
+        "cap_reductions": 191,
+        "reconciled": true,
+        "cashflow_error_usdt": -8.185452315956354e-12,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/full/CapTotal70Single25/events.json": "26de84b3df25f64fd1bb781a93c073b412aba5bf27c283e5d472c38426cc71f0",
+        "reports/quant_v8/runs/full/CapTotal70Single25/orders.json": "c7db63578a393bcccc734e5792455084bd0a1c15cedc2623a8eb8578eff6e067",
+        "reports/quant_v8/runs/full/CapTotal70Single25/equity_preview.json": "b26adefb3fe04778a3977f5be40b4b956e82ee0fac6dc0d6286f6c5736f0ac79",
+        "reports/quant_v8/runs/full/CapTotal70Single25/equity_5m.feather": "5d7396c216b853806488c2e8ba49cc66d2a7b4cb891db2c1bf6780579a365ef9",
+        "reports/quant_v8/runs/full/CapTotal70Single25/mark_metrics.json": "76e3d728e9c8b0e802bdbca91197942c128805f96d8f84aa3c3350cd5f56cb76"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": -15.777007390013416,
+        "drawdown_gap_pp": -0.9062732086453877,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd50",
+      "name": "浮盈额度50%顺势加仓",
+      "window": "full",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 51.966657502946155,
+        "final_equity": 15196.665750294615,
+        "sampled_mark_drawdown_pct": 34.80451076878794,
+        "average_marked_exposure_pct": 67.02664043144564,
+        "max_marked_exposure_pct": 93.85792146929617,
+        "fee_cost_usdt": 23.173963680000004,
+        "funding_net_income_usdt": -29.44478602538728,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -135.09588152036667,
+          "ETH/USDT:USDT": -260.9702798283947,
+          "ZEC/USDT:USDT": 5592.7319116433755
+        },
+        "added_notional_including_fees_usdt": 2015.4285151,
+        "min_free_collateral_usdt": 999.2532843846147,
+        "add_fills": 5,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 0.0,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/full/ProfitAdd50/events.json": "bbd8ec99a01a3eb424a8c63a6796a3db2fb351b69b1f88062e6de682d9526f5c",
+        "reports/quant_v8/runs/full/ProfitAdd50/orders.json": "19d33ea36f8b03448f29d4165768f990979cca7149559d40a8f31db72ff3d850",
+        "reports/quant_v8/runs/full/ProfitAdd50/equity_preview.json": "6f195f1ece7837f0c8b9669bf989c2aeccf1861a699f251b250667b08147a143",
+        "reports/quant_v8/runs/full/ProfitAdd50/equity_5m.feather": "f2673bdbb477b31d9a4c71d18fae2752fe98d81f00768474552a9e92dc2d490d",
+        "reports/quant_v8/runs/full/ProfitAdd50/mark_metrics.json": "b415dd8cf4b8900cd093f2778d4403f518d41006ae7b068a21c2aae89cb28b56"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 10.250617536627551,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd100",
+      "name": "浮盈额度100%顺势加仓",
+      "window": "full",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 56.50411519168117,
+        "final_equity": 15650.411519168118,
+        "sampled_mark_drawdown_pct": 34.80451076878794,
+        "average_marked_exposure_pct": 68.36308841749425,
+        "max_marked_exposure_pct": 94.01518117730484,
+        "fee_cost_usdt": 23.620404280000002,
+        "funding_net_income_usdt": -28.74597655189219,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -135.09588152036667,
+          "ETH/USDT:USDT": -260.9702798283947,
+          "ZEC/USDT:USDT": 6046.477680516872
+        },
+        "added_notional_including_fees_usdt": 2011.8985887,
+        "min_free_collateral_usdt": 1003.4820202581159,
+        "add_fills": 4,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 7.275957614183426e-12,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/full/ProfitAdd100/events.json": "cca9c3fe62b2a35e80d96b76c3bc29bed78a49dcbb184703d0f0a352644c8084",
+        "reports/quant_v8/runs/full/ProfitAdd100/orders.json": "5bab518727c9bf4f378265b08bbe670fd25ecbd1394d4dc8da552fed14361edb",
+        "reports/quant_v8/runs/full/ProfitAdd100/equity_preview.json": "02be894a49c4061408d82e13a719f0a3a7abace66183666c3d4de3f7f51e3b16",
+        "reports/quant_v8/runs/full/ProfitAdd100/equity_5m.feather": "857301c34977dd6cc80101a02a9dfff213f48cf2f553cc57c64093d3da195f58",
+        "reports/quant_v8/runs/full/ProfitAdd100/mark_metrics.json": "d043d633ef5448b73d1685f6e84d0e3e6b9f5dac0a4e4c3b45b9dbcb7e80d2dc"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 14.788075225362569,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "DriftHold",
+      "name": "不减仓、不加仓（同入场基准）",
+      "window": "full_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 41.534882247518624,
+        "final_equity": 14153.488224751862,
+        "sampled_mark_drawdown_pct": 34.82760683142839,
+        "average_marked_exposure_pct": 64.75581346971185,
+        "max_marked_exposure_pct": 79.86294337723848,
+        "fee_cost_usdt": 36.23154376000001,
+        "funding_net_income_usdt": -28.203131488143892,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -139.57320892036705,
+          "ETH/USDT:USDT": -265.40480815839464,
+          "ZEC/USDT:USDT": 4558.46624183062
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3008.974529531859,
+        "add_fills": 0,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 3.637978807091713e-12,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/full_double_cost/DriftHold/events.json": "68e54795a776d3aacbbe7c56d1a524073c1690397ec4caf9ee3ca76b7bff6d5b",
+        "reports/quant_v8/runs/full_double_cost/DriftHold/orders.json": "c89ca4c5e56b2138d226255027b7b3f7d03c62ecffe048984fe82ce867a7a496",
+        "reports/quant_v8/runs/full_double_cost/DriftHold/equity_preview.json": "75b8b2c06e9a95e1cf218c0ee9610fc8b1c175e3c78aa295633d40a0323ba08c",
+        "reports/quant_v8/runs/full_double_cost/DriftHold/equity_5m.feather": "f922b4f93a62763a7df2c5f37a8dfd8b40b39b6e13c45b1728c92d3c25e64f46",
+        "reports/quant_v8/runs/full_double_cost/DriftHold/mark_metrics.json": "7a2cdcc56bf77762551d7fc376bbaa916b19f726c5bdc6fa01824cc9a854ce37"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.0,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": false,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70",
+      "name": "持续压回70%总权重",
+      "window": "full_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 38.8895863266963,
+        "final_equity": 13888.95863266963,
+        "sampled_mark_drawdown_pct": 34.380688665728364,
+        "average_marked_exposure_pct": 63.19922065050224,
+        "max_marked_exposure_pct": 70.54061153253551,
+        "fee_cost_usdt": 35.69647112176885,
+        "funding_net_income_usdt": -25.731477093035174,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -151.53651901117337,
+          "ETH/USDT:USDT": -275.9642601807168,
+          "ZEC/USDT:USDT": 4316.459411861507
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3037.1776610199995,
+        "add_fills": 0,
+        "cap_reductions": 239,
+        "reconciled": true,
+        "cashflow_error_usdt": 1.318767317570746e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/full_double_cost/CapTotal70/events.json": "7c51f3a80b5c2ebb5f11e9e5ed061b980776f3a7eb0e6d259b168f7c2104eb6e",
+        "reports/quant_v8/runs/full_double_cost/CapTotal70/orders.json": "7fecb3add99de9dd38a48a315d3e2818223fcfa0abaea75653e25ddc4c749495",
+        "reports/quant_v8/runs/full_double_cost/CapTotal70/equity_preview.json": "e7d1fed08a92538af664d70a0b8a8ff8df737de07411e9bd7f468732452ed207",
+        "reports/quant_v8/runs/full_double_cost/CapTotal70/equity_5m.feather": "00f6ba84e8288815169386911fdeafd862a6c5afe2db8b585fc2a839c8687955",
+        "reports/quant_v8/runs/full_double_cost/CapTotal70/mark_metrics.json": "53504b73d7163f28deff4010691ec796d69946f3fef3e7c8d40dde328ccd716b"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": -2.6452959208223206,
+        "drawdown_gap_pp": -0.4469181657000263,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70Single25",
+      "name": "持续压回70%总 / 25%单币",
+      "window": "full_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 25.753476239438267,
+        "final_equity": 12575.347623943826,
+        "sampled_mark_drawdown_pct": 33.89928385845071,
+        "average_marked_exposure_pct": 58.590867002259294,
+        "max_marked_exposure_pct": 70.15461203503527,
+        "fee_cost_usdt": 33.06565774399375,
+        "funding_net_income_usdt": -26.566610309057758,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -136.1601059804575,
+          "ETH/USDT:USDT": -239.7025710846458,
+          "ZEC/USDT:USDT": 2951.2103010089118
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3037.1776610199995,
+        "add_fills": 0,
+        "cap_reductions": 194,
+        "reconciled": true,
+        "cashflow_error_usdt": 1.7280399333685637e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/full_double_cost/CapTotal70Single25/events.json": "312206c598cd8c6b736d06b07eebc5e79302c071264709185ce4c1aed7b53171",
+        "reports/quant_v8/runs/full_double_cost/CapTotal70Single25/orders.json": "fadeeaa00456d74868766a3069fc65abbd2037a3e69271000d26d246aa4e0224",
+        "reports/quant_v8/runs/full_double_cost/CapTotal70Single25/equity_preview.json": "545d74e9ecdff7ae9715eaf6adfe75e823439d31e32574d4c644dde56d7dba1f",
+        "reports/quant_v8/runs/full_double_cost/CapTotal70Single25/equity_5m.feather": "cc7b7943f375062a6f51ac848bd1f1524e5e670cd59e30d509e024d2cc75a085",
+        "reports/quant_v8/runs/full_double_cost/CapTotal70Single25/mark_metrics.json": "947fad0edae18a368b65e6fdca9669d4db4896e9ed6ea238cfee3b5f6027e7d0"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": -15.781406008080356,
+        "drawdown_gap_pp": -0.9283229729776821,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd50",
+      "name": "浮盈额度50%顺势加仓",
+      "window": "full_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 51.73491786614613,
+        "final_equity": 15173.491786614613,
+        "sampled_mark_drawdown_pct": 34.82760683142839,
+        "average_marked_exposure_pct": 67.08116126836784,
+        "max_marked_exposure_pct": 93.9095955051402,
+        "fee_cost_usdt": 46.34792736000001,
+        "funding_net_income_usdt": -29.44478602538728,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -139.57320892036705,
+          "ETH/USDT:USDT": -265.40480815839464,
+          "ZEC/USDT:USDT": 5578.469803693375
+        },
+        "added_notional_including_fees_usdt": 2017.4419302000001,
+        "min_free_collateral_usdt": 990.2909447946131,
+        "add_fills": 5,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 0.0,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/full_double_cost/ProfitAdd50/events.json": "054bf1a367e9c3c2ccde07d0f4525369762918299c462a1aac2645fab9338e13",
+        "reports/quant_v8/runs/full_double_cost/ProfitAdd50/orders.json": "7a1435b7b45ed4d39257c00df18bc2c8031ab20ca28eadc97af1ef5ef53e1967",
+        "reports/quant_v8/runs/full_double_cost/ProfitAdd50/equity_preview.json": "1c865bf033f5786f2cf4f62517a122401306de8224577861fe6766a272992c1e",
+        "reports/quant_v8/runs/full_double_cost/ProfitAdd50/equity_5m.feather": "2f2f0c3d2ef99065354882a4127632b8abcfebff1cae5571b996287ca208f3fa",
+        "reports/quant_v8/runs/full_double_cost/ProfitAdd50/mark_metrics.json": "03661ab33bb50e485f7c93e3634de8f5c2ccbc40f01e3a03587020f4ca50d388"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 10.200035618627503,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd100",
+      "name": "浮盈额度100%顺势加仓",
+      "window": "full_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 56.20229511874379,
+        "final_equity": 15620.22951187438,
+        "sampled_mark_drawdown_pct": 34.82760683142839,
+        "average_marked_exposure_pct": 68.41120340149409,
+        "max_marked_exposure_pct": 94.0123915997649,
+        "fee_cost_usdt": 47.19408216000001,
+        "funding_net_income_usdt": -28.71970596563191,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -139.57320892036705,
+          "ETH/USDT:USDT": -265.40480815839464,
+          "ZEC/USDT:USDT": 6025.207528953131
+        },
+        "added_notional_including_fees_usdt": 2005.5274488,
+        "min_free_collateral_usdt": 1002.9305062543772,
+        "add_fills": 4,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 1.0913936421275139e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/full_double_cost/ProfitAdd100/events.json": "d0dada088a87e7a2a62f96d1f3bf337589a2d188aa2f023cec3ff164aa605f53",
+        "reports/quant_v8/runs/full_double_cost/ProfitAdd100/orders.json": "8af982985864cbe838116d465502d39650caa4102fbc14af55e7822a4821faed",
+        "reports/quant_v8/runs/full_double_cost/ProfitAdd100/equity_preview.json": "3d9a0abdb396e503d0a724e3faa0de381887bbb6489abce2540c6cc78d792b7a",
+        "reports/quant_v8/runs/full_double_cost/ProfitAdd100/equity_5m.feather": "3e56718f3a89305990cbbc8691622e5a4eef45a6a165f2a7beaf4efbf14de189",
+        "reports/quant_v8/runs/full_double_cost/ProfitAdd100/mark_metrics.json": "ed97bc0a2d56bfd89b13ad9e493a8a73dbb5c7f717e38c3a08e2cfeb4595b899"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 14.667412871225167,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "DriftHold",
+      "name": "不减仓、不加仓（同入场基准）",
+      "window": "challenge2025",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 199.462186314493,
+        "final_equity": 29946.2186314493,
+        "sampled_mark_drawdown_pct": 46.48695982760847,
+        "average_marked_exposure_pct": 70.83339154473428,
+        "max_marked_exposure_pct": 90.1138789307201,
+        "fee_cost_usdt": 32.542686239999995,
+        "funding_net_income_usdt": 1268.0856376893282,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -281.52189447675846,
+          "ETH/USDT:USDT": -382.2896237128962,
+          "ZEC/USDT:USDT": 20610.03014963898
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 2994.455058990461,
+        "add_fills": 0,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": -2.546585164964199e-11,
+        "freqtrade_baseline_difference_usdt": -6.984919309616089e-10,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/challenge2025/DriftHold/events.json": "59e43a855859099f54cee8f4356a0215e3c8d3bf2010c446e9aef65111b38e30",
+        "reports/quant_v8/runs/challenge2025/DriftHold/orders.json": "dd9f61dedf0633215a404e8a92920918787f3fd4e97ba8f3b011f94f553d2361",
+        "reports/quant_v8/runs/challenge2025/DriftHold/equity_preview.json": "f5c3fa5af76201748b1ae59f333358e20036f2379b62d8bec227f853fa401f9c",
+        "reports/quant_v8/runs/challenge2025/DriftHold/equity_5m.feather": "d09a867b38cb262bed7976a30df7c4b3f1219b04de20a17194641890844499e9",
+        "reports/quant_v8/runs/challenge2025/DriftHold/mark_metrics.json": "4ed6f7cca840ac677da22a32145f0ce5e03ecaf9a9faff72ce5c9feb4640960d"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.0,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": false,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70",
+      "name": "持续压回70%总权重",
+      "window": "challenge2025",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 163.16509143798802,
+        "final_equity": 26316.5091437988,
+        "sampled_mark_drawdown_pct": 36.28835262221221,
+        "average_marked_exposure_pct": 64.37336668954845,
+        "max_marked_exposure_pct": 70.82652332536877,
+        "fee_cost_usdt": 29.3216066960874,
+        "funding_net_income_usdt": 856.2346144074932,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -32.45959708463647,
+          "ETH/USDT:USDT": -75.67062552797438,
+          "ZEC/USDT:USDT": 16424.639366411433
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3074.989185433251,
+        "add_fills": 0,
+        "cap_reductions": 649,
+        "reconciled": true,
+        "cashflow_error_usdt": -2.1827872842550278e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/challenge2025/CapTotal70/events.json": "a0012dbb34431b40625519afeb199ab76c6274b0d8b857728f221145e1384d46",
+        "reports/quant_v8/runs/challenge2025/CapTotal70/orders.json": "373025233148de3771ce0e1a84e561fce34ee0aad3ec12cf0b85ac6a2f5ac948",
+        "reports/quant_v8/runs/challenge2025/CapTotal70/equity_preview.json": "ef9a3eab99881f0bbabbbaad1c6c8dbd5ac95da573d522d42cb1de6c77378a23",
+        "reports/quant_v8/runs/challenge2025/CapTotal70/equity_5m.feather": "6a161c373249587cdb5051d93084c1144902dabcacab46f5d16a13ec4a23438b",
+        "reports/quant_v8/runs/challenge2025/CapTotal70/mark_metrics.json": "b081c6414d9c3b419bd2e8d5422ffbe293f2cbf89e942a3042cd976acb655eae"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": -36.297094876504985,
+        "drawdown_gap_pp": -10.198607205396264,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70Single25",
+      "name": "持续压回70%总 / 25%单币",
+      "window": "challenge2025",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 84.3965689877237,
+        "final_equity": 18439.65689877237,
+        "sampled_mark_drawdown_pct": 33.41353508335696,
+        "average_marked_exposure_pct": 56.777716783120646,
+        "max_marked_exposure_pct": 70.07911820737566,
+        "fee_cost_usdt": 22.06642415051441,
+        "funding_net_income_usdt": 227.30973240849949,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -210.47173820330045,
+          "ETH/USDT:USDT": -195.4809222538713,
+          "ZEC/USDT:USDT": 8845.609559229546
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3074.989185433251,
+        "add_fills": 0,
+        "cap_reductions": 457,
+        "reconciled": true,
+        "cashflow_error_usdt": -5.4569682106375694e-12,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/challenge2025/CapTotal70Single25/events.json": "6d1fa67d5f62f2809e673fd5d41529b572b3051f7dc4957ab73b4c0ba129dc9a",
+        "reports/quant_v8/runs/challenge2025/CapTotal70Single25/orders.json": "7f3e52130a4b13c19717a91243d3b6b37448317b24fa045a2652a5552035b59b",
+        "reports/quant_v8/runs/challenge2025/CapTotal70Single25/equity_preview.json": "c347204f4d6d204a30e5af45248ccd705a6d58ebd54677dbae81380fe9c00eda",
+        "reports/quant_v8/runs/challenge2025/CapTotal70Single25/equity_5m.feather": "7ead3e53e125dae829c0d2f20ba0b591a80ee116712f7f7ad0bb85a9f57e8af3",
+        "reports/quant_v8/runs/challenge2025/CapTotal70Single25/mark_metrics.json": "f19ac5a741536902652997f9286a118e54c016b83abc7f31584a92b81817f0e2"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": -115.06561732676931,
+        "drawdown_gap_pp": -13.073424744251511,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd50",
+      "name": "浮盈额度50%顺势加仓",
+      "window": "challenge2025",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 268.64480603065346,
+        "final_equity": 36864.48060306534,
+        "sampled_mark_drawdown_pct": 51.7317976524553,
+        "average_marked_exposure_pct": 74.35682816179316,
+        "max_marked_exposure_pct": 97.770504479426,
+        "fee_cost_usdt": 45.159922339999994,
+        "funding_net_income_usdt": 1803.1377454053447,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -339.4183267699682,
+          "ETH/USDT:USDT": -452.2482447085049,
+          "ZEC/USDT:USDT": 27656.147174543818
+        },
+        "added_notional_including_fees_usdt": 3113.8152044999997,
+        "min_free_collateral_usdt": 956.6017007123464,
+        "add_fills": 9,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": -3.637978807091713e-12,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/challenge2025/ProfitAdd50/events.json": "c315fb0fd266f55e2c9a70a886b908771d6e77a8ef98ade4e34f13a0b9dc0a12",
+        "reports/quant_v8/runs/challenge2025/ProfitAdd50/orders.json": "fb4895bf6a3da855c230332abf0f4ff220c264563cc1e47a8e5970ed02ba1a44",
+        "reports/quant_v8/runs/challenge2025/ProfitAdd50/equity_preview.json": "b29fa26ab8c7f9dbbeb07a682acfefdabb9e34fd21c9df7fd73780359fca6b84",
+        "reports/quant_v8/runs/challenge2025/ProfitAdd50/equity_5m.feather": "4ec01f4bc7a8a9f1c0bf36ba68462aa511ab453943fdf2d82fe90d2fd26db8d2",
+        "reports/quant_v8/runs/challenge2025/ProfitAdd50/mark_metrics.json": "a2d2623d05d1a663d0c3717b6cffd79fb73199d5e620ff6d9909657f83e6fb69"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 69.18261971616045,
+        "drawdown_gap_pp": 5.244837824846826,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": false
+      }
+    },
+    {
+      "strategy": "ProfitAdd100",
+      "name": "浮盈额度100%顺势加仓",
+      "window": "challenge2025",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.001,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 263.63628166711175,
+        "final_equity": 36363.628166711176,
+        "sampled_mark_drawdown_pct": 51.25127871099116,
+        "average_marked_exposure_pct": 75.21278432866733,
+        "max_marked_exposure_pct": 97.73473515116112,
+        "fee_cost_usdt": 44.64102584,
+        "funding_net_income_usdt": 1742.1115125511717,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -397.31475906317746,
+          "ETH/USDT:USDT": -522.2068657041041,
+          "ZEC/USDT:USDT": 27283.149791478452
+        },
+        "added_notional_including_fees_usdt": 3074.5002288,
+        "min_free_collateral_usdt": 954.7767160343537,
+        "add_fills": 7,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 7.275957614183426e-12,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/challenge2025/ProfitAdd100/events.json": "3d623188c847cded0393e77f3a3ccec45c6a3d9c927b474854699461d996f298",
+        "reports/quant_v8/runs/challenge2025/ProfitAdd100/orders.json": "2c4ca99dd98962c217c06f00c5ea3a4ce3c000f7c8a4faeeb885f73c023a882f",
+        "reports/quant_v8/runs/challenge2025/ProfitAdd100/equity_preview.json": "90563f1fdb178c1a31211e046e1d3fe1c598e3bfef9f7f299b51e25b7856ccf3",
+        "reports/quant_v8/runs/challenge2025/ProfitAdd100/equity_5m.feather": "60102f459fd791846fc8d831136c98d8d1b28edb43c347f0d5f2c7f21138765e",
+        "reports/quant_v8/runs/challenge2025/ProfitAdd100/mark_metrics.json": "8d51ca4083a6fae93343d42caa5658d8943b67dedf4580356a72ef4eaade8df0"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 64.17409535261874,
+        "drawdown_gap_pp": 4.7643188833826855,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": false
+      }
+    },
+    {
+      "strategy": "DriftHold",
+      "name": "不减仓、不加仓（同入场基准）",
+      "window": "challenge2025_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 199.136759452093,
+        "final_equity": 29913.675945209303,
+        "sampled_mark_drawdown_pct": 46.495072641404256,
+        "average_marked_exposure_pct": 70.87662268118663,
+        "max_marked_exposure_pct": 90.12960542956822,
+        "fee_cost_usdt": 65.08537247999999,
+        "funding_net_income_usdt": 1268.0856376893282,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -285.87593607675853,
+          "ETH/USDT:USDT": -386.68503306289676,
+          "ZEC/USDT:USDT": 20586.23691434898
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 2987.5390537104613,
+        "add_fills": 0,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": -2.1827872842550278e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/challenge2025_double_cost/DriftHold/events.json": "ffc400b02fbb01ebb2113c0c4d1555e6d039d705d9f4fb4f4e84e7312629c43f",
+        "reports/quant_v8/runs/challenge2025_double_cost/DriftHold/orders.json": "feb8279e36a4cd9a7b90d337641ad645453d0119df1bbe310878ebab8c2c74cc",
+        "reports/quant_v8/runs/challenge2025_double_cost/DriftHold/equity_preview.json": "f6b63c5162e5a70726cfd388511abfc8427e966e0645449d1492c70b3e7d6d6e",
+        "reports/quant_v8/runs/challenge2025_double_cost/DriftHold/equity_5m.feather": "b36ef906ee6e9b78e77f6f0c89e2020bd724a4c97bfce09984dbc84611bc74b9",
+        "reports/quant_v8/runs/challenge2025_double_cost/DriftHold/mark_metrics.json": "85ed5a73d07c01c028f29df77599ce6a885a11c3f510f24b98c4ef8b4c8c1743"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 0.0,
+        "drawdown_gap_pp": 0.0,
+        "allocation_differs": false,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70",
+      "name": "持续压回70%总权重",
+      "window": "challenge2025_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 162.75855449414084,
+        "final_equity": 26275.85544941408,
+        "sampled_mark_drawdown_pct": 36.290567069128585,
+        "average_marked_exposure_pct": 64.37468053178867,
+        "max_marked_exposure_pct": 70.8267845609974,
+        "fee_cost_usdt": 58.62199939874294,
+        "funding_net_income_usdt": 855.4883094413019,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -36.8900558631417,
+          "ETH/USDT:USDT": -79.42048719531681,
+          "ZEC/USDT:USDT": 16392.165992472495
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3068.073180153251,
+        "add_fills": 0,
+        "cap_reductions": 651,
+        "reconciled": true,
+        "cashflow_error_usdt": 4.3655745685100555e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/challenge2025_double_cost/CapTotal70/events.json": "a1b5d8ec17ef9ac502454c61c2c72be292e213754488e979dc9debb378eb4aed",
+        "reports/quant_v8/runs/challenge2025_double_cost/CapTotal70/orders.json": "f1a045289099bd213c6cf4d53fc839b31edc716ab7872d777ee217826c3fdcec",
+        "reports/quant_v8/runs/challenge2025_double_cost/CapTotal70/equity_preview.json": "560b42fd40225dd92bd6711f163e4bef0d1acdfd35eba11ff02524d26ad00cb3",
+        "reports/quant_v8/runs/challenge2025_double_cost/CapTotal70/equity_5m.feather": "866f3dd435d21cd9a7a17f9755ab608196f6576d9e61b591a9628a0480975954",
+        "reports/quant_v8/runs/challenge2025_double_cost/CapTotal70/mark_metrics.json": "d110b7d6623e99ba5b4a2ac08c82adee1ca954ca81f2ec8fc91f288a8ba2b6f5"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": -36.378204957952164,
+        "drawdown_gap_pp": -10.204505572275671,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "CapTotal70Single25",
+      "name": "持续压回70%总 / 25%单币",
+      "window": "challenge2025_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 84.09621850330682,
+        "final_equity": 18409.62185033068,
+        "sampled_mark_drawdown_pct": 33.40791231191444,
+        "average_marked_exposure_pct": 56.77422386207647,
+        "max_marked_exposure_pct": 70.07917697691538,
+        "fee_cost_usdt": 44.117524110963515,
+        "funding_net_income_usdt": 226.98787895986558,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -214.5938726031086,
+          "ETH/USDT:USDT": -199.91846173482304,
+          "ZEC/USDT:USDT": 8824.134184668595
+        },
+        "added_notional_including_fees_usdt": 0.0,
+        "min_free_collateral_usdt": 3068.073180153251,
+        "add_fills": 0,
+        "cap_reductions": 459,
+        "reconciled": true,
+        "cashflow_error_usdt": 1.6370904631912708e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/challenge2025_double_cost/CapTotal70Single25/events.json": "b73d3519849a62bfe5fba73c81c20008705664609cf9e96bac4281817ff2bbe3",
+        "reports/quant_v8/runs/challenge2025_double_cost/CapTotal70Single25/orders.json": "de48b13d0bc9b0c1966858fe77f86087f7f8c979507e9fe98bc245e0058def48",
+        "reports/quant_v8/runs/challenge2025_double_cost/CapTotal70Single25/equity_preview.json": "7e886267448bd8032378569b9e783517ac4e57bdd1f7d8fc62780ded8e7b0384",
+        "reports/quant_v8/runs/challenge2025_double_cost/CapTotal70Single25/equity_5m.feather": "68dcc730f73e820e7edbdc288a82949aa22bb337c3c4b9ef973fbf619faf4842",
+        "reports/quant_v8/runs/challenge2025_double_cost/CapTotal70Single25/mark_metrics.json": "561fb4d3e5bb4e15ad28e3bff67738258135d3f79dd5c47d24ef6d8f7bd78231"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": -115.04054094878619,
+        "drawdown_gap_pp": -13.08716032948982,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": true
+      }
+    },
+    {
+      "strategy": "ProfitAdd50",
+      "name": "浮盈额度50%顺势加仓",
+      "window": "challenge2025_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 267.9077676791358,
+        "final_equity": 36790.77676791358,
+        "sampled_mark_drawdown_pct": 51.72111807728047,
+        "average_marked_exposure_pct": 74.39290710653671,
+        "max_marked_exposure_pct": 97.76102744962357,
+        "fee_cost_usdt": 90.20784208,
+        "funding_net_income_usdt": 1800.7557299935834,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -344.174077369968,
+          "ETH/USDT:USDT": -457.06545285850507,
+          "ZEC/USDT:USDT": 27592.016298142054
+        },
+        "added_notional_including_fees_usdt": 3102.0324815999998,
+        "min_free_collateral_usdt": 956.7187294639625,
+        "add_fills": 9,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": 0.0,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/challenge2025_double_cost/ProfitAdd50/events.json": "4979f7ebc6ca22cda66c33eec625104da9da8f432af6c680d4baee751b235d99",
+        "reports/quant_v8/runs/challenge2025_double_cost/ProfitAdd50/orders.json": "a722328aec9c27682651458300d0866eec8d4b398643f96426ce2dd934f67f7d",
+        "reports/quant_v8/runs/challenge2025_double_cost/ProfitAdd50/equity_preview.json": "f51a8d55cbf83288249ff0668090edd71b5377fe24bd27b34b5425112f15abca",
+        "reports/quant_v8/runs/challenge2025_double_cost/ProfitAdd50/equity_5m.feather": "538770e51e82abdf9dc38aea20dcd6d5656ec3be51795996068d332eeb5075c5",
+        "reports/quant_v8/runs/challenge2025_double_cost/ProfitAdd50/mark_metrics.json": "eb81809f09a97cdba41a22e59b45e75b6af9fe7a24ac4362c3c331a75efc199a"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 68.77100822704281,
+        "drawdown_gap_pp": 5.226045435876216,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": false
+      }
+    },
+    {
+      "strategy": "ProfitAdd100",
+      "name": "浮盈额度100%顺势加仓",
+      "window": "challenge2025_double_cost",
+      "study": "v8",
+      "origin": "core_growth_counterfactual",
+      "fee": 0.002,
+      "total_trades": 3,
+      "mark_metrics": {
+        "return_pct": 262.7193998279282,
+        "final_equity": 36271.93998279282,
+        "sampled_mark_drawdown_pct": 51.24614924527003,
+        "average_marked_exposure_pct": 75.2530473114825,
+        "max_marked_exposure_pct": 97.74053600025015,
+        "fee_cost_usdt": 89.16406228,
+        "funding_net_income_usdt": 1738.795665072844,
+        "pnl_by_pair": {
+          "BTC/USDT:USDT": -402.47221866317705,
+          "ETH/USDT:USDT": -527.4458726541047,
+          "ZEC/USDT:USDT": 27201.85807411013
+        },
+        "added_notional_including_fees_usdt": 3069.9838122,
+        "min_free_collateral_usdt": 954.5980275217062,
+        "add_fills": 7,
+        "cap_reductions": 0,
+        "reconciled": true,
+        "cashflow_error_usdt": -2.546585164964199e-11,
+        "freqtrade_baseline_difference_usdt": null,
+        "definition": "5m mark-close MTM; known open execution; real single-event funding; no invented profit cash"
+      },
+      "artifacts": {
+        "reports/quant_v8/runs/challenge2025_double_cost/ProfitAdd100/events.json": "2de4468e3593c0c736e3d4d3163517ac36ed7d42350f0d19420d258590a2d8e3",
+        "reports/quant_v8/runs/challenge2025_double_cost/ProfitAdd100/orders.json": "9e336353f1b17a893b383e253ba709fda029d4f4d422d549043dcf08bf014814",
+        "reports/quant_v8/runs/challenge2025_double_cost/ProfitAdd100/equity_preview.json": "5615d64463e4712ee852ec216d376b2c3f0a3cff744639bf40ee2ff220467473",
+        "reports/quant_v8/runs/challenge2025_double_cost/ProfitAdd100/equity_5m.feather": "133b4cadd760af83e202dd31f7751769f10c7324801e9112758c042844ead004",
+        "reports/quant_v8/runs/challenge2025_double_cost/ProfitAdd100/mark_metrics.json": "eec6b778f3c0631e3e9bb715e1496417a7ab880344bc55747b6b2c9d644e09e6"
+      },
+      "versus_equal_hold": {
+        "return_gap_pp": 63.58264037583521,
+        "drawdown_gap_pp": 4.751076603865776,
+        "allocation_differs": true,
+        "within_50pct_historical_drawdown": false
+      }
+    }
+  ],
+  "protocol": {
+    "sources": {
+      "scripts/replay_core_growth.py": "1e1435d04ef62d85304317bb341f3c605740211349fb46f52e81d8e425bb4969",
+      "app/quant/core_growth.py": "ff3ae1e742eb0ac783b42dcb296089e16ac0a2992693e47ef3671d12f6e1f895",
+      "app/quant/futures_book.py": "06b8f3921b17a43be05c5dde81148c40677e134cc0c7318b49de52bc90cc1d16"
+    },
+    "seeds": {
+      "reports/quant_v7/runs/development/HoldEqual/summary.json": "c38f2c6f0eae062f56765372f14e01a8e39863629e0426aef13c506f47defc23",
+      "reports/quant_v7/runs/development/HoldEqual/trades.json": "d6568d4b510d433c8855e3ffb46a03ec88a4232770d330b4c127d4fdd346ec33",
+      "reports/quant_v7/runs/validation/HoldEqual/summary.json": "fa98dc18fb3e855d6bd847eda1c9156f04ce4ff1a8cd503b5a273590fffd03b3",
+      "reports/quant_v7/runs/validation/HoldEqual/trades.json": "75116f3ceb5726233828f893400415362f318c819d13b3ca203f3f18ab7eb07b",
+      "reports/quant_v7/runs/reused_holdout/HoldEqual/summary.json": "a8e6b7ba51b6bda4fccf515de0c105760dc3c7d6d7f8d5db6c537645da7b8ac6",
+      "reports/quant_v7/runs/reused_holdout/HoldEqual/trades.json": "f9db47c0eb9fd0684dc13c3f64f8414828794a246f59c50e056623543d80253d",
+      "reports/quant_v7/runs/full/HoldEqual/summary.json": "3f4a69f714f5b206e9d5a311068a7c8f45fbee8cff576431cddd6b91fce131d3",
+      "reports/quant_v7/runs/full/HoldEqual/trades.json": "6a1255a461d1d24a5c535b84cda9b2803612a6b6a75da8cb9ba439bf44db640e",
+      "reports/quant_v7/runs/challenge2025/HoldEqual/summary.json": "62a2de8e29c9a60e9b639655ca97c2ef514a5b172b9b231d143058aa37756283",
+      "reports/quant_v7/runs/challenge2025/HoldEqual/trades.json": "f8d0ed3de8705a8c49c3149318241e4f4cbc60286945884f253e544f99a8feb1"
+    },
+    "arms": {
+      "DriftHold": "不减仓、不加仓（同入场基准）",
+      "CapTotal70": "持续压回70%总权重",
+      "CapTotal70Single25": "持续压回70%总 / 25%单币",
+      "ProfitAdd50": "浮盈额度50%顺势加仓",
+      "ProfitAdd100": "浮盈额度100%顺势加仓"
+    },
+    "windows": {
+      "development": "20260101-20260501",
+      "validation": "20260501-20260701",
+      "reused_holdout": "20260701-20260924",
+      "full": "20260101-20260924",
+      "challenge2025": "20250101-20260101"
+    },
+    "capital": 10000.0,
+    "fees": [
+      0.001,
+      0.002
+    ],
+    "leverage": 1,
+    "rules": "Same v7 initial fills around 04:00 UTC. Hold until window end. Adds: completed 4h close exceeds previous 20 highs and EMA50, then next 5m open at least 20% above last buy. Spend <=50%/100% original-seed current gain minus past adds, <=5% account equity per fill, and available CASH collateral less 1000 USDT reserve. Never spend unrealized PnL as cash. No DCA into a losing seed. No per-coin weight trim in drift/add arms. Minimum add 100 USDT; fixed disclosed quantity steps.",
+    "quantity_steps": {
+      "BTCUSDT": 0.001,
+      "ETHUSDT": 0.001,
+      "ZECUSDT": 0.01
+    },
+    "execution": "5m opens; caps checked every 5m, runtime checks can differ. Fee proxy .1%/.2% per side includes execution allowance. Initial fills at funding ties included, additions at ties occur after funding. No strategy substitution or exchange orders.",
+    "limitations": [
+      "Post-hoc three chosen coins, not new OOS or coin-selection evidence",
+      "Pyramiding spends reserved cash and increases invested capital, so it is not equal exposure to 70% buy-and-hold",
+      "No ordinary exit; very large bear-market drawdowns remain possible",
+      "All cost sensitivities keep the identical initial quantities; not separate rescaled Freqtrade runs"
+    ]
+  },
+  "live_enabled": false
+}

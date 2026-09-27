@@ -1,3 +1,39 @@
+> 代码克隆、NFI子模块及本地数据说明见 [仓库使用说明](docs/quant_repository.md)。历史逐笔明细与行情文件保留在本机，不随Git上传。
+
+> **三币与16币扩展研究（v12）**：42组同资金比较完成，当前历史首选为三币长期底仓＋4h慢退出增强；2026完整72.06%收益/36.07%回撤，2025全年374.68%/43.30%。新增UNI、SOL等13币已进研究池，全买未带来更高收益。`./scripts/quant.sh expanded-data` 准备公开数据，`expanded` 校验/运行冻结回放，`start --research-only` 查看结果。见 [首选方案、完整对照与边界](docs/quant_expanded_core_research.md)。未开启实盘或恢复旧模拟。
+
+> **底仓保留＋趋势增强（v11）**：60组回放完成，历史候选为40%慢退出增强；2026完整区间72.28%收益/36.02%回撤，2025全年376.09%/43.30%，仍需新行情验证。`./scripts/quant.sh start --research-only` 打开只读研究看板；`overlay` 核验冻结回放。规则、亏损月份和执行压力见 [底仓增强研究](docs/quant_core_overlay_research.md)。没有替换旧模拟策略或开启实盘。
+
+> **持有、浮盈加仓与2x对照（v7–v10）**：同资金持有基准、慢退出、浮盈加仓、逐仓与全仓独立比较；看板“持有与主动策略对照”可查看逐笔。命令 `holding` / `growth` / `leverage` / `cross`；说明见 [持有与加仓研究](docs/quant_holding_research.md)。
+
+> **新增三币策略研究（v6）**：`./scripts/quant.sh start-all` 一次启动原模拟看板和三个独立虚拟账户；`forward-status` 查看新行情状态，`stop-all` 停止全部。20种止损版本、88组回测及逐笔明细见 [止损优化与持续模拟](docs/quant_stop_research.md)。保留 M4Structure / A1Fixed / D55ClosedTrail；仅模拟，原优选长期仓规则不变。
+
+> **当前合约模拟入口（v4）**：`./scripts/quant.sh setup` 后运行 `./scripts/quant.sh start`。统一读取项目 `.env`（代理、Binance、QUANT_*），4h选币 / 1h确认 / 15m执行。`status` / `config` / `logs` / `restart` / `stop` / `backtest` 使用同一个脚本。看板：http://127.0.0.1:8891/api/quant/dashboard 。详细生命周期、策略和验证边界见 [合约服务文档](docs/quant_contracts.md#v4统一配置与多周期服务2026-09-25)。当前仅模拟，Binance HTTP451会明确报告并停止行情处理。
+
+## 全池合约策略 v3.2（2026-09-24）
+
+当前主研究入口已改为币安 USDT 永续全池，覆盖币种和股票等 TradFi 合约。动态评分 → 入场区间 → 组合风险预算 → 真实资金费 → 退出 → SQLite 模拟账户 → 合约回放；最多 3 倍杠杆，45% 回撤触发暂停。当前仅研究/模拟，实盘关闭。
+
+- [运行说明与验证边界](docs/quant_contracts.md)
+- [本轮研究结论](reports/quant_v3/review.md)
+- 排名：`python3 scripts/quant_portfolio.py scan`
+- 一键启动采集、自动模拟与看板：`./scripts/quant.sh start`（首次 `./scripts/quant.sh setup`）
+- 管理：`./scripts/quant.sh status` / `logs` / `stop` / `restart`
+- 看板：http://127.0.0.1:8891/api/quant/dashboard；日线策略、每分钟观察、最多10个目标，显示每笔入场/退出及等待原因。
+- [策略与数据来源](docs/quant_sources.md)
+
+下方 v2 现货功能作为历史版本保留。
+
+## 选币、买卖与组合验证 v2（2026-09）
+
+Binance现货动态选币 → 突破/回踩/中继入场 → 盈利加仓 → 部分止盈与退出 → 持久化模拟盘 → 跨年份组合回归，默认 `active` 档位。评分不是胜率，历史结果尚未证明收益优势。
+
+- 最新可执行建议：`python3 scripts/market_advisory.py scan`
+- 模拟盘：`python3 scripts/market_advisory.py paper --horizon short_term`
+- 回归：`python3 scripts/market_advisory.py regression --input reports/advisory/v2_data/snapshot.json`
+
+[使用说明](docs/market_advisory.md) · [24组回归验收](reports/advisory/v2_regression.md) · [最新扫描](reports/advisory/v2_live/latest.md)。核心汇总已接新报告；旧兼容回测占位实现明确报错，不返回虚假完成结果。
+
 # 🚀 Python 智能量化交易分析工具 v1.2.0
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://python.org)

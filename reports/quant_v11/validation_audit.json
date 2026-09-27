@@ -1,0 +1,34 @@
+{
+  "checked_at": "2026-09-26T03:06:29.519795+00:00",
+  "frozen_hashes_verified": {
+    "sources": 5,
+    "data": 98,
+    "seeds": 5
+  },
+  "completed_runs": 60,
+  "result_artifacts_verified": 480,
+  "viewer_ledger_unchanged": {
+    "reports/quant_v3/contracts/paper.sqlite3": true,
+    "reports/quant_v3/contracts/runtime.json": true,
+    "reports/quant_v6/forward/M4Structure/trades.sqlite": true,
+    "reports/quant_v6/forward/A1Fixed/trades.sqlite": true,
+    "reports/quant_v6/forward/D55ClosedTrail/trades.sqlite": true
+  },
+  "tests": {
+    "core_overlay_cross_margin_and_replay": 23,
+    "research_viewer_api_config_and_cli": 23,
+    "existing_service_runtime": 19
+  },
+  "browser_checks": [
+    "v11 selection/default full detail",
+    "monthly returns and core/overlay PnL",
+    "maximum exposure and concentration",
+    "orders distinguish core/overlay",
+    "2025 execution stress detail and 105-order pagination",
+    "read-only banner and disabled save"
+  ],
+  "execution_changed": false,
+  "new_forward_batch_started": false,
+  "real_trading_used": false,
+  "whitespace_check": "changed scoped files and README new introduction passed; pre-existing README CRLF and two legacy trailing-space lines retained"
+}

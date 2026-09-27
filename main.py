@@ -95,6 +95,8 @@ from app.api.ml_config import router as ml_config_router
 from app.api.enhanced_trading import router as enhanced_trading_router
 from app.api.tradingview_scanner import router as tradingview_scanner_router
 from app.api.tradingview_scheduler import router as tradingview_scheduler_router
+from app.advisory.api import router as market_advisory_router
+from app.quant.api import router as quant_contracts_router
 from app.api.paper_trading import router as paper_trading_router
 from app.api.freqtrade import router as freqtrade_router
 from app.services.core.scheduler_service import SchedulerService
@@ -240,7 +242,7 @@ async def perform_detailed_startup_trading_analysis():
         await get_core_notification_service()
         
         # 主要分析的交易对
-        major_symbols = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP", "DOGE-USDT-SWAP", "XRP-USDT-SWAP"]
+        major_symbols = ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]
         
         # 执行完整的交易决策分析
         analysis_results = []
@@ -1284,6 +1286,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.include_router(market_advisory_router)
+    app.include_router(quant_contracts_router)
     app.include_router(paper_trading_router, tags=["Paper Trading"])
     app.include_router(freqtrade_router, tags=["Freqtrade"])
     

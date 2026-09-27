@@ -1,0 +1,45 @@
+{
+  "frozen_before_first_run_ms": 1790299032391,
+  "strategies": [
+    "MTF72h",
+    "MTFNoTime",
+    "MTFHourlyExit",
+    "MTFFourHourExit",
+    "Donchian20",
+    "Donchian55",
+    "EMA4h",
+    "ADXBreakout1h",
+    "BollingerReversion15m",
+    "RSI2Pullback1h",
+    "BuyHold1x",
+    "NFI8Long1x",
+    "NFI7Long1x"
+  ],
+  "windows": {
+    "full": "20260101-20260924",
+    "validation": "20260501-20260701",
+    "holdout": "20260701-20260924"
+  },
+  "capital": 10000,
+  "pairs": [
+    "BTC",
+    "ETH",
+    "ZEC"
+  ],
+  "leverage": 1,
+  "direction": "long_only",
+  "wallet_budget": 0.7,
+  "base_fee_including_execution_cost_allowance": 0.001,
+  "double_cost": 0.002,
+  "source_sha256": "4cdb10ff384326ecf249393b15036b37cf718576b7db123c416cec9aafa10141",
+  "nfi_commit": "3cc57f3cb1d0775c78f6e01537a0de2272339326",
+  "selection": "Compare fixed variants on validation, then inspect held-out July-Sep; no hyperparameter search. Full-window statistics are descriptive, not the selection score.",
+  "limitations": [
+    "Three user-selected survivors; does not validate full-universe selection",
+    "External strategy authors may have optimized on these historical periods; calendar holdout is not proven novel to them",
+    "NFI wrappers constrain original futures defaults to long-only 1x and per-pair budget; this is not upstream default performance",
+    "NFI recommends a larger pair pool; three-pair test is a constrained diagnostic",
+    "5m OHLC fills, no order-book reconstruction; combined fee proxy is not true variable slippage",
+    "Candidates do not apply the live core holding exemptions because the experiment compares their exit rules"
+  ]
+}

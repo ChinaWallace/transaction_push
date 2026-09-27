@@ -1,0 +1,38 @@
+[
+  {
+    "strategy": "A1HoldEntry",
+    "state": "insufficient_completed_trades",
+    "checked_signals": 0,
+    "file": "reports/quant_v7/lookahead/A1HoldEntry/result.csv"
+  },
+  {
+    "strategy": "A1SlowHold",
+    "state": "no_bias_detected",
+    "checked_signals": 12,
+    "file": "reports/quant_v7/lookahead/A1SlowHold/result.csv"
+  },
+  {
+    "strategy": "D55HoldEntry",
+    "state": "insufficient_completed_trades",
+    "checked_signals": 0,
+    "file": "reports/quant_v7/lookahead/D55HoldEntry/result.csv"
+  },
+  {
+    "strategy": "D55SlowHold",
+    "state": "no_bias_detected",
+    "checked_signals": 4,
+    "file": "reports/quant_v7/lookahead/D55SlowHold/result.csv"
+  },
+  {
+    "strategy": "M4HoldEntry",
+    "state": "insufficient_completed_trades",
+    "checked_signals": 0,
+    "file": "reports/quant_v7/lookahead/M4HoldEntry/result.csv"
+  },
+  {
+    "strategy": "M4SlowHold",
+    "state": "no_bias_detected",
+    "checked_signals": 12,
+    "file": "reports/quant_v7/lookahead/M4SlowHold/result.csv"
+  }
+]

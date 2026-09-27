@@ -1,0 +1,216 @@
+{
+  "selected_ms": 1790301256625,
+  "rules": "For each family choose at most one policy with positive net returns in development and validation, positive double-cost validation, <=35% sampled mark DD in each, >=12 combined development+validation trades, reconciled cash flows. Rank by minimum of per-day log return divided by (0.05+drawdown) across these 3 cases, then retain top3 families. If none qualify, retain watchlist without promoting.",
+  "selection_windows": [
+    "development",
+    "validation",
+    "validation_double_cost"
+  ],
+  "retained": [
+    {
+      "strategy": "M4Structure",
+      "family": "M4",
+      "eligible": true,
+      "score": 0.0023479393955271165,
+      "rejections": []
+    },
+    {
+      "strategy": "A1Fixed",
+      "family": "A1",
+      "eligible": true,
+      "score": 0.0018246818469359193,
+      "rejections": []
+    },
+    {
+      "strategy": "D55ClosedTrail",
+      "family": "D55",
+      "eligible": true,
+      "score": 0.001320851859129333,
+      "rejections": []
+    }
+  ],
+  "decisions": [
+    {
+      "strategy": "D55Legacy",
+      "family": "D55",
+      "eligible": false,
+      "score": null,
+      "rejections": [
+        "development: nonpositive return, >35% DD or failed reconciliation"
+      ]
+    },
+    {
+      "strategy": "D55Wide",
+      "family": "D55",
+      "eligible": true,
+      "score": 0.000822117325347173,
+      "rejections": []
+    },
+    {
+      "strategy": "D55Fixed",
+      "family": "D55",
+      "eligible": true,
+      "score": 0.0008496202312221113,
+      "rejections": []
+    },
+    {
+      "strategy": "D55ClosedTrail",
+      "family": "D55",
+      "eligible": true,
+      "score": 0.001320851859129333,
+      "rejections": []
+    },
+    {
+      "strategy": "D55Structure",
+      "family": "D55",
+      "eligible": false,
+      "score": null,
+      "rejections": [
+        "development: nonpositive return, >35% DD or failed reconciliation"
+      ]
+    },
+    {
+      "strategy": "E4Legacy",
+      "family": "E4",
+      "eligible": false,
+      "score": null,
+      "rejections": [
+        "development: nonpositive return, >35% DD or failed reconciliation"
+      ]
+    },
+    {
+      "strategy": "E4Wide",
+      "family": "E4",
+      "eligible": false,
+      "score": null,
+      "rejections": [
+        "development: nonpositive return, >35% DD or failed reconciliation"
+      ]
+    },
+    {
+      "strategy": "E4Fixed",
+      "family": "E4",
+      "eligible": false,
+      "score": null,
+      "rejections": [
+        "development: nonpositive return, >35% DD or failed reconciliation"
+      ]
+    },
+    {
+      "strategy": "E4ClosedTrail",
+      "family": "E4",
+      "eligible": false,
+      "score": null,
+      "rejections": [
+        "development: nonpositive return, >35% DD or failed reconciliation"
+      ]
+    },
+    {
+      "strategy": "E4Structure",
+      "family": "E4",
+      "eligible": false,
+      "score": null,
+      "rejections": [
+        "development: nonpositive return, >35% DD or failed reconciliation"
+      ]
+    },
+    {
+      "strategy": "A1Legacy",
+      "family": "A1",
+      "eligible": false,
+      "score": null,
+      "rejections": [
+        "validation: nonpositive return, >35% DD or failed reconciliation",
+        "validation_double_cost: nonpositive return, >35% DD or failed reconciliation"
+      ]
+    },
+    {
+      "strategy": "A1Wide",
+      "family": "A1",
+      "eligible": true,
+      "score": 0.0017781284510369688,
+      "rejections": []
+    },
+    {
+      "strategy": "A1Fixed",
+      "family": "A1",
+      "eligible": true,
+      "score": 0.0018246818469359193,
+      "rejections": []
+    },
+    {
+      "strategy": "A1ClosedTrail",
+      "family": "A1",
+      "eligible": false,
+      "score": null,
+      "rejections": [
+        "validation: nonpositive return, >35% DD or failed reconciliation",
+        "validation_double_cost: nonpositive return, >35% DD or failed reconciliation"
+      ]
+    },
+    {
+      "strategy": "A1Structure",
+      "family": "A1",
+      "eligible": false,
+      "score": null,
+      "rejections": [
+        "validation_double_cost: nonpositive return, >35% DD or failed reconciliation"
+      ]
+    },
+    {
+      "strategy": "M4Legacy",
+      "family": "M4",
+      "eligible": false,
+      "score": null,
+      "rejections": [
+        "validation: nonpositive return, >35% DD or failed reconciliation",
+        "validation_double_cost: nonpositive return, >35% DD or failed reconciliation"
+      ]
+    },
+    {
+      "strategy": "M4Wide",
+      "family": "M4",
+      "eligible": false,
+      "score": null,
+      "rejections": [
+        "development: nonpositive return, >35% DD or failed reconciliation",
+        "validation: nonpositive return, >35% DD or failed reconciliation",
+        "validation_double_cost: nonpositive return, >35% DD or failed reconciliation"
+      ]
+    },
+    {
+      "strategy": "M4Fixed",
+      "family": "M4",
+      "eligible": false,
+      "score": null,
+      "rejections": [
+        "development: nonpositive return, >35% DD or failed reconciliation"
+      ]
+    },
+    {
+      "strategy": "M4ClosedTrail",
+      "family": "M4",
+      "eligible": true,
+      "score": 0.0005773157564279411,
+      "rejections": []
+    },
+    {
+      "strategy": "M4Structure",
+      "family": "M4",
+      "eligible": true,
+      "score": 0.0023479393955271165,
+      "rejections": []
+    }
+  ],
+  "sources": {
+    "research/strategies/ComparisonStrategies.py": "4cdb10ff384326ecf249393b15036b37cf718576b7db123c416cec9aafa10141",
+    "research/strategies/StopComparisonStrategies.py": "3b27cbfbf37cc450a33fd56cd60a90abc375596883e2887bac28e01d9319f6c0",
+    "app/quant/stop_profiles.py": "2d13e6eb007a0a3f93190a7c1a528cc57302ee01966c53ef64211d8464eb1e9a"
+  },
+  "not_used_for_selection": [
+    "reused_holdout",
+    "challenge2025",
+    "full"
+  ],
+  "status": "historical_screen_complete"
+}

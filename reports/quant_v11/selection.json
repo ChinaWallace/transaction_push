@@ -1,0 +1,41 @@
+{
+  "kind": "retrospective_frozen_rule_screen_not_new_oos",
+  "candidates": [
+    "Enhance40Slow",
+    "Enhance40",
+    "Enhance20"
+  ],
+  "details": {
+    "Enhance20": {
+      "passed": true,
+      "failed": [],
+      "worst_full_window_excess_pp": 11.326250053693698,
+      "worst_drawdown_pct": 46.95670481620623
+    },
+    "Enhance40": {
+      "passed": true,
+      "failed": [],
+      "worst_full_window_excess_pp": 13.008367328525352,
+      "worst_drawdown_pct": 49.0053955527011
+    },
+    "Enhance70": {
+      "passed": false,
+      "failed": [
+        "challenge2025: drawdown>50",
+        "challenge2025_double_cost: drawdown>50",
+        "challenge2025_execution_stress: drawdown>50"
+      ],
+      "worst_full_window_excess_pp": 11.59327295577237,
+      "worst_drawdown_pct": 55.94741916115774
+    },
+    "Enhance40Slow": {
+      "passed": true,
+      "failed": [],
+      "worst_full_window_excess_pp": 29.744248669136525,
+      "worst_drawdown_pct": 43.45609838229312
+    }
+  },
+  "execution_changed": false,
+  "requires_new_forward_comparison": true,
+  "selected": "Enhance40Slow"
+}

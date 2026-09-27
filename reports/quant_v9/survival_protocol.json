@@ -1,0 +1,28 @@
+{
+  "frozen_ms": 1790307837700,
+  "source_sha256": "e1d5525e51e3f882bd5e734d3b89965e44e6e9d0c444d704b27b423e21c570dd",
+  "inputs": {
+    "reports/quant_v9/runs/challenge2025/D55Margin2x/trades.json": "3baba566728f785da309b29de311b24b4ad0118ff6d0b1f2a1d0e7845acd8cee",
+    "reports/quant_v9/runs/challenge2025/D55Notional2x/trades.json": "7f3fa1203bb948766dda7ad584ef40b011ac6a5b8ee7e5a05e453718d6d76ead",
+    "reports/quant_v9/runs/challenge2025/HoldMargin2x/trades.json": "d507cf6f379502083cf9d3f1bf18fa5d820929044ea45e052f5ba248eeae8b39",
+    "reports/quant_v9/runs/challenge2025/HoldNotional2x/trades.json": "10cf76f7cad35e0d3898683e4f1d578777ff3a772414e659085d786c8df954a7",
+    "reports/quant_v9/runs/challenge2025_double_cost/D55Margin2x/trades.json": "e76e899d62022aa6fa7021163071a9d9e11493fec49332f71de6f9abeb43182a",
+    "reports/quant_v9/runs/challenge2025_double_cost/D55Notional2x/trades.json": "e8daa2e9f405f8c9182a2a95e74b2fa1bc0797daed3725df7acc4881d1c00794",
+    "reports/quant_v9/runs/challenge2025_double_cost/HoldMargin2x/trades.json": "e9b03826164adbd74966da73a7c815bdf9e2ba20519a2949f4d2066b1dd556b6",
+    "reports/quant_v9/runs/challenge2025_double_cost/HoldNotional2x/trades.json": "8688463d50ae0590cdab07ce7eef0a248d53012c4c22be96e0aa197ee22a9a3b",
+    "reports/quant_v9/runs/full/D55Margin2x/trades.json": "8e73615d63774afa12a0eb31f9a00cb8fa7cbb814e5404a6582cf024da1e837f",
+    "reports/quant_v9/runs/full/D55Notional2x/trades.json": "22bd8c3cdb99f4ca9eaf9c3f3ca48a3e25fb1c290222360b10913ce69fe656bd",
+    "reports/quant_v9/runs/full/HoldMargin2x/trades.json": "57ff6c559625bcd5b94b9a725e0a8b663288996a7a5405d4d603a24c259d0318",
+    "reports/quant_v9/runs/full/HoldNotional2x/trades.json": "d7e8ceaff9075ed4b46553d5b1b45ee3d05383c31d5ea784c6a0cc5e17b1a583",
+    "reports/quant_v9/runs/full_double_cost/D55Margin2x/trades.json": "8fc5c03605721d98aaa066089b0babfdeeb28279593a818c5de4239dee7a1c29",
+    "reports/quant_v9/runs/full_double_cost/D55Notional2x/trades.json": "4afb03000b038e76ee1c32a70c95d5ad35a785b26657584329d7b9fa2e7e851e",
+    "reports/quant_v9/runs/full_double_cost/HoldMargin2x/trades.json": "407183d190e93904cb992d29b53c06a05e620db52dbc18a37578b1966d1462e5",
+    "reports/quant_v9/runs/full_double_cost/HoldNotional2x/trades.json": "d9ea1e325f67341c6939fbedcacdbe90a4138b6c4dc6bbd72c20deed41bb5c5a",
+    "reports/quant_v9/runs/reused_holdout/D55Margin2x/trades.json": "b1cbb7f4d4e34f7524ec9249ef70a1de70a2be668bb6d2f3d52bf33546aa83b2",
+    "reports/quant_v9/runs/reused_holdout/D55Notional2x/trades.json": "09d460e943871c18eeeb7c65e51383558513d51b33ad9fc0ab73bc78f4c9c1a4",
+    "reports/quant_v9/runs/reused_holdout/HoldMargin2x/trades.json": "cb8734864da93a8f257bc75d1b361384d786d6b597b5e3b0363d3d0a66f01214",
+    "reports/quant_v9/runs/reused_holdout/HoldNotional2x/trades.json": "fda488e2fb251a06ae03e1175cc15b427f1610298509a88eaf1160201250ee59"
+  },
+  "method": "Keep each pair first original 2x holding lot, then permanently stop that pair after exit. Require all three initial lots to enter together before any liquidation. No later entry/stake decisions copied. This is a counterfactual subset with full cashflow/MTM reconstruction, not a separately run Freqtrade strategy.",
+  "limitations": "Engine liquidation exits exclude liquidation penalties and use static tiers. Forced settlement remains approximate."
+}

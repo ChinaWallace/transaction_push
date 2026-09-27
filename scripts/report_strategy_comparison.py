@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Generate the readable report from reconciled research artifacts."""
+import csv
+import json
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+OUT = ROOT / "reports/quant_v5"
+
+
+def main():
+    data = json.loads((OUT / "comparison.json").read_text())
+    rows = data["rows"]
+    if not all(r["mark_metrics"]["reconciled"] for r in rows):
+        raise SystemExit("Some runs have unreconciled cash flows; resolve before reporting")
+    by_key = {(r["window"], r["strategy"]): r for r in rows}
+    selection = json.loads((OUT / "selection_freeze.json").read_text())
+    strategies = json.loads((OUT / "strategy_protocol.json").read_text())["strategies"]
+    text = ["# BTC / ETH / ZEC：13 个策略版本回测", "",
+        f"共 {len(rows)} 组：13 策略 × 完整区间/筛选段/留出段/完整区间双倍费用，加 5 组留出段双倍费用。所有已完成运行的逐单现金流、手续费、资金费与引擎最终利润对账通过。", "",
+        "结论：本轮没有找到能在三币上普遍赚钱的策略。ZEC 提供了绝大多数利润，BTC/ETH 的多数主动策略亏损。4h 趋势/突破明显优于频繁15m退出；买入持有收益更高但浮动回撤更大。NFI X7/X8在本轮三币约束下成交太少、留出段0交易，不能直接接管自动交易。", "",
+        f"筛选段提前选定 **{selection['primary']}** 作为较低回撤的前向模拟研究候选；EMA4h作为更积极的对照。二者都不是已获实盘资格的策略。筛选规则在看过5–6月结果后制定、在7–9月回测前冻结；没有看完留出结果再改选赢家。当前50币模拟账户尚未替换策略。", "",
+        "## 统一口径", "",
+        "- BTC/ETH/ZEC USDT永续，仅做多1x。初始10,000 USDT，可用资金预算70%，单币预算约23.33%；其余现金。上涨后名义仓位可漂移，不等同当前优选70%动态减仓规则。",
+        "- 完整区间：2026-01-01 00:00 至 2026-09-24 00:00 UTC，结束日不含。筛选段5月1日–7月1日，留出段7月1日–9月24日；各段独立从现金启动，收益不能相加。",
+        "- NFI用原生5m；其他策略从已收盘15m/1h/4h产生信号，下一根5m开盘撮合。基础成本双边各0.10%（手续费0.05%加执行成本预留0.05%），压力测试双边各0.20%；真实资金费另计。固定费用代理不等于真实订单簿滑点。",
+        "- 回撤使用所有5m标记价收盘、实际模拟订单和浮动盈亏重建。图形抽样不影响回撤计算；这不是逐笔盘中最大回撤。期末未平仓按引擎终点规则结算，并标记force_exit。",
+        "- MTF为研究复刻：不含原服务全币池排名、历史市值或优选免退出政策。4h版本同时改退出、ATR周期和基础止损，应理解为整套策略比较。NFI仅对方向/杠杆/预算作约束，保留原始退出及99%基础止损，不能声称所有策略承担相同风险。", "",
+        "## 全部策略结果", "",
+        "以下均为账户净收益；不是年化，也不是币价涨幅。", "",
+        "| 策略 | 完整收益 | 完整浮动回撤 | 筛选段收益 | 留出段收益 | 完整双倍费用收益 | 完整交易数 |",
+        "|---|---:|---:|---:|---:|---:|---:|"]
+    for s in strategies:
+        full = by_key[("full", s)]; m = full["mark_metrics"]
+        val = by_key[("validation", s)]["mark_metrics"]
+        hold = by_key[("holdout", s)]["mark_metrics"]
+        stress = by_key.get(("full_double_cost", s))
+        cost = f'{stress["mark_metrics"]["return_pct"]:.2f}%' if stress else "待完成"
+        text.append(f'| {s} | {m["return_pct"]:.2f}% | {m["sampled_mark_drawdown_pct"]:.2f}% | {val["return_pct"]:.2f}% | {hold["return_pct"]:.2f}% | {cost} | {full["total_trades"]} |')
+    text += ["", "## 利润究竟来自哪个币", "", "以下为完整区间对账户的净利润贡献（USDT），含费用与资金费。不能当作三次独立单币回测，也不能把删除一列当作剔除该币后的重跑结果。", "",
+             "| 策略 | BTC | ETH | ZEC |", "|---|---:|---:|---:|"]
+    for s in ["MTF72h", "Donchian55", "Donchian20", "EMA4h", "NFI8Long1x", "BuyHold1x"]:
+        m = by_key[("full", s)]["mark_metrics"]
+        text.append("| " + s + " | " + " | ".join(f'{m["pnl_by_pair"][p+"/USDT:USDT"]:.2f}' for p in ["BTC", "ETH", "ZEC"]) + " |")
+    text += ["", "## 72小时与NFI", "",
+        "MTF72h与MTFNoTime在完整、筛选和留出段的订单及收益一致，完整区间0次72小时退出；频繁15m退出与成本是更明显的问题。仅取消72小时不会使本次回测收益提高。", "",
+        "NFI X8完整区间6笔、X7共5笔，全部在6月的ZEC；留出段均0笔。全区间与筛选段重复的是同一批交易，不是独立成功证据。数据已核对到9月23日，BTC/ETH/ZEC各月均完整；不能把没有交易解释为稳健或低风险已获验证。当前测试未跑上游推荐的更大币池，也未启用其默认3x/做空。", "",
+        "## 前视与数据检查", "",
+        "192个Binance官方ZIP均通过各自SHA256校验；各币成交和标记5m各85,536根（含2025年12月预热）。官方标记价6月29日缺口用真实公开REST补齐，原始响应和哈希均保留；没有插值。NFI日线/4h/1h预热各1,000根。资金费区间798个真实结算事件/币。", ""]
+    for s in ["Donchian55", "EMA4h", "NFI8Long1x"]:
+        p = OUT / "lookahead" / s / "result.csv"
+        if p.exists():
+            record = next(csv.DictReader(p.open()))
+            text.append(f'- {s}：截断重跑检查 {record["total_signals"]} 个信号，has_bias={record["has_bias"]}，入/退出差异 {record["biased_entry_signals"]}/{record["biased_exit_signals"]}。')
+    text += ["", "前视检查覆盖抽样信号，不构成所有未来情景的证明。开源策略可能曾针对这些历史时期优化，因此时间留出不是对原作者未知行情的保证。三个事先挑选的存续币种有选择偏差，尚未证明全币池选币能力。", "",
+        "## 复现与逐笔明细", "", "```sh", "./scripts/quant.sh research", "```", "",
+        "该命令只运行离线回测与报告，不启动交易bot，不使用账户密钥、不下单。统一代理来自项目.env。已完成且来源一致的结果会复用；校验不一致时拒绝静默复用。", "",
+        "- [看板策略实验室](http://127.0.0.1:8891/api/quant/dashboard#research)：选区间、策略、币种，查看每笔买卖时间、价格、数量、费用、原因和盯市曲线。",
+        "- [固定实验协议](strategy_protocol.json)、[筛选冻结记录](selection_freeze.json)、[数据验收](data/validation_summary.json)。",
+        "- [全部结果](comparison.json)；`runs/<区间>/<策略>/` 保存配置、日志、Freqtrade原始ZIP、trades.json、orders.json、mark_metrics.json及完整equity_5m.feather。",
+        "- [NFI锁定源码](https://github.com/iterativv/NostalgiaForInfinity/tree/3cc57f3cb1d0775c78f6e01537a0de2272339326)、[Binance公开档案](https://github.com/binance/binance-public-data)、[Freqtrade回测口径](https://www.freqtrade.io/en/stable/backtesting/)。", ""]
+    (OUT / "REPORT.md").write_text("\n".join(text))
+    print(OUT / "REPORT.md")
+
+
+if __name__ == "__main__":
+    main()

@@ -42,8 +42,8 @@ class FreqtradeStatusResponse(BaseModel):
 
 
 class FreqtradeDownloadDataRequest(BaseModel):
-    pairs: List[str] = Field(default_factory=lambda: ["SOL-USDT-SWAP", "LINK-USDT-SWAP"])
-    timeframes: List[str] = Field(default_factory=lambda: ["1h"])
+    pairs: List[str] = Field(default_factory=lambda: ["BTC-USDT-SWAP", "ETH-USDT-SWAP"])
+    timeframes: List[str] = Field(default_factory=lambda: ["4h"])
     timerange: Optional[str] = Field(
         default=None,
         description="Freqtrade timerange, for example 20240101-20240501",
@@ -52,18 +52,20 @@ class FreqtradeDownloadDataRequest(BaseModel):
 
 
 class FreqtradeBacktestRequest(BaseModel):
-    strategy: str = "OpenSourceTrendStrategy"
-    timeframe: str = "1h"
-    pairs: Optional[List[str]] = None
+    strategy: str = "BtcEth4hStrategy"
+    timeframe: str = "4h"
+    pairs: Optional[List[str]] = Field(
+        default_factory=lambda: ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]
+    )
     timerange: Optional[str] = None
     export_trades: bool = True
     config_file: Optional[str] = None
-    enable_protections: bool = False
+    enable_protections: bool = True
     cache: Optional[str] = None
 
 
 class FreqtradeBotStartRequest(BaseModel):
     mode: FreqtradeRunMode = FreqtradeRunMode.DRY_RUN
-    strategy: str = "OpenSourceTrendStrategy"
+    strategy: str = "BtcEth4hStrategy"
     config_file: Optional[str] = None
     confirm_live: bool = False

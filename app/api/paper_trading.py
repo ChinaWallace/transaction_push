@@ -61,6 +61,8 @@ async def scan_opportunities(
             analysis_type=request.analysis_type,
             long_only=request.long_only,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -153,8 +155,8 @@ async def paper_trading_dashboard() -> HTMLResponse:
 
 @router.get("/universe", response_model=PaperUniverseResponse)
 async def get_universe(
-    max_core_symbols: int = 10,
-    max_satellite_symbols: int = 8,
+    max_core_symbols: int = 2,
+    max_satellite_symbols: int = 0,
     service: PaperTradingService = Depends(get_service),
 ) -> PaperUniverseResponse:
     try:

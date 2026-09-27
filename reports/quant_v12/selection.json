@@ -1,0 +1,41 @@
+{
+  "kind": "retrospective_expansion_comparison_not_new_oos",
+  "candidates": [
+    "TriEnhance",
+    "AnchorEnhance",
+    "BroadEnhance"
+  ],
+  "selected": "TriEnhance",
+  "details": {
+    "TriEnhance": {
+      "passed": true,
+      "failed": [],
+      "worst_drawdown_pct": 43.45575507261233,
+      "worst_stress_drawdown_pct": 43.523108048340596,
+      "worst_full_return_pct": 70.8712364597023,
+      "worst_full_excess_pp": 29.618874528183703,
+      "full_window_beats_three_coin_enhance": true
+    },
+    "BroadEnhance": {
+      "passed": true,
+      "failed": [],
+      "worst_drawdown_pct": 43.366479709012054,
+      "worst_stress_drawdown_pct": 46.54796231048351,
+      "worst_full_return_pct": 18.2655394219557,
+      "worst_full_excess_pp": 9.903639197194947,
+      "full_window_beats_three_coin_enhance": false
+    },
+    "AnchorEnhance": {
+      "passed": true,
+      "failed": [],
+      "worst_drawdown_pct": 41.868754750818496,
+      "worst_stress_drawdown_pct": 42.95513688043041,
+      "worst_full_return_pct": 52.96135713188133,
+      "worst_full_excess_pp": 23.198585752258087,
+      "full_window_beats_three_coin_enhance": false
+    }
+  },
+  "execution_changed": false,
+  "ranking": "Highest worst full-window absolute account return among risk-qualified candidates; lower worst stress drawdown breaks ties.",
+  "note": "Passing matched holding does not prove adding coins beats the three-coin control."
+}

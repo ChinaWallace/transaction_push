@@ -24,23 +24,21 @@ from typing import Any, Dict, Iterable, List, Optional
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from app.core.trading_universe import normalize_freqtrade_pairs
+
+
 USERDIR = PROJECT_ROOT / "freqtrade" / "user_data"
-DEFAULT_CONFIG = USERDIR / "config.dryrun.example.json"
+DEFAULT_CONFIG = USERDIR / "config.btc_eth.dryrun.example.json"
 RESULTS_DIR = PROJECT_ROOT / "backtest_results"
-STRATEGY_NAME = "TransactionPushSignalStrategy"
+STRATEGY_NAME = "BtcEth4hStrategy"
 
 
 DEFAULT_SYMBOLS = [
     "BTC-USDT-SWAP",
     "ETH-USDT-SWAP",
-    "SOL-USDT-SWAP",
-    "OP-USDT-SWAP",
-    "ARB-USDT-SWAP",
-    "LINK-USDT-SWAP",
-    "AAVE-USDT-SWAP",
-    "CRV-USDT-SWAP",
-    "MKR-USDT-SWAP",
-    "AVAX-USDT-SWAP",
 ]
 
 
@@ -51,58 +49,12 @@ class Variant:
 
 
 VARIANTS = [
-    Variant(
-        "baseline",
-        {
-            "TP_SIGNAL_BUY_THRESHOLD": "68",
-            "TP_SIGNAL_EXIT_THRESHOLD": "48",
-            "TP_SIGNAL_MIN_VOLUME_FACTOR": "0.95",
-            "TP_SIGNAL_MAX_ATR_RATIO": "0.065",
-            "TP_SIGNAL_MAX_RSI": "72",
-        },
-    ),
-    Variant(
-        "strict_quality",
-        {
-            "TP_SIGNAL_BUY_THRESHOLD": "74",
-            "TP_SIGNAL_EXIT_THRESHOLD": "52",
-            "TP_SIGNAL_MIN_VOLUME_FACTOR": "1.10",
-            "TP_SIGNAL_MAX_ATR_RATIO": "0.055",
-            "TP_SIGNAL_MAX_RSI": "68",
-        },
-    ),
-    Variant(
-        "trend_follow",
-        {
-            "TP_SIGNAL_BUY_THRESHOLD": "64",
-            "TP_SIGNAL_EXIT_THRESHOLD": "45",
-            "TP_SIGNAL_MIN_VOLUME_FACTOR": "0.90",
-            "TP_SIGNAL_MAX_ATR_RATIO": "0.070",
-            "TP_SIGNAL_MAX_RSI": "74",
-        },
-    ),
+    Variant("baseline", {}),
 ]
 
 
 def normalize_pairs(pairs: Iterable[str]) -> List[str]:
-    result: List[str] = []
-    seen = set()
-    for pair in pairs:
-        value = (pair or "").strip().upper()
-        if not value:
-            continue
-        value = value.replace("_", "-")
-        if value.endswith("-USDT-SWAP"):
-            value = f"{value[:-len('-USDT-SWAP')]}/USDT:USDT"
-        elif value.endswith("USDT") and "/" not in value:
-            value = f"{value[:-4].rstrip('-')}/USDT:USDT"
-        elif "-" in value and "/" not in value:
-            base, quote, *_ = value.split("-")
-            value = f"{base}/{quote}:USDT" if quote == "USDT" else f"{base}/{quote}"
-        if value not in seen:
-            seen.add(value)
-            result.append(value)
-    return result
+    return normalize_freqtrade_pairs(pairs)
 
 
 def parse_symbols(raw: Optional[str]) -> List[str]:
@@ -330,15 +282,16 @@ def selected_variants(raw: str) -> List[Variant]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pairs", help="Comma-separated pairs. Defaults to core liquid USDT futures.")
+    parser.add_argument("--pairs", help="Comma-separated pairs. Only BTC and ETH are accepted.")
     parser.add_argument("--timerange", default="20230101-20260501")
-    parser.add_argument("--timeframe", default="1h")
-    parser.add_argument("--download-timeframes", nargs="+", default=["1h"])
+    parser.add_argument("--timeframe", default="4h", choices=["4h"])
+    parser.add_argument("--download-timeframes", nargs="+", default=["4h"])
     parser.add_argument("--strategy", default=STRATEGY_NAME)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    parser.add_argument("--variants", default="all", help="Comma-separated: baseline,strict_quality,trend_follow,all")
+    parser.add_argument("--variants", default="baseline", choices=["baseline", "all"])
     parser.add_argument("--skip-download", action="store_true")
-    parser.add_argument("--enable-protections", action="store_true")
+    parser.add_argument("--disable-protections", action="store_false", dest="enable_protections")
+    parser.set_defaults(enable_protections=True)
     return parser
 
 

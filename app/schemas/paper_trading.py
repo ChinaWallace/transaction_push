@@ -151,7 +151,7 @@ class PaperResetRequest(BaseModel):
 class PaperBacktestRequest(BaseModel):
     symbol: str = Field(..., description="Example: BTC-USDT-SWAP")
     strategy: PaperBacktestStrategy = PaperBacktestStrategy.EMA_RSI
-    timeframe: str = "1h"
+    timeframe: str = "4h"
     candles: int = Field(default=1000, ge=100, le=1500)
     mode: PaperTradingMode = PaperTradingMode.BALANCED
     initial_balance_usdt: float = Field(default=10000.0, gt=0)
@@ -225,15 +225,15 @@ class PaperUniverseResponse(BaseModel):
 class PaperPortfolioBacktestRequest(BaseModel):
     core_symbols: Optional[List[str]] = None
     satellite_symbols: Optional[List[str]] = None
-    timeframe: str = "1h"
+    timeframe: str = "4h"
     candles: int = Field(default=1000, ge=100, le=1500)
     mode: PaperTradingMode = PaperTradingMode.BALANCED
     initial_balance_usdt: float = Field(default=10000.0, gt=0)
     fee_rate: float = Field(default=0.0004, ge=0, le=0.01)
     slippage_rate: float = Field(default=0.0002, ge=0, le=0.01)
     sample_split: float = Field(default=0.7, gt=0.5, lt=0.95)
-    max_core_symbols: int = Field(default=10, ge=1, le=20)
-    max_satellite_symbols: int = Field(default=20, ge=0, le=20)
+    max_core_symbols: int = Field(default=2, ge=1, le=2)
+    max_satellite_symbols: int = Field(default=0, ge=0, le=0)
     strategies: List[PaperBacktestStrategy] = Field(
         default_factory=lambda: [PaperBacktestStrategy.EMA_RSI, PaperBacktestStrategy.BREAKOUT]
     )
@@ -282,11 +282,11 @@ class PaperLeaderboardRequest(BaseModel):
             PaperBacktestStrategy.MEAN_REVERSION,
         ]
     )
-    timeframe: str = "1h"
+    timeframe: str = "4h"
     candles: int = Field(default=600, ge=100, le=1500)
     mode: PaperTradingMode = PaperTradingMode.BALANCED
     initial_balance_usdt: float = Field(default=10000.0, gt=0)
-    max_symbols: int = Field(default=12, ge=1, le=30)
+    max_symbols: int = Field(default=2, ge=1, le=2)
 
 
 class PaperLeaderboardRow(BaseModel):
@@ -368,10 +368,10 @@ class PaperForwardRunnerStartRequest(BaseModel):
     analysis_type: str = "technical_only"
     scan_interval_seconds: int = Field(default=900, ge=60, le=86400)
     tick_interval_seconds: int = Field(default=60, ge=15, le=3600)
-    max_core_symbols: int = Field(default=10, ge=1, le=20)
-    max_satellite_symbols: int = Field(default=20, ge=0, le=20)
+    max_core_symbols: int = Field(default=2, ge=1, le=2)
+    max_satellite_symbols: int = Field(default=0, ge=0, le=0)
     force_update: bool = False
-    momentum_probe_enabled: bool = True
+    momentum_probe_enabled: bool = False
 
 
 class PaperForwardRunnerStatus(BaseModel):

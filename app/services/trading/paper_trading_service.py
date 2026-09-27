@@ -18,6 +18,11 @@ from sqlalchemy import desc
 
 from app.core.database import get_db_session, get_engine
 from app.core.logging import get_logger
+from app.core.trading_universe import (
+    ALLOWED_PROJECT_SYMBOLS,
+    normalize_project_symbol,
+    normalize_project_symbols,
+)
 from app.models.paper_trading import PaperBacktestRun, PaperForwardSession, PaperForwardSnapshot
 from app.schemas.paper_trading import (
     PaperExecutionMode,
@@ -70,19 +75,20 @@ logger = get_logger(__name__)
 class PaperTradingService:
     """A conservative paper trading layer for opportunity discovery."""
 
-    ALLOCATION = {"core": 0.60, "satellite": 0.30, "cash": 0.10}
-    LEVERAGE_LIMITS = {"core": 3.0, "satellite": 1.5, "high_volatility_core": 2.0}
+    ALLOCATION = {"core": 0.90, "satellite": 0.0, "cash": 0.10}
+    LEVERAGE_LIMITS = {"core": 1.0, "satellite": 1.0, "high_volatility_core": 1.0}
     RISK_LIMITS = {
         "core_trade_risk_pct": 0.006,
-        "satellite_trade_risk_pct": 0.0025,
+        "satellite_trade_risk_pct": 0.0,
         "daily_loss_pause_pct": 0.02,
         "portfolio_drawdown_pause_pct": 0.08,
+        "max_gross_exposure_pct": 0.25,
     }
     STABLE_OR_WRAPPED_ASSETS = {
         "USDT", "USDC", "DAI", "TUSD", "FDUSD", "USDP", "USDE", "WBTC", "WETH",
         "BUSD", "FRAX", "LUSD", "PYUSD",
     }
-    DEFAULT_PINNED_CORE = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "ZEC-USDT-SWAP"]
+    DEFAULT_PINNED_CORE = list(ALLOWED_PROJECT_SYMBOLS)
     MIN_CORE_VOLUME_USDT = 300_000_000
     MIN_SATELLITE_VOLUME_USDT = 50_000_000
     MIN_UNRANKED_SATELLITE_VOLUME_USDT = 150_000_000
@@ -138,7 +144,10 @@ class PaperTradingService:
             self.default_mode = PaperTradingMode.BALANCED
         self.initial_balance_usdt = self._env_float("PAPER_TRADING_INITIAL_BALANCE", 10000.0)
         self.balance_usdt = self.initial_balance_usdt
-        self.max_open_positions = self._env_int("PAPER_TRADING_MAX_OPEN_POSITIONS", 20)
+        self.max_open_positions = min(
+            2,
+            max(1, self._env_int("PAPER_TRADING_MAX_OPEN_POSITIONS", 2)),
+        )
         self.execution_mode = self._parse_execution_mode(
             os.getenv("PAPER_TRADING_EXECUTION_MODE", PaperExecutionMode.PAPER.value)
         )
@@ -146,6 +155,10 @@ class PaperTradingService:
             "PAPER_TRADING_PINNED_CORE_SYMBOLS",
             self.DEFAULT_PINNED_CORE,
         )
+        self.peak_equity_usdt = self.initial_balance_usdt
+        self._risk_day = datetime.now().date()
+        self._day_start_equity_usdt = self.initial_balance_usdt
+        self._last_equity_usdt = self.initial_balance_usdt
         self.trades: Dict[str, PaperTradeRecord] = {}
         self._lock = asyncio.Lock()
         self._history_table_ready = False
@@ -194,9 +207,8 @@ class PaperTradingService:
     def _parse_symbol_env(name: str, default: List[str]) -> List[str]:
         raw = os.getenv(name)
         if not raw:
-            return default
-        symbols = [item.strip().upper() for item in raw.split(",") if item.strip()]
-        return symbols or default
+            return list(default)
+        return normalize_project_symbols(raw.split(","))
 
     async def scan_and_trade(
         self,
@@ -207,6 +219,12 @@ class PaperTradingService:
         analysis_type: str = "technical_only",
         long_only: bool = True,
     ) -> PaperScanResponse:
+        normalized_symbols = normalize_project_symbols(symbols)
+        if not long_only:
+            raise ValueError("The BTC/ETH paper baseline is long-only.")
+        if (analysis_type or "").lower() not in {"technical", "technical_only"}:
+            raise ValueError("The BTC/ETH paper baseline only allows technical_only analysis.")
+
         candidate_plans: List[PaperTradePlan] = []
         opened_trades: List[PaperTradeRecord] = []
         rejected: List[PaperRejectedSignal] = []
@@ -215,20 +233,38 @@ class PaperTradingService:
             return PaperScanResponse(
                 mode=mode,
                 dry_run=dry_run,
-                scanned_symbols=len(symbols),
+                scanned_symbols=len(normalized_symbols),
                 opened_count=0,
                 rejected=[
                     PaperRejectedSignal(symbol=symbol, reason="paper_trading_disabled")
-                    for symbol in symbols
+                    for symbol in normalized_symbols
                 ],
             )
 
         await self._mark_to_market_open_positions()
 
+        if not dry_run:
+            risk = await self.get_risk_status()
+            if risk.trading_paused:
+                return PaperScanResponse(
+                    mode=mode,
+                    dry_run=dry_run,
+                    scanned_symbols=len(normalized_symbols),
+                    opened_count=0,
+                    rejected=[
+                        PaperRejectedSignal(
+                            symbol=symbol,
+                            reason="risk_gate_paused",
+                            details={"pause_reasons": risk.pause_reasons},
+                        )
+                        for symbol in normalized_symbols
+                    ],
+                )
+
         trading_service = await get_core_trading_service()
         analysis_enum = self._parse_analysis_type(analysis_type)
 
-        for symbol in self._normalize_symbols(symbols):
+        for symbol in normalized_symbols:
             try:
                 signal = await trading_service.analyze_symbol(
                     symbol=symbol,
@@ -250,7 +286,10 @@ class PaperTradingService:
                     continue
 
                 async with self._lock:
-                    reject_reason = self._portfolio_reject_reason(symbol)
+                    reject_reason = self._portfolio_reject_reason(
+                        symbol,
+                        plan.position_size_usdt * plan.leverage,
+                    )
                     if reject_reason:
                         rejected.append(
                             PaperRejectedSignal(
@@ -280,7 +319,7 @@ class PaperTradingService:
         return PaperScanResponse(
             mode=mode,
             dry_run=dry_run,
-            scanned_symbols=len(symbols),
+            scanned_symbols=len(normalized_symbols),
             opened_count=len(opened_trades),
             candidate_plans=candidate_plans,
             opened_trades=opened_trades,
@@ -332,6 +371,10 @@ class PaperTradingService:
             self.initial_balance_usdt = initial_balance_usdt
         self.balance_usdt = self.initial_balance_usdt
         self.trades.clear()
+        self.peak_equity_usdt = self.initial_balance_usdt
+        self._risk_day = datetime.now().date()
+        self._day_start_equity_usdt = self.initial_balance_usdt
+        self._last_equity_usdt = self.initial_balance_usdt
         return {
             "status": "reset",
             "initial_balance_usdt": self.initial_balance_usdt,
@@ -349,6 +392,12 @@ class PaperTradingService:
             return self.get_forward_runner_status()
         if self.execution_mode != PaperExecutionMode.PAPER:
             raise ValueError("forward runner only starts in PAPER execution mode")
+        if (request.analysis_type or "").lower() not in {"technical", "technical_only"}:
+            raise ValueError("forward runner only supports technical_only analysis")
+        if request.max_core_symbols > 2 or request.max_satellite_symbols != 0:
+            raise ValueError("forward runner is restricted to BTC and ETH with no satellites")
+        if request.momentum_probe_enabled:
+            raise ValueError("momentum probes are disabled in the BTC/ETH baseline")
 
         self._runner_config = request
         self._runner_stop_event = asyncio.Event()
@@ -481,57 +530,74 @@ class PaperTradingService:
 
     async def get_universe(
         self,
-        max_core_symbols: int = 10,
-        max_satellite_symbols: int = 8,
+        max_core_symbols: int = 2,
+        max_satellite_symbols: int = 0,
     ) -> PaperUniverseResponse:
         exchange = await self._ensure_exchange()
         tickers = await exchange.get_tickers("SWAP")
         ticker_map = self._ticker_map(tickers)
-        warnings: List[str] = []
-
-        ranked_assets, source = await self._get_market_cap_ranked_assets()
-        core = self._build_core_universe(
-            ticker_map=ticker_map,
-            ranked_assets=ranked_assets,
-            max_symbols=max_core_symbols,
-        )
-        if not core:
-            source = "binance_volume_fallback"
-            warnings.append("CoinGecko ranking unavailable; core universe fell back to Binance volume.")
-            core = self._build_volume_core_universe(ticker_map, max_core_symbols)
-
-        core_symbols = {asset.symbol for asset in core}
-        satellite = self._build_satellite_universe(
-            ticker_map=ticker_map,
-            excluded_symbols=core_symbols,
-            max_symbols=max_satellite_symbols,
-        )
+        warnings: List[str] = ["Trading universe is locked to BTC and ETH."]
+        requested_core = max(1, min(max_core_symbols, len(ALLOWED_PROJECT_SYMBOLS)))
+        core = [
+            self._universe_asset(
+                symbol,
+                PaperPortfolioBucket.CORE,
+                ticker_map[symbol],
+                100.0,
+                "fixed BTC/ETH execution allowlist",
+            )
+            for symbol in ALLOWED_PROJECT_SYMBOLS[:requested_core]
+            if symbol in ticker_map
+        ]
+        missing = [symbol for symbol in ALLOWED_PROJECT_SYMBOLS[:requested_core] if symbol not in ticker_map]
+        if missing:
+            warnings.append(f"Missing exchange tickers: {', '.join(missing)}")
+        if max_satellite_symbols:
+            warnings.append("Satellite symbols are disabled and were ignored.")
 
         return PaperUniverseResponse(
             core=core,
-            satellite=satellite,
+            satellite=[],
             cash_allocation=self.ALLOCATION["cash"],
             allocation=dict(self.ALLOCATION),
-            source=source,
+            source="btc_eth_fixed",
             execution_mode=self.execution_mode,
             warnings=warnings,
         )
 
     async def get_risk_status(self) -> PaperRiskStatusResponse:
         status = await self.get_status()
+        today = datetime.now().date()
+        if today != self._risk_day:
+            self._risk_day = today
+            self._day_start_equity_usdt = status.equity_usdt
+        self._last_equity_usdt = status.equity_usdt
+        self.peak_equity_usdt = max(self.peak_equity_usdt, status.equity_usdt)
         gross_exposure = sum(
             trade.plan.position_size_usdt * trade.plan.leverage
             for trade in status.open_positions
             if trade.status == PaperOrderStatus.OPEN
         )
         exposure_ratio = gross_exposure / status.equity_usdt if status.equity_usdt else 0.0
+        daily_loss_ratio = (
+            max(0.0, (self._day_start_equity_usdt - status.equity_usdt) / self._day_start_equity_usdt)
+            if self._day_start_equity_usdt
+            else 0.0
+        )
+        drawdown_ratio = (
+            max(0.0, (self.peak_equity_usdt - status.equity_usdt) / self.peak_equity_usdt)
+            if self.peak_equity_usdt
+            else 0.0
+        )
         pause_reasons = []
         if len(status.open_positions) >= self.max_open_positions:
             pause_reasons.append("max_open_positions_reached")
-        if exposure_ratio > 1.0:
-            pause_reasons.append("gross_exposure_above_equity")
-        if status.realized_pnl_usdt <= -self.initial_balance_usdt * self.RISK_LIMITS["daily_loss_pause_pct"]:
+        if exposure_ratio >= self.RISK_LIMITS["max_gross_exposure_pct"]:
+            pause_reasons.append("gross_exposure_limit_reached")
+        if daily_loss_ratio >= self.RISK_LIMITS["daily_loss_pause_pct"]:
             pause_reasons.append("daily_loss_limit_reached")
+        if drawdown_ratio >= self.RISK_LIMITS["portfolio_drawdown_pause_pct"]:
+            pause_reasons.append("portfolio_drawdown_limit_reached")
 
         return PaperRiskStatusResponse(
             execution_mode=self.execution_mode,
@@ -557,10 +623,12 @@ class PaperTradingService:
             max_core_symbols=request.max_core_symbols,
             max_satellite_symbols=request.max_satellite_symbols,
         )
-        core_symbols = self._normalize_symbols(request.core_symbols or [asset.symbol for asset in universe.core])
-        satellite_symbols = self._normalize_symbols(
-            request.satellite_symbols or [asset.symbol for asset in universe.satellite]
+        core_symbols = normalize_project_symbols(
+            request.core_symbols or [asset.symbol for asset in universe.core]
         )
+        if request.satellite_symbols:
+            raise ValueError("Satellite symbols are disabled; only BTC and ETH are allowed.")
+        satellite_symbols: List[str] = []
 
         contributions: List[PaperSymbolContribution] = []
         all_trades: List[PaperBacktestTrade] = []
@@ -670,12 +738,12 @@ class PaperTradingService:
         warnings: List[str] = []
         if not symbols:
             universe = await self.get_universe(
-                max_core_symbols=min(10, request.max_symbols),
-                max_satellite_symbols=max(0, request.max_symbols - 10),
+                max_core_symbols=min(2, request.max_symbols),
+                max_satellite_symbols=0,
             )
             symbols = [asset.symbol for asset in universe.core + universe.satellite]
             warnings.extend(universe.warnings)
-        symbols = self._normalize_symbols(symbols)[:request.max_symbols]
+        symbols = normalize_project_symbols(symbols)[:request.max_symbols]
 
         rows: List[PaperLeaderboardRow] = []
         for symbol in symbols:
@@ -868,6 +936,11 @@ class PaperTradingService:
             )
 
     async def run_backtest(self, request: PaperBacktestRequest) -> PaperBacktestResponse:
+        request.symbol = normalize_project_symbol(request.symbol)
+        if request.timeframe != "4h":
+            raise ValueError("The BTC/ETH paper baseline only supports the 4h timeframe.")
+        if request.allow_short:
+            raise ValueError("The BTC/ETH paper baseline is long-only.")
         exchange = await get_current_exchange_service()
         if exchange is None:
             await start_exchange_services()
@@ -895,6 +968,8 @@ class PaperTradingService:
             if key in request.parameters:
                 cfg[key] = float(request.parameters[key])
         max_leverage = float(request.parameters.get("max_leverage", 1.0))
+        if max_leverage != 1.0:
+            raise ValueError("The BTC/ETH paper baseline requires exactly 1x leverage.")
         use_atr_exits = bool(request.parameters.get("use_atr_exits", False))
         partial_take_profit = bool(request.parameters.get("partial_take_profit", False))
         proactive_exit = bool(request.parameters.get("proactive_exit", True))
@@ -1295,7 +1370,15 @@ class PaperTradingService:
         }
         return mapping.get(normalized, AnalysisType.TECHNICAL_ONLY)
 
-    def _portfolio_reject_reason(self, symbol: str) -> Optional[str]:
+    def _portfolio_reject_reason(
+        self,
+        symbol: str,
+        proposed_exposure_usdt: float = 0.0,
+    ) -> Optional[str]:
+        try:
+            symbol = normalize_project_symbol(symbol)
+        except ValueError:
+            return "symbol_not_allowed"
         open_trades = [
             trade
             for trade in self.trades.values()
@@ -1305,6 +1388,28 @@ class PaperTradingService:
             return "max_open_positions_reached"
         if any(trade.plan.symbol == symbol for trade in open_trades):
             return "duplicate_open_symbol"
+        current_exposure = sum(
+            trade.plan.position_size_usdt * trade.plan.leverage
+            for trade in open_trades
+        )
+        max_exposure = self._last_equity_usdt * self.RISK_LIMITS["max_gross_exposure_pct"]
+        if current_exposure + proposed_exposure_usdt > max_exposure:
+            return "gross_exposure_limit_reached"
+        if self._day_start_equity_usdt:
+            daily_loss_ratio = max(
+                0.0,
+                (self._day_start_equity_usdt - self._last_equity_usdt)
+                / self._day_start_equity_usdt,
+            )
+            if daily_loss_ratio >= self.RISK_LIMITS["daily_loss_pause_pct"]:
+                return "daily_loss_limit_reached"
+        if self.peak_equity_usdt:
+            drawdown_ratio = max(
+                0.0,
+                (self.peak_equity_usdt - self._last_equity_usdt) / self.peak_equity_usdt,
+            )
+            if drawdown_ratio >= self.RISK_LIMITS["portfolio_drawdown_pause_pct"]:
+                return "portfolio_drawdown_limit_reached"
         return None
 
     async def _mark_to_market_open_positions(self) -> Tuple[List[PaperTradeView], float]:
@@ -2373,6 +2478,10 @@ class PaperTradingService:
     def _clear_forward_runtime(self) -> None:
         self.balance_usdt = self.initial_balance_usdt
         self.trades.clear()
+        self.peak_equity_usdt = self.initial_balance_usdt
+        self._risk_day = datetime.now().date()
+        self._day_start_equity_usdt = self.initial_balance_usdt
+        self._last_equity_usdt = self.initial_balance_usdt
         self._runner_task = None
         self._runner_stop_event = None
         self._runner_state = PaperForwardRunnerState.STOPPED
@@ -2446,7 +2555,10 @@ class PaperTradingService:
             return None, reject
         if not plan:
             return None, PaperRejectedSignal(symbol="UNKNOWN", reason=f"{source}_no_plan")
-        reject_reason = self._portfolio_reject_reason(plan.symbol)
+        reject_reason = self._portfolio_reject_reason(
+            plan.symbol,
+            plan.position_size_usdt * plan.leverage,
+        )
         if reject_reason:
             return None, PaperRejectedSignal(
                 symbol=plan.symbol,

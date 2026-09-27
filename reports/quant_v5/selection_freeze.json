@@ -1,0 +1,17 @@
+{
+  "frozen_before_holdout_run_ms": 1790299427221,
+  "selection_data": "validation 2026-05-01 to 2026-07-01",
+  "eligibility": "reconciled cash flows; positive net return; sampled mark drawdown <= 10%; >=8 trades. Highest validation net return wins. This screening rule was adopted after validation and before holdout, not preregistered before validation.",
+  "primary": "Donchian55",
+  "eligible_order": [
+    "Donchian55",
+    "Donchian20",
+    "MTFHourlyExit"
+  ],
+  "exploratory": [
+    "NFI8Long1x"
+  ],
+  "exploratory_reason": "6 trades in validation, all ZEC; below minimum sample count",
+  "holdout": "Run all 13 unchanged variants; do not replace the primary with the best holdout performer",
+  "risk_limit_note": "10% is a research screening threshold, not a live risk setting or promise"
+}

@@ -1,0 +1,58 @@
+{
+  "audited_utc": "2026-09-26T14:07:06.512602+00:00",
+  "kind": "independent_offline_output_integrity_and_accounting",
+  "status": "completed",
+  "protocol_sha256": "60b3c8687b7c7b01c36788d7b16d89c27fd888c3c00311048933db15c9339342",
+  "source_hashes_verified": 8,
+  "data_hashes_verified": 37,
+  "completed_runs": 42,
+  "expected_runs": 42,
+  "artifact_hashes_verified": 378,
+  "missing_runs": [],
+  "unexpected_runs": [],
+  "cashflow_max_abs_error_usdt": 1.0550138540565968e-10,
+  "sleeve_max_abs_error_usdt": 1.0913936421275139e-11,
+  "core_vs_matched_hold_max_abs_error_usdt": 0.0,
+  "funding_checked_against_frozen_true_rate_and_mark": true,
+  "initial_nominal_budget_checked": 0.7,
+  "errors": [],
+  "passed": true,
+  "comparison_sha256": "c2833f2a5f766f004bdd5de6e75a84c3a6d14660349425cb37ed14440f91833e",
+  "selection_sha256": "9c47dc2f53d68737efc1b0088ab016dfd103fcd716c377af5b0301b1d36a1a7f",
+  "selection_gates_independently_verified": true,
+  "selected": "TriEnhance",
+  "candidate_ranking": [
+    "TriEnhance",
+    "AnchorEnhance",
+    "BroadEnhance"
+  ],
+  "risk_gate_details": {
+    "TriEnhance": {
+      "passed": true,
+      "failed": [],
+      "worst_drawdown_pct": 43.45575507261233,
+      "worst_stress_drawdown_pct": 43.523108048340596,
+      "worst_full_return_pct": 70.8712364597023,
+      "worst_full_excess_pp": 29.618874528183703,
+      "full_window_beats_three_coin_enhance": true
+    },
+    "BroadEnhance": {
+      "passed": true,
+      "failed": [],
+      "worst_drawdown_pct": 43.366479709012054,
+      "worst_stress_drawdown_pct": 46.54796231048351,
+      "worst_full_return_pct": 18.2655394219557,
+      "worst_full_excess_pp": 9.903639197194947,
+      "full_window_beats_three_coin_enhance": false
+    },
+    "AnchorEnhance": {
+      "passed": true,
+      "failed": [],
+      "worst_drawdown_pct": 41.868754750818496,
+      "worst_stress_drawdown_pct": 42.95513688043041,
+      "worst_full_return_pct": 52.96135713188133,
+      "worst_full_excess_pp": 23.198585752258087,
+      "full_window_beats_three_coin_enhance": false
+    }
+  }
+}

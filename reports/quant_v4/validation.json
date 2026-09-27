@@ -1,0 +1,62 @@
+{
+  "validated_at": "2026-09-24T16:18:21.113500+00:00",
+  "strategy": "contracts-v4.0-mtf",
+  "tests": {
+    "core_advisory_quant": 91,
+    "freqtrade_legacy_bridge": 5,
+    "all_passed": true
+  },
+  "source_hashes": {
+    "app/quant/futures_replay.py": "45c7fdb00a2706f0e44047bb5ac654ef7c995e932000e22fd32de3e5d3408909",
+    "app/quant/service.py": "a39b28f04fc753a3c736ae9a615a53ce2a0e426c901d54ae7c1771da7d47ecda",
+    "app/quant/mtf_replay.py": "314e0dc7d9a1c3e2eeec5c27e3658a9f4cd117b7f99e0139ca8e50b2f600b419",
+    "app/quant/transport.py": "4cfd48a8d8860164e9d1bc7692c6b3f0a72cfffffdb21a31920cc74cfc27b446",
+    "app/quant/market.py": "50644fbc37a7f9941d1e71317523eec41b927acfae4f2a6203d741ebf6939926",
+    "app/quant/diagnostics.py": "13d9928a83b1c2d0036433e378f16f9e4a5252b0f1d53baa74efe4f8087b33a6",
+    "app/quant/multiframe.py": "e04480516cc0e1583ea6bc3f71f47b430986a060bca088226c9c7e0f5e6876d6",
+    "app/quant/__init__.py": "ec608cd15bb5611b7b39856da5f1decee763d651720971a01bb02b75c36fa899",
+    "app/quant/strategy.py": "8c4ffe178eb158e1139dfe60aa4da1602f8905922b53135bbee33d368163fae3",
+    "app/quant/futures_book.py": "0dcbf0d98cfab8e89c130dc8d54c6c575f68b5821bea1d54e7ea475cc2c36486",
+    "app/quant/runtime.py": "e61d9a41348f469c6236adf8d3a71caa2253a4af85a0283bccfe3d8415dc3e74",
+    "app/quant/api.py": "75a0cdf68b9666779eff1585a69cd1047f00d9ff72ecd0a857566fa457b5afbb",
+    "app/quant/universe.py": "bb3e5dfcd0522d2d73336056e1663f0511e70781a14e33b26562ee089889f052",
+    "app/quant/snapshot_store.py": "6172e99ca13623dec8f39e87f257c4b0617b90ad2291f3ea77e8a2db46c6e0b4",
+    "app/quant/backtest.py": "bd65e3fb028fdfa4a618ff964ac2d31d5ad47bc3d52e4110754542276ac7970d",
+    "app/quant/portfolio.py": "3c5a9e50ecbf866b06a89a3d6ed13dd095235a10793db357205e2d823a9cabb0",
+    "app/quant/data.py": "6534ebe6a24b30574f36e01a6b9ddb249a6350925e7eb6a3726589de6a970422",
+    "app/core/runtime_config.py": "02a883495b9adbc86c1c7e0defd332ef7a1bb5ca5322dabe406ddfe638390bec",
+    "app/application.py": "3900742acd8745ddab1dd6480c102ee4022f3a5dfe84273f49da4b0c812f7574",
+    "scripts/quant_service.py": "230eb2fd4b96c7432273ce4dce477153f892fa004b581c8917108d1d25f3a47f",
+    "scripts/backtest_quant_mtf.py": "fd3592b8e45cedb54942e004219b9fd5bad88d04b97e210cc2695e8cdf0be86a",
+    "docs/quant_dashboard.html": "e27564937d36202b25a4a501cabad17a684abac0b0383aa11ca8297c9f9fc5d4",
+    "tests/test_quant_mtf.py": "73d0852c2ef46f85de8f020b28e2405843e9ad0b3f4c4bde539b0c89884875cc",
+    "tests/test_quant_config.py": "19533149794a25dafdb8f577d8e81b10a6519d9cc0c69cedff5e65fc803c84bb",
+    "tests/test_quant_service.py": "e58c72a9b4ad418575186f604d917ac9953d71ebee9a236b5df73689703407bc"
+  },
+  "api_status": {
+    "contracts": 200,
+    "paper": 200,
+    "history": 200,
+    "runtime": 200,
+    "strategy": 200,
+    "replay/mtf": 200
+  },
+  "service_restarted": true,
+  "automatic_collection_working": false,
+  "connection_evidence": {
+    "configured_proxy_port": 7897,
+    "proxy_connect_status": 200,
+    "binance_http_status": 451,
+    "proxy_app_mode": "GLOBAL",
+    "binance_route": "GLOBAL automatic route",
+    "diagnostic_destination_country": "US",
+    "diagnostic_destination_colo": "LAX",
+    "country_is_binance_specific_proof": false
+  },
+  "limits": [
+    "No full-universe long-window v4 backtest or out-of-sample validation",
+    "Short 3-symbol real-data replay is an integration check",
+    "Live execution disabled; native collection blocked by exchange regional response",
+    "Legacy tracked files contain existing CRLF/trailing whitespace; new modules checked separately"
+  ]
+}

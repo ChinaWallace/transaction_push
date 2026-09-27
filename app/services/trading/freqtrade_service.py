@@ -8,6 +8,7 @@ its official Docker image.
 """
 
 import asyncio
+import json
 import os
 import subprocess
 from datetime import datetime
@@ -15,6 +16,10 @@ from pathlib import Path
 from typing import List, Optional
 
 from app.core.logging import get_logger
+from app.core.trading_universe import (
+    ALLOWED_FREQTRADE_PAIRS,
+    normalize_freqtrade_pairs,
+)
 from app.schemas.freqtrade import (
     FreqtradeBacktestRequest,
     FreqtradeBotStartRequest,
@@ -29,16 +34,16 @@ logger = get_logger(__name__)
 
 
 class FreqtradeService:
-    DEFAULT_CONFIG = "config.dryrun.example.json"
-    DEFAULT_STRATEGY = "OpenSourceTrendStrategy"
+    DEFAULT_CONFIG = "config.btc_eth.dryrun.example.json"
+    DEFAULT_STRATEGY = "BtcEth4hStrategy"
 
     def __init__(self) -> None:
         self.project_root = Path(__file__).resolve().parents[3]
         self.integration_dir = self.project_root / "freqtrade"
         self.user_data_dir = self.integration_dir / "user_data"
         self.compose_file = self.integration_dir / "docker-compose.yml"
-        self.default_config = os.getenv("FREQTRADE_CONFIG_FILE", self.DEFAULT_CONFIG)
-        self.default_strategy = os.getenv("FREQTRADE_STRATEGY", self.DEFAULT_STRATEGY)
+        self.default_config = self.DEFAULT_CONFIG
+        self.default_strategy = self.DEFAULT_STRATEGY
         self.backend = os.getenv("FREQTRADE_BACKEND", "auto").lower()
         self.freqtrade_bin = os.getenv("FREQTRADE_BIN") or self._default_freqtrade_bin()
         self.timeout_seconds = int(os.getenv("FREQTRADE_COMMAND_TIMEOUT", "1800"))
@@ -77,10 +82,13 @@ class FreqtradeService:
         )
 
     async def download_data(self, request: FreqtradeDownloadDataRequest) -> FreqtradeCommandResult:
+        config_path = self._validated_dry_run_config_path(request.config_file)
+        if request.timeframes != ["4h"]:
+            raise ValueError("The BTC/ETH baseline only downloads the 4h timeframe.")
         cmd = self._base_command() + [
             "download-data",
             "--config",
-            self._config_path(request.config_file),
+            config_path,
             "--userdir",
             self._userdir_path(),
         ]
@@ -95,14 +103,20 @@ class FreqtradeService:
         return await self._run(cmd)
 
     async def backtest(self, request: FreqtradeBacktestRequest) -> FreqtradeCommandResult:
+        strategy = self._validated_strategy(request.strategy)
+        config_path = self._validated_dry_run_config_path(request.config_file)
+        if request.timeframe != "4h":
+            raise ValueError("The BTC/ETH baseline only supports the 4h timeframe.")
+        if not request.enable_protections:
+            raise ValueError("Freqtrade protections are mandatory in the BTC/ETH baseline.")
         cmd = self._base_command() + [
             "backtesting",
             "--config",
-            self._config_path(request.config_file),
+            config_path,
             "--userdir",
             self._userdir_path(),
             "--strategy",
-            request.strategy or self.default_strategy,
+            strategy,
             "--timeframe",
             request.timeframe,
         ]
@@ -121,25 +135,18 @@ class FreqtradeService:
 
     async def start_bot(self, request: FreqtradeBotStartRequest) -> FreqtradeCommandResult:
         if request.mode == FreqtradeRunMode.LIVE:
-            if not request.confirm_live:
-                raise ValueError("Live trading requires confirm_live=true.")
-            config_file = request.config_file or "config.local.json"
-            if config_file == self.DEFAULT_CONFIG:
-                raise ValueError("Live trading cannot use the dry-run example config.")
-            return await self._run(
-                self._base_command(detach=True)
-                + [
-                    "trade",
-                    "--config",
-                    self._config_path(config_file),
-                    "--userdir",
-                    self._userdir_path(),
-                    "--strategy",
-                    request.strategy or self.default_strategy,
-                ]
+            raise ValueError(
+                "Live trading is disabled in the BTC/ETH baseline. "
+                "Use dry_run until authentication, testnet validation, and live risk controls are implemented."
             )
 
-        if self._current_backend() == "native":
+        strategy = self._validated_strategy(request.strategy)
+        config_path = self._validated_dry_run_config_path(request.config_file)
+
+        backend = self._current_backend()
+        if backend == "unavailable":
+            raise ValueError("Neither Docker Compose nor native Freqtrade CLI is available.")
+        if backend == "native":
             existing_pid = self._read_native_pid()
             if existing_pid is not None:
                 now = datetime.now()
@@ -147,11 +154,11 @@ class FreqtradeService:
                     self.freqtrade_bin,
                     "trade",
                     "--config",
-                    self._config_path(request.config_file),
+                    config_path,
                     "--userdir",
                     self._userdir_path(),
                     "--strategy",
-                    request.strategy or self.default_strategy,
+                    strategy,
                 ]
                 return FreqtradeCommandResult(
                     command=cmd,
@@ -168,11 +175,11 @@ class FreqtradeService:
                 + [
                     "trade",
                     "--config",
-                    self._config_path(request.config_file),
+                    config_path,
                     "--userdir",
                     self._userdir_path(),
                     "--strategy",
-                    request.strategy or self.default_strategy,
+                    strategy,
                 ]
             )
         return await self._run(["docker", "compose", "-f", str(self.compose_file), "up", "-d", "freqtrade"])
@@ -212,6 +219,56 @@ class FreqtradeService:
             return str(host_path)
         return f"/freqtrade/user_data/{value}"
 
+    def _validated_dry_run_config_path(self, config_file: Optional[str]) -> str:
+        value = config_file or self.default_config
+        if value != self.DEFAULT_CONFIG:
+            raise ValueError(
+                f"Only the BTC/ETH dry-run config is allowed: {self.DEFAULT_CONFIG}"
+            )
+
+        host_path = self.user_data_dir / value
+        try:
+            config = json.loads(host_path.read_text(encoding="utf-8"))
+        except FileNotFoundError as exc:
+            raise ValueError(f"Freqtrade config does not exist: {host_path}") from exc
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Freqtrade config is not valid JSON: {host_path}") from exc
+
+        if config.get("dry_run") is not True:
+            raise ValueError("BTC/ETH baseline config must keep dry_run=true.")
+        if config.get("trading_mode") != "futures" or config.get("margin_mode") != "isolated":
+            raise ValueError("BTC/ETH baseline requires isolated futures mode.")
+        if config.get("timeframe") != "4h":
+            raise ValueError("BTC/ETH baseline config must use the 4h timeframe.")
+        try:
+            max_open_trades = int(config.get("max_open_trades", 0))
+            stake_amount = float(config.get("stake_amount", 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Freqtrade risk limits must be numeric.") from exc
+        if max_open_trades not in {1, 2}:
+            raise ValueError("BTC/ETH baseline allows at most two open trades.")
+        if not 0 < stake_amount <= 100:
+            raise ValueError("BTC/ETH baseline stake_amount must be between 0 and 100 USDT.")
+
+        exchange = config.get("exchange") or {}
+        if str(exchange.get("name", "")).lower() != "binance":
+            raise ValueError("BTC/ETH baseline config must use Binance.")
+        if exchange.get("key") or exchange.get("secret"):
+            raise ValueError("The checked-in dry-run baseline must not contain exchange credentials.")
+        whitelist = tuple(normalize_freqtrade_pairs(exchange.get("pair_whitelist") or []))
+        if set(whitelist) != set(ALLOWED_FREQTRADE_PAIRS):
+            raise ValueError("Freqtrade pair_whitelist must contain exactly BTC and ETH USDT perpetuals.")
+        if (config.get("api_server") or {}).get("enabled") is not False:
+            raise ValueError("Freqtrade API server must remain disabled in the dry-run baseline.")
+
+        return self._config_path(value)
+
+    def _validated_strategy(self, strategy: Optional[str]) -> str:
+        value = strategy or self.default_strategy
+        if value != self.DEFAULT_STRATEGY:
+            raise ValueError(f"Only {self.DEFAULT_STRATEGY} is allowed in the BTC/ETH baseline.")
+        return value
+
     def _userdir_path(self) -> str:
         if self._current_backend() == "native":
             return str(self.user_data_dir)
@@ -244,26 +301,7 @@ class FreqtradeService:
 
     @staticmethod
     def _normalize_pairs(pairs: List[str]) -> List[str]:
-        result = []
-        seen = set()
-        for pair in pairs:
-            value = (pair or "").strip().upper()
-            if not value:
-                continue
-            value = value.replace("_", "-")
-            if value.endswith("-USDT-SWAP"):
-                base = value[: -len("-USDT-SWAP")]
-                value = f"{base}/USDT:USDT"
-            elif value.endswith("USDT") and "/" not in value:
-                base = value[:-4].rstrip("-")
-                value = f"{base}/USDT:USDT"
-            elif "-" in value and "/" not in value:
-                base, quote, *_ = value.split("-")
-                value = f"{base}/{quote}:USDT" if quote == "USDT" else f"{base}/{quote}"
-            if value not in seen:
-                seen.add(value)
-                result.append(value)
-        return result
+        return normalize_freqtrade_pairs(pairs)
 
     async def _quick_command(self, cmd: List[str]) -> bool:
         try:

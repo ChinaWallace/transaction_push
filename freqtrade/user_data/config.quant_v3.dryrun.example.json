@@ -1,0 +1,72 @@
+{
+  "$schema": "https://schema.freqtrade.io/schema.json",
+  "strategy": "QuantFuturesPortfolioStrategy",
+  "max_open_trades": 10,
+  "stake_currency": "USDT",
+  "stake_amount": "unlimited",
+  "tradable_balance_ratio": 1.0,
+  "dry_run": true,
+  "dry_run_wallet": 10000,
+  "trading_mode": "futures",
+  "margin_mode": "isolated",
+  "timeframe": "5m",
+  "liquidation_buffer": 0.1,
+  "cancel_open_orders_on_exit": true,
+  "quant_plan_path": "reports/quant_v3/contracts/plan.json",
+  "db_url": "sqlite:///reports/quant_v3/contracts/freqtrade.dryrun.sqlite3",
+  "unfilledtimeout": {
+    "entry": 3,
+    "exit": 3,
+    "unit": "minutes"
+  },
+  "entry_pricing": {
+    "price_side": "other",
+    "use_order_book": true,
+    "order_book_top": 1
+  },
+  "exit_pricing": {
+    "price_side": "other",
+    "use_order_book": true,
+    "order_book_top": 1
+  },
+  "order_types": {
+    "entry": "limit",
+    "exit": "market",
+    "emergency_exit": "market",
+    "stoploss": "market",
+    "stoploss_on_exchange": true,
+    "stoploss_price_type": "mark"
+  },
+  "exchange": {
+    "name": "binance",
+    "key": "",
+    "secret": "",
+    "ccxt_config": {
+      "enableRateLimit": true,
+      "options": {
+        "defaultType": "future"
+      }
+    },
+    "ccxt_async_config": {
+      "enableRateLimit": true,
+      "options": {
+        "defaultType": "future"
+      }
+    },
+    "pair_whitelist": [
+      "BTC/USDT:USDT"
+    ],
+    "pair_blacklist": []
+  },
+  "pairlists": [
+    {
+      "method": "StaticPairList"
+    }
+  ],
+  "bot_name": "transaction_push_quant_v3_research",
+  "initial_state": "running",
+  "force_entry_enable": false,
+  "internals": {
+    "process_throttle_secs": 5
+  }
+}

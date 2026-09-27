@@ -259,3 +259,51 @@ local/
 /models/
 
 .codebuddy
+
+# Quant public-data caches and local forward-account sidecars
+reports/quant_v3/data/
+reports/quant_v3/futures/
+reports/quant_v3/futures_universe/
+reports/quant_v3/futures_replay/funding/
+reports/quant_v3/contracts/replay.json
+reports/quant_v3/research.json
+*.sqlite3-shm
+*.sqlite3-wal
+.venv.quant/
+.venv.freqtrade-quant/
+
+# Quant paper service runtime
+reports/quant_v3/contracts/run/
+reports/quant_v3/contracts/*.lock
+reports/quant_v3/contracts/runtime.json
+reports/quant_v3/contracts/connector_*_import.json
+
+# Personal bundles, credentials and account sidecars
+/app.zip
+.env.*
+!.env.example
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.sqlite3-journal
+
+# Publish compact research evidence, never local market/account data.
+/reports/**
+!/reports/quant_v*/
+!/reports/quant_v*/REPORT.md
+!/reports/quant_v*/review.md
+!/reports/quant_v*/protocol.json
+!/reports/quant_v*/strategy_protocol.json
+!/reports/quant_v*/survival_protocol.json
+!/reports/quant_v*/comparison.json
+!/reports/quant_v*/comparison_validation.json
+!/reports/quant_v*/selection.json
+!/reports/quant_v*/selection_freeze.json
+!/reports/quant_v*/lookahead_status.json
+!/reports/quant_v*/validation.json
+!/reports/quant_v*/validation_audit.json
+!/reports/quant_v*/registry.json
+!/reports/quant_v*/integrity_seal.json
+!/reports/quant_v9/binance_leverage_tiers.json
+!/reports/quant_v12/universe_freeze.json
+!/reports/quant_v12/fundamental_sources.json

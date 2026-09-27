@@ -1,0 +1,182 @@
+{
+  "frozen_ms": 1790431384175,
+  "study": "v12",
+  "capital": 10000.0,
+  "sources": {
+    "app/quant/expanded_core.py": "aefea3c7b88c1e696520a7d3ae0a488e4a186e2855513c3af05a43a94163f942",
+    "app/quant/core_overlay.py": "f1bfd50e469abf248faa99d9254a54519f0628c5cac986108277b87aae2c939e",
+    "app/quant/cross_margin.py": "d9bffe12296435cb000ac2cfef68a25905d70d0c48171b9f30f6c2c222341b7a",
+    "scripts/replay_expanded_core.py": "1d09adb336d758a323054f70a11b4d1204e5a30b9d51e4b16cd4a45e0168b05f",
+    "scripts/replay_core_overlay.py": "807156c5ee378a6570583f25acf8c5b5c64809b799494662f9e23b1deb09e793",
+    "scripts/replay_cross_margin.py": "498669b0fdf2827e99f7ac3c79c97d5a947f319a0e500f88f4858cc43032a4c3",
+    "scripts/stop_provenance.py": "b122e8fc913caa378bc2bbed739b69c49b13090fdade6ec2dc7cfba660d63d40",
+    "scripts/prepare_expanded_core_data.py": "2b4a5a2838d55f66df145470acea7142250f8df0c0cd4d5d9a3fc76716109cc3"
+  },
+  "data": {
+    "reports/quant_v12/data/series/AAVEUSDT.feather": "eb1fc526b3e3c37c7e45793428221b0b6a0e9de176b8b9921345389c49cd2b39",
+    "reports/quant_v12/data/series/ADAUSDT.feather": "d5797ca5625e5a390d4ed1dbade5971cfb94fbbb603368dc6331392a670f867b",
+    "reports/quant_v12/data/series/AVAXUSDT.feather": "3f30438e634d2392bb1f1119af5d7d7f19b1fd6b705a724aac5ecbe106f1dcfc",
+    "reports/quant_v12/data/series/BCHUSDT.feather": "c3002f412b8cf6627993e61c3723e9390841186a1ca4a7857e9945c8f6524e02",
+    "reports/quant_v12/data/series/BNBUSDT.feather": "a998349aed6e7730f51959f2bab2d757712a2cb77057d140e628a91f2627661b",
+    "reports/quant_v12/data/series/BTCUSDT.feather": "4ffc8b73e5f35fbc981e74f72e0ecb1c37c56f008569077a3b2eac84d89d998e",
+    "reports/quant_v12/data/series/DOTUSDT.feather": "94530b174f6301c6048b40dfbc13d8c3bff6a04b55e4a60e26124d6a0cf6eb09",
+    "reports/quant_v12/data/series/ETHUSDT.feather": "29785e44b90a715acda62319bace4bb4f3abb1adc7010a80439658541b2e4ca4",
+    "reports/quant_v12/data/series/LINKUSDT.feather": "c293c34d87525f83f2016b1b1c13b5000d032a3c283023b4a86c82e0ca80d03c",
+    "reports/quant_v12/data/series/LTCUSDT.feather": "316ff510a6649c79d53b79989c0c39febc00a049b688b4ab2480d8580bb01fc2",
+    "reports/quant_v12/data/series/NEARUSDT.feather": "cab2a34002bf85c2179688be51472ce87733446f95018260ba59a44c4213f671",
+    "reports/quant_v12/data/series/SOLUSDT.feather": "6e8d7461bf3337d7e5599eddbc90f4c83913b1ebab26f6f01050fb32a69cb1c8",
+    "reports/quant_v12/data/series/SUIUSDT.feather": "791d5b5a7c491fdc6eb049eaaca00a9888b336a319191febeb2c81e88cf76831",
+    "reports/quant_v12/data/series/UNIUSDT.feather": "b1e2397080124cfbc7f024adec51f035e339488400066fb357f788a42d5ca3c0",
+    "reports/quant_v12/data/series/XRPUSDT.feather": "90e09e9d1595b6fc4482a30f2e017ca4bd1862f52bf62e1a8274f2f1c3c0d22c",
+    "reports/quant_v12/data/series/ZECUSDT.feather": "d1577058ef86f05ad1b7ea7978d97eea1cb36a56aa8b4478eb64bf9b3764f152",
+    "reports/quant_v12/data/funding/AAVEUSDT.json": "d1fccd5285dc936d7e743350a2d1ad07954af00543ce274fb7c5f96047901f67",
+    "reports/quant_v12/data/funding/ADAUSDT.json": "860e518e8b3c03b4697073701536f96b9f6c1f03ea4cb5945baf7041bcaef3e3",
+    "reports/quant_v12/data/funding/AVAXUSDT.json": "1f7f7fba51c9e5a6981ed55f3c6e66a7978f4c986a87e54942407ce620e5087a",
+    "reports/quant_v12/data/funding/BCHUSDT.json": "c1931c51ad077f80b497899ad5f834054cf464204425086d23fcd9cc9ac7070e",
+    "reports/quant_v12/data/funding/BNBUSDT.json": "faee9f574333661ffeb2779e0f4e05e23ac8439adfd19e504983bc2feb27c796",
+    "reports/quant_v12/data/funding/BTCUSDT.json": "1b0ee62a0f87bee384523c5641c92a0489d3a59e64d5f09a7d598c498c39e48c",
+    "reports/quant_v12/data/funding/DOTUSDT.json": "33f0e9b375a2e78c777f36ae3daf6dc4563869922db1601bc12f3f1c71fbc8b4",
+    "reports/quant_v12/data/funding/ETHUSDT.json": "abc5333d6205ad5c79211c4e52c22a789937edcc142f5e8316b10e31ff4e992d",
+    "reports/quant_v12/data/funding/LINKUSDT.json": "fe3387bb809c7c6fd5e54bdbd88c107dd0682aca9cb07e5033e088ff4ce4170b",
+    "reports/quant_v12/data/funding/LTCUSDT.json": "03f0a9c3602d24d44c1f94df09dfea6b2710790cc0c0d074ba380476f90b2a96",
+    "reports/quant_v12/data/funding/NEARUSDT.json": "0ea9a53c4f44b806a489aa81c068727b039f07b315b23065c2346a4756c1de11",
+    "reports/quant_v12/data/funding/SOLUSDT.json": "0f2c73c3af1c983d089f5601f5f80923728e019039213a65fae6392c20af71dd",
+    "reports/quant_v12/data/funding/SUIUSDT.json": "4934115a1f27e33b7d67f13e222bbd2ac2374e33b0dac8c377cbc7a3a043b9b6",
+    "reports/quant_v12/data/funding/UNIUSDT.json": "4f60a1e10c649df89a7adbc18d5e6e54966c45bc9f86ce134e1f3a80fbbe4f51",
+    "reports/quant_v12/data/funding/XRPUSDT.json": "25eb6516f55b451a07ce402fa4ac075248b08c907a5324bf8cddec12f872c3b0",
+    "reports/quant_v12/data/funding/ZECUSDT.json": "77d4f7a9670c00fb6616d19055ad4fe3928875a229389727dce51daafb9bfb72",
+    "reports/quant_v12/universe_freeze.json": "c0f0d76b12f14c42be3b359029273c35189f78f86483a253b6261d6352f3eba3",
+    "reports/quant_v12/fundamental_sources.json": "c9b8aff0bee128593f17044018f3793d4c0a35840c2bc62854be65e6477f5b30",
+    "reports/quant_v9/binance_leverage_tiers.json": "b0d9c7f665343c83c7e1cbbe53d381865dcc493005304aece39dd1fa3ed1afd5",
+    "reports/quant_v12/data/coverage_manifest.json": "c1c629bc3546d2d07eebf3aac8a78af6b95b2d4a800979d71898c3c5c71f82c0",
+    "reports/quant_v12/data/freeze_manifest.json": "0bdf800fa61b9236090de75312c2d399f772fa65513f647072cfe4c927d0e9fc"
+  },
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "ZECUSDT",
+    "UNIUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "LINKUSDT",
+    "AAVEUSDT",
+    "AVAXUSDT",
+    "SUIUSDT",
+    "NEARUSDT",
+    "DOTUSDT",
+    "ADAUSDT",
+    "LTCUSDT",
+    "BCHUSDT"
+  ],
+  "windows": {
+    "challenge2025": [
+      "2025-01-01",
+      "2026-01-01"
+    ],
+    "full": [
+      "2026-01-01",
+      "2026-09-24"
+    ],
+    "reused_holdout": [
+      "2026-07-01",
+      "2026-09-24"
+    ]
+  },
+  "arms": {
+    "TriHold": {
+      "name": "三币底仓持有（新版控制）",
+      "allocation": "three",
+      "weight": 0,
+      "exit_ema": 200
+    },
+    "TriEnhance": {
+      "name": "三币底仓＋慢退出增强",
+      "allocation": "three",
+      "weight": 0.4,
+      "exit_ema": 200
+    },
+    "BroadHold": {
+      "name": "16币等权底仓持有",
+      "allocation": "equal",
+      "weight": 0,
+      "exit_ema": 200
+    },
+    "BroadEnhance": {
+      "name": "16币等权底仓＋增强",
+      "allocation": "equal",
+      "weight": 0.4,
+      "exit_ema": 200
+    },
+    "AnchorHold": {
+      "name": "三币50%＋扩展币20%持有",
+      "allocation": "anchor",
+      "weight": 0,
+      "exit_ema": 200
+    },
+    "AnchorEnhance": {
+      "name": "三币50%＋扩展币20%增强",
+      "allocation": "anchor",
+      "weight": 0.4,
+      "exit_ema": 200
+    }
+  },
+  "cases": [
+    {
+      "window": "challenge2025",
+      "fee": 0.001,
+      "delay_bars": 0,
+      "exit_fraction": 1.0
+    },
+    {
+      "window": "challenge2025_double_cost",
+      "fee": 0.002,
+      "delay_bars": 0,
+      "exit_fraction": 1.0
+    },
+    {
+      "window": "challenge2025_execution_stress",
+      "fee": 0.003,
+      "delay_bars": 1,
+      "exit_fraction": 0.5
+    },
+    {
+      "window": "full",
+      "fee": 0.001,
+      "delay_bars": 0,
+      "exit_fraction": 1.0
+    },
+    {
+      "window": "full_double_cost",
+      "fee": 0.002,
+      "delay_bars": 0,
+      "exit_fraction": 1.0
+    },
+    {
+      "window": "full_execution_stress",
+      "fee": 0.003,
+      "delay_bars": 1,
+      "exit_fraction": 0.5
+    },
+    {
+      "window": "reused_holdout",
+      "fee": 0.001,
+      "delay_bars": 0,
+      "exit_fraction": 1.0
+    }
+  ],
+  "market": "USDT perpetual, long only, shared cross wallet, 2x setting",
+  "budget": "70% initial NOTIONAL (not 70% margin); new allocations do not change saved account policy",
+  "warmup": "92 days before each window, same for all arms; v12 three-coin control is rerun, not identical v11 warmup/filters",
+  "selection": "Current 16-coin research list, hindsight/survivorship bias. Extra coins need prior 30 full UTC days median daily quote volume >=10m; failed slots remain cash. Anchors remain matched user control. No future returns used for historical eligibility.",
+  "accounting": "Frozen aggregate cross account and sleeve attribution; funding events within first 999ms normalize to same 5m boundary, retain source original time. True event markPrice required. Final candle holding risk is evaluated before terminal close settlement; close observations and terminal fills use candle end timestamps. No funding at exclusive window end.",
+  "rules": "v11 40% slow overlay unchanged: profitable core + completed 4h breakout/EMA trend, +10% add spacing, 10% equity max order, profit budget, postfill gross<=1.4 equity; two 4h closes below EMA200 exit overlay; >1.5 total exposure exit overlay first. Preserve core.",
+  "filters": "Current public step/minNotional are research approximations, not historical filters. Minimum overlay order 100 USDT. No extra single-coin weight trim.",
+  "promotion": "No auto execution change. All candidates must be profitable and beat matched allocation hold at full2025 and full2026 in all 3 costs, and stay <=50% close/joint-low DD in every tested case, without margin/residual failures. Rank eligible allocations by worst full-window absolute account return after costs, then lower worst joint/close drawdown. Matched-hold excess establishes overlay efficacy, not portfolio preference. Disclose versus TriEnhance in every case.",
+  "limitations": [
+    "All selected coins survive to current date; current fundamentals are not historical point-in-time facts.",
+    "No ordinary-position mixture, short hedges, staking rewards, liquidation penalties or actual orderbook queues.",
+    "Static maintenance tiers and current lot filters; mark OHLC joint lows are a conservative bound, not real synchronized ticks.",
+    "More coins may remain highly correlated and dilute winners. No future return/50% maximum loss guarantee."
+  ]
+}

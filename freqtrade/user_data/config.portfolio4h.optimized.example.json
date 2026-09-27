@@ -52,7 +52,7 @@
     },
     "pair_whitelist": [
       "BTC/USDT:USDT",
-      "ZEC/USDT:USDT"
+      "ETH/USDT:USDT"
     ],
     "pair_blacklist": [
       "BNB/.*"

@@ -39,9 +39,32 @@ def test_action_text_repairs_mojibake_buy_and_sell():
 def test_leverage_limits_by_bucket_and_symbol():
     service = PaperTradingService()
 
-    assert service._max_leverage_for_symbol("BTC-USDT-SWAP", PaperPortfolioBucket.CORE) == 3.0
-    assert service._max_leverage_for_symbol("ZEC-USDT-SWAP", PaperPortfolioBucket.CORE) == 2.0
-    assert service._max_leverage_for_symbol("PEPE-USDT-SWAP", PaperPortfolioBucket.SATELLITE) == 1.5
+    assert service._max_leverage_for_symbol("BTC-USDT-SWAP", PaperPortfolioBucket.CORE) == 1.0
+    assert service._max_leverage_for_symbol("ETH-USDT-SWAP", PaperPortfolioBucket.CORE) == 1.0
+
+
+@pytest.mark.asyncio
+async def test_scan_rejects_non_btc_eth_before_analysis():
+    service = PaperTradingService()
+
+    with pytest.raises(ValueError, match="only BTC-USDT-SWAP and ETH-USDT-SWAP"):
+        await service.scan_and_trade(["SOL-USDT-SWAP"])
+
+
+@pytest.mark.asyncio
+async def test_scan_rejects_unverified_kronos_analysis_before_analysis():
+    service = PaperTradingService()
+
+    with pytest.raises(ValueError, match="technical_only"):
+        await service.scan_and_trade(["BTC-USDT-SWAP"], analysis_type="integrated")
+
+
+def test_paper_defaults_are_btc_eth_only_long_only_1x():
+    service = PaperTradingService()
+
+    assert service.pinned_core_symbols == ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]
+    assert service.max_open_positions == 2
+    assert service.LEVERAGE_LIMITS["core"] == 1.0
 
 
 def test_partial_take_profit_only_for_long_1r_target():
