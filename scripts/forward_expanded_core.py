@@ -29,6 +29,7 @@ from app.quant.expanded_forward import run_forward
 from prepare_expanded_core_data import FAPI, iso, save, write
 from forward_runtime import (AccessDenied, PublicTransport, RateLimited,
                              build_bundle, network_settings, verify_bundle)
+from forward_bootstrap import check_cancelled, load_public, prepare_public
 from replay_expanded_core import EpochValues, features_from_frame, validate_frame
 
 STEP = 300_000
@@ -43,7 +44,8 @@ SOURCES = ('app/quant/expanded_forward.py', 'app/quant/core_overlay.py',
            'scripts/replay_expanded_core.py', 'scripts/replay_core_overlay.py',
            'scripts/replay_cross_margin.py', 'scripts/stop_provenance.py',
            'scripts/prepare_expanded_core_data.py', 'scripts/forward_runtime.py',
-           'app/quant/expanded_core.py', 'app/__init__.py', 'app/quant/__init__.py')
+           'app/quant/expanded_core.py', 'app/__init__.py', 'app/quant/__init__.py',
+           'scripts/forward_bootstrap.py', 'scripts/check_forward_runtime.py')
 STOP = False
 
 
@@ -84,11 +86,26 @@ class PublicData:
         self.transport.close()
 
     def fetch(self, path, params=None):
+        check_cancelled(self.out)
         if path not in ('/fapi/v1/time', '/fapi/v1/exchangeInfo',
                         '/fapi/v1/fundingInfo', '/fapi/v1/klines',
                         '/fapi/v1/markPriceKlines', '/fapi/v1/fundingRate'):
             raise ValueError('Non-public endpoint rejected')
-        raw = self.transport.get(FAPI + path, params)
+        gate_path = self.out / 'public_access.json'
+        gate = read(gate_path) if gate_path.exists() else {}
+        if gate.get('state') == 'access_denied':
+            raise AccessDenied('Public API access denied; manual review required')
+        if gate.get('retry_at_ms', 0) > int(time.time() * 1000):
+            raise RateLimited(gate['retry_at_ms'])
+        try:
+            raw = self.transport.get(FAPI + path, params)
+        except (RateLimited, AccessDenied) as error:
+            save(gate_path, dict(state='rate_limited' if isinstance(error, RateLimited) else 'access_denied',
+                                updated_ms=int(time.time() * 1000), retry_at_ms=getattr(error, 'retry_at_ms', 0)))
+            raise
+        if gate.get('state') == 'rate_limited':
+            save(gate_path, dict(state='available', updated_ms=int(time.time() * 1000), retry_at_ms=0))
+        check_cancelled(self.out)
         observed = int(time.time() * 1000)
         digest = hashlib.sha256(raw).hexdigest()
         target = self.out / 'raw' / (digest + '.json')
@@ -108,7 +125,11 @@ def initialize(out, until, api):
             raise ValueError('Forward protocol seal mismatch')
         if until is not None and ms(until) != protocol['stop_ms']:
             raise ValueError('Existing session deadline is frozen')
-        verify_protocol(protocol)
+        if protocol.get('bootstrap_mode') == 'public':
+            commit = read(out / 'initialization.json')
+            if commit['state'] != 'frozen' or commit['persisted_ms'] >= protocol['seed_ms']:
+                raise ValueError('Protocol was not sealed before seed; preserve this batch and use a new output')
+        verify_protocol(protocol, out)
         return protocol
     if until is None:
         raise ValueError('New session requires --until with explicit timezone')
@@ -116,6 +137,9 @@ def initialize(out, until, api):
     end = ms(until)
     if end % STEP or end <= now:
         raise ValueError('Deadline must be a future 5m boundary')
+    bundle_path = ROOT / 'bundle.json'
+    mode = read(bundle_path).get('bootstrap_mode', 'historical') if bundle_path.exists() else 'historical'
+    public = prepare_public(out, api) if mode == 'public' else None
     info = api.fetch('/fapi/v1/exchangeInfo')
     funding_info = api.fetch('/fapi/v1/fundingInfo')
     intervals = {r['symbol']: int(r['fundingIntervalHours']) for r in funding_info}
@@ -129,23 +153,40 @@ def initialize(out, until, api):
                                funding_hours=intervals.get(symbol, 8))
         if filters[symbol]['funding_hours'] not in (1, 2, 4, 8):
             raise ValueError('Unsupported funding schedule')
+    tier_path = ROOT / 'reports/quant_v9/binance_leverage_tiers.json'
+    if public:
+        bootstrap = public['files']
+        # Catch up a resumed prefix before freezing the future seed. No model
+        # order or event is created while preparing these public inputs.
+        server = int(api.fetch('/fapi/v1/time')['serverTime'])
+        now = int(time.time() * 1000)
+        if abs(server - now) > 120_000:
+            raise ValueError('Public server clock differs by more than 120 seconds')
+        tail_end = (min(server, now) - 15_000) // STEP * STEP
+        for symbol in SYMBOLS:
+            refresh_frame(out, dict(bootstrap=bootstrap, warmup_ms=public['start_ms']), symbol, tail_end, api)
+        historical_sha = None
+    else:
+        historical = read(ROOT / 'reports/quant_v12/protocol.json')
+        bootstrap = {s: dict(path=f'reports/quant_v12/data/series/{s}.feather',
+                            sha256=historical['data'][f'reports/quant_v12/data/series/{s}.feather'])
+                     for s in SYMBOLS}
+        historical_sha = sha(ROOT / 'reports/quant_v12/protocol.json')
     now = int(time.time() * 1000)
-    start = seed = next_seed(now)
+    # Cold preparation must leave time to seal files and start the worker.
+    start = seed = next_seed(now + 30_000 if public else now)
     if seed + STEP > end:
         raise ValueError('No complete future 5m seed candle before requested deadline')
-    tier_path = ROOT / 'reports/quant_v9/binance_leverage_tiers.json'
-    historical = read(ROOT / 'reports/quant_v12/protocol.json')
-    bootstrap = {s: dict(path=f'reports/quant_v12/data/series/{s}.feather',
-                        sha256=historical['data'][f'reports/quant_v12/data/series/{s}.feather'])
-                 for s in SYMBOLS}
     protocol = dict(study='v12_forward_' + out.name, frozen_ms=now,
         start_ms=start, seed_ms=seed, stop_ms=end,
-        seed_policy='User requested immediate start: next future 5m boundary after initialization, frozen before its opening price is known. Historical 04:00 UTC start is not an execution restriction.',
-        warmup_ms=(start // DAY) * DAY - 92 * DAY,
+        seed_policy='Next future 5m boundary after initialization; public mode reserves at least 30 seconds for sealing/startup. Frozen before its opening price is known.',
+        warmup_ms=public['start_ms'] if public else (start // DAY) * DAY - 92 * DAY,
         symbols=list(SYMBOLS), capital=10000., nominal_core_budget=.7,
         arms=ARMS, fee=.001, filters=filters, bootstrap=bootstrap,
         tiers_path=str(tier_path.relative_to(ROOT)), tiers_sha256=sha(tier_path),
-        historical_protocol_sha256=sha(ROOT / 'reports/quant_v12/protocol.json'),
+        bootstrap_mode=mode,
+        bootstrap_manifest_sha256=sha(out / 'bootstrap/ready/manifest.json') if public else None,
+        historical_protocol_sha256=historical_sha,
         sources={p: sha(ROOT / p) for p in SOURCES},
         execution='Frozen prospective 5m candle-open simulation, recorded only after candle close. No live bid/ask fills. First observation time retained. Late catch-up is labeled, never real-time execution.',
         cutoff='Keep core and overlay positions marked at cutoff; no fabricated terminal sale.',
@@ -156,13 +197,20 @@ def initialize(out, until, api):
                      'No order-book depth, actual liquidation, ordinary-position mixture or live orders.',
                      'Joint mark lows are a stress bound, not synchronous traded ticks.',
                      'TriEnhance40 baseline, identical-seed TriHold control, and pre-registered TriEnhance20 candidate. Other expanded allocations remain historical research.'])
-    verify_protocol(protocol)
+    verify_protocol(protocol, out)
+    check_cancelled(out)
     save(path, protocol)
     write(out / 'protocol.sha256', (sha(path) + '\n').encode())
+    if public:
+        persisted = int(time.time() * 1000)
+        state = 'frozen' if persisted < seed else 'missed_seed_boundary'
+        save(out / 'initialization.json', dict(state=state, persisted_ms=persisted))
+        if state != 'frozen':
+            raise ValueError('Sealing crossed seed boundary; preserve this batch and use a new output')
     return protocol
 
 
-def verify_protocol(protocol):
+def verify_protocol(protocol, out=None):
     if protocol['symbols'] != list(SYMBOLS) or protocol['arms'] != ARMS:
         raise ValueError('Frozen forward universe/rules changed')
     for path, expected in protocol['sources'].items():
@@ -170,7 +218,11 @@ def verify_protocol(protocol):
             raise ValueError('Frozen forward source changed: ' + path)
     if sha(ROOT / protocol['tiers_path']) != protocol['tiers_sha256']:
         raise ValueError('Frozen maintenance tiers changed')
-    if sha(ROOT / 'reports/quant_v12/protocol.json') != protocol['historical_protocol_sha256']:
+    if protocol.get('bootstrap_mode') == 'public':
+        public = load_public(out, protocol['bootstrap_manifest_sha256'])
+        if public['files'] != protocol['bootstrap'] or public['start_ms'] != protocol['warmup_ms']:
+            raise ValueError('Frozen public warmup inputs changed')
+    elif sha(ROOT / 'reports/quant_v12/protocol.json') != protocol['historical_protocol_sha256']:
         raise ValueError('Frozen v12 historical protocol changed')
 
 
@@ -178,7 +230,7 @@ def fetch_bars(api, symbol, endpoint, start, end):
     result = []
     while start < end:
         rows = api.fetch(endpoint, dict(symbol=symbol, interval='5m',
-                         startTime=start, endTime=end - 1, limit=1000))
+                         startTime=start, endTime=min(end, start + 1000 * STEP) - 1, limit=1000))
         if not rows:
             raise ValueError(symbol + ': missing closed public candles')
         for row in rows:
@@ -200,7 +252,7 @@ def refresh_frame(out, protocol, symbol, end, api):
         frame = pd.read_feather(path)
     else:
         bootstrap = protocol['bootstrap'][symbol]
-        source = ROOT / bootstrap['path']
+        source = (out if bootstrap.get('storage') == 'batch' else ROOT) / bootstrap['path']
         if sha(source) != bootstrap['sha256']:
             raise ValueError(symbol + ': historical warmup hash mismatch')
         frame = pd.read_feather(source)
@@ -330,7 +382,7 @@ def observation_timing(previous, observed, end, seed):
 
 
 def cycle(out, protocol, api):
-    verify_protocol(protocol)
+    verify_protocol(protocol, out)
     if sha(out / 'protocol.json') != (out / 'protocol.sha256').read_text().strip():
         raise ValueError('Forward protocol seal mismatch')
     observed = int(time.time() * 1000)
@@ -498,13 +550,17 @@ def main():
     parser.add_argument('command', choices=['prepare', 'start', 'run', 'once', 'status', 'stop'])
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--until')
+    parser.add_argument('--bootstrap', choices=['historical', 'public'],
+                        help='New batch input mode; public downloads its own warmup without local market files')
     args = parser.parse_args()
     out = args.output.resolve()
+    if args.bootstrap is not None and args.command not in ('prepare', 'start'):
+        parser.error('--bootstrap is only supported with prepare/start')
     if args.command in ('prepare', 'start') and ROOT != out / 'code':
         out.mkdir(parents=True, exist_ok=True)
         with (out / 'bundle.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            bundle = build_bundle(ROOT, out, SOURCES)
+            bundle = build_bundle(ROOT, out, SOURCES, args.bootstrap)
         command = [sys.executable, str(bundle / 'scripts/forward_expanded_core.py'),
                    args.command, '--output', str(out)]
         if args.until:
@@ -514,6 +570,9 @@ def main():
     if args.command == 'status':
         print(json.dumps(dict(process_running=owned_pid(out) is not None,
             runtime=read(out / 'runtime.json') if (out / 'runtime.json').exists() else {},
+            bootstrap=read(out / 'bootstrap/status.json') if (out / 'bootstrap/status.json').exists() else {},
+            public_access=read(out / 'public_access.json') if (out / 'public_access.json').exists() else {},
+            stop_requested=(out / 'stop_requested.json').exists(),
             report=str(out / 'REPORT.md')), ensure_ascii=False, indent=2))
     elif args.command == 'stop':
         save(out / 'stop_requested.json', dict(requested_ms=int(time.time() * 1000)))
@@ -533,19 +592,7 @@ def main():
             print(json.dumps(dict(seed_ms=protocol['seed_ms'], stop_ms=protocol['stop_ms'],
                                   code_root=str(ROOT))))
     elif args.command == 'start':
-        if owned_pid(out):
-            print('Forward observation already running')
-            return
-        out.mkdir(parents=True, exist_ok=True)
-        (out / 'stop_requested.json').unlink(missing_ok=True)
-        api = PublicData(out)
-        protocol = initialize(out, args.until, api)
-        if int(time.time() * 1000) >= protocol['stop_ms']:
-            raise ValueError('Session deadline passed; new authorization/batch required')
-        with (out / 'worker.log').open('a') as log:
-            process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), 'run', '--output', str(out)],
-                cwd=ROOT, stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
-        print(json.dumps(dict(pid=process.pid, report=str(out / 'REPORT.md')), ensure_ascii=False))
+        start_background(out, args.until)
     elif args.command == 'once':
         out.mkdir(parents=True, exist_ok=True)
         with (out / 'runner.lock').open('a') as lock:
@@ -557,6 +604,49 @@ def main():
             print(json.dumps({k: v for k, v in result.items() if k != 'arms'}, ensure_ascii=False))
     else:
         run(out, args.until)
+
+
+def start_background(out, until):
+    out.mkdir(parents=True, exist_ok=True)
+    # Serialize launchers until the child owns runner.lock/process.json.
+    with (out / 'start.lock').open('a') as launch_lock:
+        fcntl.flock(launch_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if owned_pid(out):
+            print('Forward observation already running')
+            return
+        with (out / 'runner.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            verify_bundle(ROOT)
+            (out / 'stop_requested.json').unlink(missing_ok=True)
+            api = PublicData(out)
+            try:
+                protocol = initialize(out, until, api)
+            finally:
+                api.close()
+        check_cancelled(out)
+        if int(time.time() * 1000) >= protocol['stop_ms']:
+            raise ValueError('Session deadline passed; new authorization/batch required')
+        with (out / 'worker.log').open('a') as log:
+            process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), 'run', '--output', str(out)],
+                cwd=ROOT, stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+        for _ in range(100):
+            if process.poll() is not None:
+                raise RuntimeError('Worker exited during startup; inspect worker.log and runtime.json')
+            if owned_pid(out) == process.pid:
+                runtime = read(out / 'runtime.json') if (out / 'runtime.json').exists() else {}
+                started = read(out / 'process.json')['started_ms']
+                if runtime.get('updated_ms', 0) < started:
+                    time.sleep(.1)
+                    continue
+                if runtime.get('pid') == process.pid and runtime.get('state') == 'startup_error':
+                    raise RuntimeError('Worker initialization failed; inspect worker.log and runtime.json')
+                if runtime.get('pid') == process.pid and runtime.get('state') in (
+                        'starting', 'waiting_for_first_bar', 'waiting_for_seed', 'observing'):
+                    print(json.dumps(dict(state='initialized', pid=process.pid,
+                        runtime_state=runtime['state'], report=str(out / 'REPORT.md')), ensure_ascii=False))
+                    return
+            time.sleep(.1)
+        raise RuntimeError('Worker initialization not confirmed in 10 seconds; inspect status before restarting')
 
 
 if __name__ == '__main__':

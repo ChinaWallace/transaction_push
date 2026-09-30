@@ -128,18 +128,25 @@ def verify_bundle(root):
     return data
 
 
-def build_bundle(root, out, sources):
+def build_bundle(root, out, sources, bootstrap_mode=None):
     """Copy code and hashed bootstrap inputs; never copy .env, credentials, or ledgers."""
     root, out = Path(root), Path(out)
     target = out / 'code'
     if target.exists():
-        verify_bundle(target)
+        existing = verify_bundle(target)
+        if bootstrap_mode is not None and existing.get('bootstrap_mode', 'historical') != bootstrap_mode:
+            raise ValueError('Existing batch bootstrap mode is frozen')
         return target
     if (out / 'protocol.json').exists():
         raise ValueError('Legacy batch is frozen; use its saved runner, not new source')
-    inputs = ('reports/quant_v12/protocol.json', 'reports/quant_v9/binance_leverage_tiers.json')
-    inputs += tuple('reports/quant_v12/data/series/' + s + '.feather'
-                    for s in ('BTCUSDT', 'ETHUSDT', 'ZECUSDT'))
+    bootstrap_mode = bootstrap_mode or 'historical'
+    if bootstrap_mode not in ('historical', 'public'):
+        raise ValueError('Unsupported bootstrap mode')
+    inputs = ('reports/quant_v9/binance_leverage_tiers.json',)
+    if bootstrap_mode == 'historical':
+        inputs += ('reports/quant_v12/protocol.json',)
+        inputs += tuple('reports/quant_v12/data/series/' + s + '.feather'
+                        for s in ('BTCUSDT', 'ETHUSDT', 'ZECUSDT'))
     files = tuple(dict.fromkeys(tuple(sources) + inputs))
     temporary = out / ('.code-' + str(os.getpid()))
     temporary.mkdir(parents=True, exist_ok=False)
@@ -154,6 +161,7 @@ def build_bundle(root, out, sources):
                 raise ValueError('Source changed while freezing execution bundle: ' + relative)
             hashes[relative] = expected
         manifest = {'created_ms': int(time.time() * 1000), 'source_root': str(root),
+                    'bootstrap_mode': bootstrap_mode,
                     'files': hashes, 'environment': environment_versions()}
         (temporary / 'bundle.json').write_text(json.dumps(manifest, indent=2) + '\n')
         (temporary / 'bundle.sha256').write_text(digest(temporary / 'bundle.json') + '\n')
