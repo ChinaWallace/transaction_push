@@ -1,0 +1,7 @@
+# Versions validated for the public-only forward runner on Python 3.11.15.
+# Each new batch records its own Python/package versions in code/bundle.json.
+httpx==0.28.1
+httpcore==1.0.9
+pandas==3.0.6
+numpy==2.4.6
+pyarrow==25.0.1
